@@ -29,11 +29,11 @@ object SmsParser {
     private val debitDateFmt   = SimpleDateFormat("dd/MM/yy", Locale.getDefault())
 
     /**
-     * Returns a ParsedSms if the message is a recognised HDFC UPI SMS, null otherwise.
+     * Returns a ParsedSms if the message is a recognized HDFC UPI SMS, null otherwise.
      */
     fun parse(sender: String, body: String): ParsedSms? {
         // Only process HDFC messages
-        if (!sender.contains("HDFC", ignoreCase = true)) return null
+//        if (!sender.contains("HDFC", ignoreCase = true)) return null
 
         return when {
             body.contains("Credit Alert!", ignoreCase = true) -> parseCredit(body)

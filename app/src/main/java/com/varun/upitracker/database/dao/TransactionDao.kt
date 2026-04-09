@@ -37,4 +37,7 @@ interface TransactionDao {
         ORDER BY dateEpoch DESC
     """)
     fun getTransactionsForEntity(friendId: Long?, merchantId: Long?): LiveData<List<Transaction>>
+
+    @Query("SELECT * FROM transactions WHERE id = :id")
+    suspend fun getTransactionById(id: Long): Transaction?
 }

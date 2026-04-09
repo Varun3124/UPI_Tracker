@@ -14,16 +14,19 @@ import android.widget.TextView
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import com.varun.upitracker.database.AppDatabase
+import com.varun.upitracker.database.entity.Transaction
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 class MainActivity : AppCompatActivity() {
 
     private lateinit var statusText: TextView
     private lateinit var btnSms: Button
-    private lateinit var btnOverlay: Button
-    private lateinit var btnUsage: Button
     private lateinit var btnContinue: Button
 
-    private val smsLauncher = registerForActivityResult(
+    private val permissionsLauncher = registerForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions()
     ) { updateUI() }
 
@@ -33,32 +36,47 @@ class MainActivity : AppCompatActivity() {
 
         statusText   = findViewById(R.id.statusText)
         btnSms       = findViewById(R.id.btnGrantSms)
-        btnOverlay   = findViewById(R.id.btnGrantOverlay)
-        btnUsage     = findViewById(R.id.btnGrantUsage)
         btnContinue  = findViewById(R.id.btnContinue)
 
         btnSms.setOnClickListener {
-            smsLauncher.launch(
-                arrayOf(Manifest.permission.RECEIVE_SMS, Manifest.permission.READ_SMS)
+            val perms = mutableListOf(
+                Manifest.permission.RECEIVE_SMS,
+                Manifest.permission.READ_SMS
             )
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                perms.add(Manifest.permission.POST_NOTIFICATIONS)
+            }
+            permissionsLauncher.launch(perms.toTypedArray())
         }
 
-        btnOverlay.setOnClickListener {
-            startActivity(
-                Intent(
-                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                    Uri.parse("package:$packageName")
-                )
-            )
-        }
 
-        btnUsage.setOnClickListener {
-            startActivity(Intent(Settings.ACTION_USAGE_ACCESS_SETTINGS))
-        }
+
+
 
         btnContinue.setOnClickListener {
             // Will navigate to the home screen in a later step
             statusText.text = "✓ Setup complete. Dashboard coming in a later step."
+        }
+
+        findViewById<Button>(R.id.btnManualEntry).setOnClickListener {
+            val db = AppDatabase.getInstance(applicationContext)
+            CoroutineScope(Dispatchers.IO).launch {
+                val id = db.transactionDao().insert(
+                    Transaction(
+                        amountPaise = 0L,
+                        direction   = "DEBIT",
+                        payeeRaw    = "Manual Entry",
+                        payeeType   = "UNKNOWN",
+                        dateEpoch   = System.currentTimeMillis(),
+                        source      = "MANUAL",
+                        isPending   = true
+                    )
+                )
+                val intent = Intent(this@MainActivity, com.varun.upitracker.overlay.TransactionEntryActivity::class.java).apply {
+                    putExtra(com.varun.upitracker.overlay.TransactionEntryActivity.EXTRA_TRANSACTION_ID, id)
+                }
+                startActivity(intent)
+            }
         }
 
         updateUI()
@@ -77,35 +95,35 @@ class MainActivity : AppCompatActivity() {
                 ContextCompat.checkSelfPermission(this, Manifest.permission.READ_SMS) ==
                 PackageManager.PERMISSION_GRANTED
 
-    private fun isOverlayGranted() = Settings.canDrawOverlays(this)
-
-    private fun isUsageGranted(): Boolean {
-        val appOps = getSystemService(Context.APP_OPS_SERVICE) as AppOpsManager
-        val mode = appOps.unsafeCheckOpNoThrow(
-            AppOpsManager.OPSTR_GET_USAGE_STATS,
-            Process.myUid(),
-            packageName
-        )
-        return mode == AppOpsManager.MODE_ALLOWED
+    private fun isNotificationGranted(): Boolean {
+        return if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) ==
+                    PackageManager.PERMISSION_GRANTED
+        } else {
+            true
+        }
     }
+
+
+
+
 
     // --- UI update ---
 
     private fun updateUI() {
-        btnSms.text = if (isSmsGranted()) "✓ SMS Granted" else "Grant SMS Permission"
-        btnSms.isEnabled = !isSmsGranted()
+        val sms = isSmsGranted()
+        val notif = isNotificationGranted()
 
-        btnOverlay.text = if (isOverlayGranted()) "✓ Overlay Granted" else "Grant Overlay Permission"
-        btnOverlay.isEnabled = !isOverlayGranted()
+        btnSms.text = if (sms && notif) "✓ Permissions Granted" else "Grant Permissions"
+        btnSms.isEnabled = !(sms && notif)
 
-        btnUsage.text = if (isUsageGranted()) "✓ Usage Access Granted" else "Grant Usage Access"
-        btnUsage.isEnabled = !isUsageGranted()
-
-        val allGranted = isSmsGranted() && isOverlayGranted() && isUsageGranted()
+        val allGranted = sms && notif
         btnContinue.isEnabled = allGranted
         statusText.text = if (allGranted)
             "All permissions granted. You're ready."
+        else if (!sms)
+            "Grant the SMS permission below to continue."
         else
-            "Grant all three permissions below to continue."
+            "Grant Notification permission to see alerts."
     }
 }

@@ -89,6 +89,11 @@ class SmsReceiver : BroadcastReceiver() {
         val id = db.transactionDao().insert(transaction)
         Log.d(TAG, "Saved transaction id=$id | type=$payeeType | pending=$needsOverlay")
 
-        // Overlay trigger comes in Step 6
+        if (needsOverlay && id != -1L) {
+            val overlayIntent = Intent(context, com.varun.upitracker.overlay.OverlayService::class.java).apply {
+                putExtra(com.varun.upitracker.overlay.OverlayService.EXTRA_TRANSACTION_ID, id)
+            }
+            context.startForegroundService(overlayIntent)
+        }
     }
 }

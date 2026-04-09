@@ -4,8 +4,12 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.sqlite.db.SupportSQLiteDatabase
 import com.varun.upitracker.database.dao.*
 import com.varun.upitracker.database.entity.*
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 @Database(
     entities = [
@@ -39,13 +43,32 @@ abstract class AppDatabase : RoomDatabase() {
         @Volatile
         private var INSTANCE: AppDatabase? = null
 
+        private val DEFAULT_CATEGORIES = listOf(
+            "Food", "Transport", "Shopping", "Entertainment",
+            "Movies", "Health", "Utilities", "Travel", "Other"
+        )
+
         fun getInstance(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 Room.databaseBuilder(
                     context.applicationContext,
                     AppDatabase::class.java,
                     "upi_tracker_db"
-                ).build().also { INSTANCE = it }
+                )
+                    .addCallback(object : Callback() {
+                        override fun onCreate(db: SupportSQLiteDatabase) {
+                            super.onCreate(db)
+                            // Pre-seed categories on first creation
+                            CoroutineScope(Dispatchers.IO).launch {
+                                val instance = getInstance(context)
+                                DEFAULT_CATEGORIES.forEach { name ->
+                                    instance.categoryDao().insertCategory(Category(name = name))
+                                }
+                            }
+                        }
+                    })
+                    .build()
+                    .also { INSTANCE = it }
             }
         }
     }

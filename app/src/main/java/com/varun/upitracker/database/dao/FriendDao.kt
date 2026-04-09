@@ -41,6 +41,9 @@ interface FriendDao {
     @Query("SELECT * FROM friend_raw_names WHERE friendId = :friendId")
     suspend fun getRawNamesForFriend(friendId: Long): List<FriendRawName>
 
+    @Query("SELECT * FROM friends ORDER BY name ASC")
+    suspend fun getAllFriendsSync(): List<Friend>
+
     @Delete
     suspend fun deleteFriend(friend: Friend)
 

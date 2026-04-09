@@ -34,4 +34,7 @@ interface CategoryDao {
         WHERE categoryId = :categoryId
     """)
     suspend fun getMerchantIdsForCategory(categoryId: Long): List<Long>
+
+    @Query("SELECT * FROM categories ORDER BY name ASC")
+    suspend fun getAllCategoriesSync(): List<Category>
 }

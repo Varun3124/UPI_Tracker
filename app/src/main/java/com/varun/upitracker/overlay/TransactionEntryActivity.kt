@@ -82,7 +82,7 @@ class TransactionEntryActivity : AppCompatActivity() {
         val chipGroup = findViewById<ChipGroup>(R.id.chipGroupCategories)
         val tvDirection = findViewById<TextView>(R.id.tvDirection)
         val etAlias = findViewById<EditText>(R.id.etAlias)
-        val tvAmount = findViewById<TextView>(R.id.tvAmount)
+        val etAmount = findViewById<EditText>(R.id.etAmount)
         val friendsRow = findViewById<LinearLayout>(R.id.friendsRow)
         val btnDone = findViewById<Button>(R.id.btnDone)
         val btnCustomSplit = findViewById<Button>(R.id.btnCustomSplit)
@@ -96,7 +96,7 @@ class TransactionEntryActivity : AppCompatActivity() {
 
         // --- Pre-fill ---
         tvDirection.text = if (transaction.direction == "DEBIT") "⬆ DEBIT" else "⬇ CREDIT"
-        tvAmount.text = "%.2f".format(transaction.amountPaise / 100.0)
+        etAmount.setText("%.2f".format(transaction.amountPaise / 100.0))
         etAlias.setText(preFilledAlias)
         btnFriend.isChecked = isFriendMode
 
@@ -152,11 +152,13 @@ class TransactionEntryActivity : AppCompatActivity() {
 
         btnDone.setOnClickListener {
             val alias = etAlias.text.toString().trim()
+            val amountText = etAmount.text.toString().trim()
+            val amountPaise = (amountText.toDoubleOrNull()?.let { it * 100 }?.toLong()) ?: transaction.amountPaise
             val selectedCategoryIds = chipGroup.checkedChipIds.mapNotNull { id ->
                 chipGroup.findViewById<Chip>(id)?.tag as? Long
             }
             activityScope.launch {
-                saveDone(transaction, alias, isFriendMode, selectedFriends, selectedCategoryIds)
+                saveDone(transaction.copy(amountPaise = amountPaise), alias, isFriendMode, selectedFriends, selectedCategoryIds)
                 finish()
             }
         }
