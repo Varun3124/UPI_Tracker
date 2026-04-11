@@ -16,6 +16,7 @@ import com.varun.upitracker.database.entity.Transaction
 import com.varun.upitracker.database.entity.Friend
 import com.varun.upitracker.ledger.LedgerManager
 import com.varun.upitracker.overlay.OverlayService
+import com.varun.upitracker.sms.SmsBacklogScanner
 import kotlinx.coroutines.*
 import java.text.SimpleDateFormat
 import java.util.*
@@ -47,6 +48,11 @@ class DashboardActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         loadData()  // Refresh every time we come back to this screen
+
+        // Re-scan on every launch to catch messages received since last open
+        lifecycleScope.launch(Dispatchers.IO) {
+            SmsBacklogScanner(applicationContext).scan()
+        }
     }
 
     private fun loadData() {

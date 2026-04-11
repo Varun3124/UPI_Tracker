@@ -1,0 +1,148 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#FFFFFF">
+
+    <!-- Screen 1: Permissions -->
+    <LinearLayout
+        android:id="@+id/screenPermissions"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:padding="32dp"
+        android:gravity="center">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="UPI Tracker"
+            android:textSize="28sp"
+            android:textStyle="bold"
+            android:textColor="#212121"
+            android:layout_marginBottom="8dp"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Grant permissions to get started"
+            android:textSize="15sp"
+            android:textColor="#888888"
+            android:layout_marginBottom="48dp"/>
+
+        <Button
+            android:id="@+id/btnGrantSms"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Grant SMS Permission"
+            android:layout_marginBottom="16dp"/>
+
+        <Button
+            android:id="@+id/btnGrantNotifications"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Grant Notification Permission"
+            android:layout_marginBottom="48dp"/>
+
+        <Button
+            android:id="@+id/btnNextToFriends"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Next →"
+            android:enabled="false"/>
+    </LinearLayout>
+
+    <!-- Screen 2: Friends -->
+    <LinearLayout
+        android:id="@+id/screenFriends"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:padding="32dp"
+        android:visibility="gone">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Add your friends"
+            android:textSize="24sp"
+            android:textStyle="bold"
+            android:textColor="#212121"
+            android:layout_marginBottom="8dp"/>
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="You can add more later from the dashboard"
+            android:textSize="13sp"
+            android:textColor="#888888"
+            android:layout_marginBottom="24dp"/>
+
+        <ScrollView
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:layout_marginBottom="16dp">
+
+            <LinearLayout
+                android:id="@+id/friendsInputContainer"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"/>
+        </ScrollView>
+
+        <Button
+            android:id="@+id/btnAddFriendRow"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="+ Add Friend"
+            android:layout_marginBottom="12dp"/>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/btnSkipFriends"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Skip"
+                android:layout_marginEnd="8dp"/>
+
+            <Button
+                android:id="@+id/btnNextToScan"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Next →"/>
+        </LinearLayout>
+    </LinearLayout>
+
+    <!-- Screen 3: Scanning -->
+    <LinearLayout
+        android:id="@+id/screenScanning"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:padding="32dp"
+        android:visibility="gone">
+
+        <ProgressBar
+            android:layout_width="64dp"
+            android:layout_height="64dp"
+            android:layout_marginBottom="24dp"/>
+
+        <TextView
+            android:id="@+id/tvScanStatus"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Scanning your last 30 days of messages…"
+            android:textSize="16sp"
+            android:textColor="#212121"
+            android:gravity="center"/>
+    </LinearLayout>
+
+</FrameLayout>
