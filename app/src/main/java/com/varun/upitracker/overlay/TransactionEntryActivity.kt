@@ -6,7 +6,10 @@ import android.os.Bundle
 import android.view.Gravity
 import android.view.View
 import android.widget.*
+import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import com.google.android.material.chip.Chip
 import com.google.android.material.chip.ChipGroup
 import com.varun.upitracker.R
@@ -23,18 +26,27 @@ class TransactionEntryActivity : AppCompatActivity() {
 
     private val activityScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
     enum class FriendState { NONE, IOU, PARTY }
+    private val selectedFriends = mutableMapOf<Long, FriendState>()
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         setContentView(R.layout.overlay_transaction)
 
-        val transactionId = intent.getLongExtra(EXTRA_TRANSACTION_ID, -1L)
-        if (transactionId == -1L) {
-            finish()
-            return
+        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main)) { v, insets ->
+            val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom)
+            insets
         }
 
-        loadData(transactionId)
+        val transactionId = intent.getLongExtra(EXTRA_TRANSACTION_ID, -1L)
+            .takeIf { it != -1L }
+
+        if (transactionId != null) {
+            loadData(transactionId)
+        } else {
+            loadEmptyForm()
+        }
     }
 
     private fun loadData(transactionId: Long) {
@@ -70,8 +82,19 @@ class TransactionEntryActivity : AppCompatActivity() {
         }
     }
 
+    private fun loadEmptyForm() {
+        activityScope.launch {
+            val db         = AppDatabase.getInstance(applicationContext)
+            val friends    = withContext(Dispatchers.IO) { db.friendDao().getAllFriendsSync() }
+            val categories = withContext(Dispatchers.IO) { db.categoryDao().getAllCategoriesSync() }
+
+            // Pass null transaction — form is blank
+            setupUI(null, friends, categories, emptyList(), "")
+        }
+    }
+
     private fun setupUI(
-        transaction: Transaction,
+        transaction: Transaction?,
         friends: List<Friend>,
         categories: List<Category>,
         preSelectedCategories: List<Category>,
@@ -89,15 +112,15 @@ class TransactionEntryActivity : AppCompatActivity() {
         val btnCustomSplit = findViewById<Button>(R.id.btnCustomSplit)
 
         // --- State ---
-        val selectedFriends = mutableMapOf<Long, FriendState>()
-        var isFriendMode = transaction.payeeType == "FRIEND"
+        var isFriendMode = transaction?.payeeType == "FRIEND"
+        transaction?.resolvedFriendId?.let { selectedFriends[it] = FriendState.IOU }
 
         // Pre-select resolved friend into IOU state
-        transaction.resolvedFriendId?.let { selectedFriends[it] = FriendState.IOU }
+        transaction?.resolvedFriendId?.let { selectedFriends[it] = FriendState.IOU }
 
         // --- Pre-fill ---
-        tvDirection.text = if (transaction.direction == "DEBIT") "⬆ DEBIT" else "⬇ CREDIT"
-        etAmount.setText("%.2f".format(transaction.amountPaise / 100.0))
+        tvDirection.text    = if ((transaction?.direction ?: "DEBIT") == "DEBIT") "⬆ DEBIT" else "⬇ CREDIT"
+        etAmount.setText(if (transaction != null) "%.2f".format(transaction.amountPaise / 100.0) else "")
         etAlias.setText(preFilledAlias)
         btnFriend.isChecked = isFriendMode
 
@@ -152,27 +175,50 @@ class TransactionEntryActivity : AppCompatActivity() {
         }
 
         btnDone.setOnClickListener {
-            val alias = etAlias.text.toString().trim()
-            val amountText = etAmount.text.toString().trim()
-            val amountPaise = (amountText.toDoubleOrNull()?.let { it * 100 }?.toLong()) ?: transaction.amountPaise
+            val alias       = etAlias.text.toString().trim()
+            val amountText  = etAmount.text.toString().trim()
+            val amountPaise = (amountText.toDoubleOrNull()?.let { it * 100 }?.toLong()) ?: 0L
             val selectedCategoryIds = chipGroup.checkedChipIds.mapNotNull { id ->
                 chipGroup.findViewById<Chip>(id)?.tag as? Long
             }
+            val direction = if (tvDirection.text.contains("DEBIT")) "DEBIT" else "CREDIT"
+
             activityScope.launch {
-                saveDone(transaction.copy(amountPaise = amountPaise), alias, isFriendMode, selectedFriends, selectedCategoryIds)
+                saveDone(transaction, amountPaise, direction, alias, isFriendMode, selectedFriends, selectedCategoryIds)
                 finish()
             }
         }
     }
 
     private suspend fun saveDone(
-        transaction: Transaction,
+        existingTransaction: Transaction?,
+        amountPaise: Long,
+        direction: String,
         aliasText: String,
         isFriendMode: Boolean,
         selectedFriends: Map<Long, FriendState>,
         selectedCategoryIds: List<Long>
     ) = withContext(Dispatchers.IO) {
         val db = AppDatabase.getInstance(applicationContext)
+
+        // If manual entry, create the transaction now at DONE time
+        val transaction = existingTransaction ?: run {
+            val newId = db.transactionDao().insert(
+                Transaction(
+                    amountPaise = amountPaise,
+                    direction   = direction,
+                    payeeRaw    = aliasText,
+                    payeeType   = "UNKNOWN",
+                    dateEpoch   = System.currentTimeMillis(),
+                    source      = "MANUAL",
+                    isPending   = false
+                )
+            )
+            db.transactionDao().getTransactionById(newId)!!
+        }
+
+        // Use the resolved transaction with correct amount going forward
+        val resolvedTransaction = transaction.copy(amountPaise = amountPaise)
 
         if (isFriendMode) {
             val iouEntries = selectedFriends.filter { it.value == FriendState.IOU }
@@ -184,7 +230,7 @@ class TransactionEntryActivity : AppCompatActivity() {
                 if (existing != null && existing.name != aliasText && aliasText.isNotEmpty()) {
                     db.friendDao().updateFriend(existing.copy(name = aliasText))
                 }
-                db.friendDao().insertRawName(FriendRawName(friendId = fid, rawName = transaction.payeeRaw))
+                db.friendDao().insertRawName(FriendRawName(friendId = fid, rawName = resolvedTransaction.payeeRaw))
                 fid
             } else {
                 val initials = aliasText.split(" ").filter { it.isNotEmpty() }.take(2)
@@ -192,44 +238,44 @@ class TransactionEntryActivity : AppCompatActivity() {
                 val newFriendId = db.friendDao().insertFriend(
                     Friend(name = aliasText, avatarInitials = initials, addedEpoch = System.currentTimeMillis())
                 )
-                db.friendDao().insertRawName(FriendRawName(friendId = newFriendId, rawName = transaction.payeeRaw))
+                db.friendDao().insertRawName(FriendRawName(friendId = newFriendId, rawName = resolvedTransaction.payeeRaw))
                 newFriendId
             }
 
             db.transactionDao().update(
-                transaction.copy(payeeType = "FRIEND", resolvedFriendId = payeeFriendId, isPending = false)
+                resolvedTransaction.copy(payeeType = "FRIEND", resolvedFriendId = payeeFriendId, isPending = false)
             )
 
             val ledger = LedgerManager(db)
-            if (transaction.direction == "CREDIT") {
+            if (resolvedTransaction.direction == "CREDIT") {
                 // Incoming money from friend = repayment, run auto-offset
-                ledger.applyRepayment(transaction.id, payeeFriendId, transaction.amountPaise)
+                ledger.applyRepayment(resolvedTransaction.id, payeeFriendId, resolvedTransaction.amountPaise)
             } else {
                 // You paid, friends owe you their share
-                val splitPaise = if (iouEntries.isNotEmpty()) transaction.amountPaise / (iouEntries.size + 1) else 0L
+                val splitPaise = if (iouEntries.isNotEmpty()) resolvedTransaction.amountPaise / (iouEntries.size + 1) else 0L
                 val shares = iouEntries.keys.associateWith { splitPaise }
-                ledger.recordDebts(transaction.id, shares)
+                ledger.recordDebts(resolvedTransaction.id, shares)
             }
 
             val headCount = iouEntries.size + partyEntries.size + 1
             partyEntries.keys.forEach { fid ->
                 db.transactionPartyDao().insert(TransactionParty(
-                    transactionId = transaction.id,
+                    transactionId = resolvedTransaction.id,
                     friendId = fid,
-                    spentOnThemPaise = transaction.amountPaise / headCount
+                    spentOnThemPaise = resolvedTransaction.amountPaise / headCount
                 ))
             }
         } else {
-            val merchantId = if (transaction.resolvedMerchantId != null) {
-                val existing = db.merchantDao().getMerchantById(transaction.resolvedMerchantId)
+            val merchantId = if (resolvedTransaction.resolvedMerchantId != null) {
+                val existing = db.merchantDao().getMerchantById(resolvedTransaction.resolvedMerchantId)
                 if (existing != null && existing.name != aliasText && aliasText.isNotEmpty()) {
                     db.merchantDao().updateMerchant(existing.copy(name = aliasText))
                 }
-                db.merchantDao().insertRawName(MerchantRawName(merchantId = transaction.resolvedMerchantId, rawName = transaction.payeeRaw))
-                transaction.resolvedMerchantId
+                db.merchantDao().insertRawName(MerchantRawName(merchantId = resolvedTransaction.resolvedMerchantId, rawName = resolvedTransaction.payeeRaw))
+                resolvedTransaction.resolvedMerchantId
             } else {
                 val newId = db.merchantDao().insertMerchant(Merchant(name = aliasText, addedEpoch = System.currentTimeMillis()))
-                db.merchantDao().insertRawName(MerchantRawName(merchantId = newId, rawName = transaction.payeeRaw))
+                db.merchantDao().insertRawName(MerchantRawName(merchantId = newId, rawName = resolvedTransaction.payeeRaw))
                 newId
             }
 
@@ -238,20 +284,20 @@ class TransactionEntryActivity : AppCompatActivity() {
             }
 
             db.transactionDao().update(
-                transaction.copy(payeeType = "MERCHANT", resolvedMerchantId = merchantId, isPending = false)
+                resolvedTransaction.copy(payeeType = "MERCHANT", resolvedMerchantId = merchantId, isPending = false)
             )
 
             val iouEntries = selectedFriends.filter { it.value == FriendState.IOU }
             val partyEntries = selectedFriends.filter { it.value == FriendState.PARTY }
             val headCount = iouEntries.size + partyEntries.size + 1
-            val splitPaise = transaction.amountPaise / headCount
+            val splitPaise = resolvedTransaction.amountPaise / headCount
 
             val ledger = LedgerManager(db)
             val shares = iouEntries.keys.associateWith { splitPaise }
-            ledger.recordDebts(transaction.id, shares)
+            ledger.recordDebts(resolvedTransaction.id, shares)
             partyEntries.keys.forEach { fid ->
                 db.transactionPartyDao().insert(TransactionParty(
-                    transactionId = transaction.id,
+                    transactionId = resolvedTransaction.id,
                     friendId = fid,
                     spentOnThemPaise = splitPaise
                 ))

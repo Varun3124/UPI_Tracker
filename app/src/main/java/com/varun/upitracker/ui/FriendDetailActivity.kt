@@ -6,7 +6,10 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.ViewGroup
 import android.widget.TextView
+import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -28,8 +31,15 @@ class FriendDetailActivity : AppCompatActivity() {
     private val dateFmt = SimpleDateFormat("dd MMM yyyy", Locale.getDefault())
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_friend_detail)
+
+        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main)) { v, insets ->
+            val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom)
+            insets
+        }
 
         val friendId = intent.getLongExtra(EXTRA_FRIEND_ID, -1L)
         if (friendId == -1L) { finish(); return }
@@ -65,9 +75,9 @@ class FriendDetailActivity : AppCompatActivity() {
             val rv = findViewById<RecyclerView>(R.id.rvFriendTransactions)
             rv.layoutManager = LinearLayoutManager(this@FriendDetailActivity)
             rv.adapter = FriendTransactionAdapter(txList, friendId, db, dateFmt) { txId ->
-                startForegroundService(
-                    Intent(applicationContext, OverlayService::class.java).apply {
-                        putExtra(OverlayService.EXTRA_TRANSACTION_ID, txId)
+                startActivity(
+                    Intent(this@FriendDetailActivity, com.varun.upitracker.overlay.TransactionEntryActivity::class.java).apply {
+                        putExtra(com.varun.upitracker.overlay.TransactionEntryActivity.EXTRA_TRANSACTION_ID, txId)
                     }
                 )
             }

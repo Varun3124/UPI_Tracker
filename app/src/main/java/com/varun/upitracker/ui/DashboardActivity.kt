@@ -7,8 +7,11 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
 import android.widget.*
+import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
 import androidx.cardview.widget.CardView
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.lifecycleScope
 import com.varun.upitracker.R
 import com.varun.upitracker.database.AppDatabase
@@ -30,8 +33,15 @@ class DashboardActivity : AppCompatActivity() {
     private val dateFmt = SimpleDateFormat("dd MMM", Locale.getDefault())
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_dashboard)
+
+        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main)) { v, insets ->
+            val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
+            v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom)
+            insets
+        }
 
         tvDailySpend   = findViewById(R.id.tvDailySpend)
         tvMonthlySpend = findViewById(R.id.tvMonthlySpend)
@@ -200,33 +210,15 @@ class DashboardActivity : AppCompatActivity() {
     }
 
     private fun launchManualEntry() {
-        lifecycleScope.launch {
-            val db = AppDatabase.getInstance(applicationContext)
-            val id = withContext(Dispatchers.IO) {
-                db.transactionDao().insert(
-                    com.varun.upitracker.database.entity.Transaction(
-                        amountPaise = 0L,
-                        direction   = "DEBIT",
-                        payeeRaw    = "",
-                        payeeType   = "UNKNOWN",
-                        dateEpoch   = System.currentTimeMillis(),
-                        source      = "MANUAL",
-                        isPending   = true
-                    )
-                )
-            }
-            startForegroundService(
-                Intent(applicationContext, OverlayService::class.java).apply {
-                    putExtra(OverlayService.EXTRA_TRANSACTION_ID, id)
-                }
-            )
-        }
+        val intent = Intent(this, com.varun.upitracker.overlay.TransactionEntryActivity::class.java)
+        // No transaction ID passed — form knows this is a fresh manual entry
+        startActivity(intent)
     }
 
     private fun openTransactionEntry(transactionId: Long) {
-        startForegroundService(
-            Intent(applicationContext, OverlayService::class.java).apply {
-                putExtra(OverlayService.EXTRA_TRANSACTION_ID, transactionId)
+        startActivity(
+            Intent(this, com.varun.upitracker.overlay.TransactionEntryActivity::class.java).apply {
+                putExtra(com.varun.upitracker.overlay.TransactionEntryActivity.EXTRA_TRANSACTION_ID, transactionId)
             }
         )
     }
