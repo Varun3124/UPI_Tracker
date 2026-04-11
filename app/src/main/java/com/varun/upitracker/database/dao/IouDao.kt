@@ -32,7 +32,27 @@ interface IouDao {
         FROM iou_entries WHERE isSettled = 0 
         GROUP BY friendId
     """)
-    fun getAllNetBalances(): LiveData<List<FriendBalance>>
+    suspend fun getAllNetBalances(): List<FriendBalance>
+
+    // For auto-offset — oldest unsettled entries first
+    @Query("""
+    SELECT iou_entries.* FROM iou_entries
+    INNER JOIN transactions ON iou_entries.transactionId = transactions.id
+    WHERE iou_entries.friendId = :friendId AND iou_entries.isSettled = 0
+    ORDER BY transactions.dateEpoch ASC
+""")
+    suspend fun getUnsettledOldestFirst(friendId: Long): List<IouEntry>
+
+    @Query("""
+    SELECT MAX(transactions.dateEpoch) FROM iou_entries
+    INNER JOIN transactions ON iou_entries.transactionId = transactions.id
+    WHERE iou_entries.friendId = :friendId
+""")
+    suspend fun getLastActivityEpoch(friendId: Long): Long?
+
+    // All entries ever for a friend — settled and unsettled, for lifetime totals
+    @Query("SELECT * FROM iou_entries WHERE friendId = :friendId")
+    suspend fun getAllEntriesForFriend(friendId: Long): List<IouEntry>
 }
 
 data class FriendBalance(

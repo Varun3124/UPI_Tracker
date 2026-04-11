@@ -13,6 +13,7 @@ import com.varun.upitracker.R
 import com.varun.upitracker.database.AppDatabase
 import com.varun.upitracker.database.entity.*
 import kotlinx.coroutines.*
+import com.varun.upitracker.ledger.LedgerManager
 
 class TransactionEntryActivity : AppCompatActivity() {
 
@@ -199,9 +200,15 @@ class TransactionEntryActivity : AppCompatActivity() {
                 transaction.copy(payeeType = "FRIEND", resolvedFriendId = payeeFriendId, isPending = false)
             )
 
-            val splitPaise = if (iouEntries.isNotEmpty()) transaction.amountPaise / (iouEntries.size + 1) else 0L
-            iouEntries.keys.forEach { fid ->
-                db.iouDao().insert(IouEntry(transactionId = transaction.id, friendId = fid, amountPaise = splitPaise))
+            val ledger = LedgerManager(db)
+            if (transaction.direction == "CREDIT") {
+                // Incoming money from friend = repayment, run auto-offset
+                ledger.applyRepayment(transaction.id, payeeFriendId, transaction.amountPaise)
+            } else {
+                // You paid, friends owe you their share
+                val splitPaise = if (iouEntries.isNotEmpty()) transaction.amountPaise / (iouEntries.size + 1) else 0L
+                val shares = iouEntries.keys.associateWith { splitPaise }
+                ledger.recordDebts(transaction.id, shares)
             }
 
             val headCount = iouEntries.size + partyEntries.size + 1
@@ -239,9 +246,9 @@ class TransactionEntryActivity : AppCompatActivity() {
             val headCount = iouEntries.size + partyEntries.size + 1
             val splitPaise = transaction.amountPaise / headCount
 
-            iouEntries.keys.forEach { fid ->
-                db.iouDao().insert(IouEntry(transactionId = transaction.id, friendId = fid, amountPaise = splitPaise))
-            }
+            val ledger = LedgerManager(db)
+            val shares = iouEntries.keys.associateWith { splitPaise }
+            ledger.recordDebts(transaction.id, shares)
             partyEntries.keys.forEach { fid ->
                 db.transactionPartyDao().insert(TransactionParty(
                     transactionId = transaction.id,

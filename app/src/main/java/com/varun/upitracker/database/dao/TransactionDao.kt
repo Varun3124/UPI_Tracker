@@ -40,4 +40,19 @@ interface TransactionDao {
 
     @Query("SELECT * FROM transactions WHERE id = :id")
     suspend fun getTransactionById(id: Long): Transaction?
+
+    @Query("SELECT * FROM transactions ORDER BY dateEpoch DESC LIMIT :limit")
+    suspend fun getRecentTransactions(limit: Int): List<Transaction>
+
+    @Query("SELECT * FROM transactions WHERE dateEpoch >= :fromEpoch ORDER BY dateEpoch DESC")
+    suspend fun getTransactionsSinceSync(fromEpoch: Long): List<Transaction>
+
+    @Query("""
+    SELECT DISTINCT t.* FROM transactions t
+    LEFT JOIN iou_entries i ON t.id = i.transactionId AND i.friendId = :friendId
+    LEFT JOIN transaction_parties p ON t.id = p.transactionId AND p.friendId = :friendId
+    WHERE t.resolvedFriendId = :friendId OR i.friendId = :friendId OR p.friendId = :friendId
+    ORDER BY t.dateEpoch DESC
+""")
+    suspend fun getTransactionsForFriendSync(friendId: Long): List<Transaction>
 }

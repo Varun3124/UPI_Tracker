@@ -26,6 +26,10 @@
             </intent-filter>
         </activity>
 
+        <activity android:name=".ui.DashboardActivity" android:exported="false"/>
+        <activity android:name=".ui.FriendDetailActivity" android:exported="false"/>
+        <activity android:name=".ui.AllTransactionsActivity" android:exported="false"/>
+
         <receiver
             android:name=".receiver.SmsReceiver"
             android:exported="true">
