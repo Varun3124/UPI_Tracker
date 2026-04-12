@@ -64,7 +64,7 @@ class SmsBacklogScanner(private val context: Context) {
 
                 scanned++
 
-                val parsed = SmsParser.parse(sender, body) ?: continue
+                val parsed = SmsParser.parse(sender, body, date) ?: continue
 
                 // Deduplication — skip if already in DB
                 val existing = db.transactionDao().findByRefId(parsed.upiRefId)

@@ -31,56 +31,42 @@ object SmsParser {
     /**
      * Returns a ParsedSms if the message is a recognized HDFC UPI SMS, null otherwise.
      */
-    fun parse(sender: String, body: String): ParsedSms? {
+    fun parse(sender: String, body: String, timestamp: Long): ParsedSms? {
         // Only process HDFC messages
 //        if (!sender.contains("HDFC", ignoreCase = true)) return null
 
         return when {
-            body.contains("Credit Alert!", ignoreCase = true) -> parseCredit(body)
-            body.contains("Sent Rs.", ignoreCase = true)      -> parseDebit(body)
+            body.contains("Credit Alert!", ignoreCase = true) -> parseCredit(body, timestamp)
+            body.contains("Sent Rs.", ignoreCase = true)      -> parseDebit(body, timestamp)
             else -> null
         }
     }
 
-    private fun parseCredit(body: String): ParsedSms? {
+    private fun parseCredit(body: String, timestamp: Long): ParsedSms? {
         val amount  = CREDIT_AMOUNT.find(body)?.groupValues?.get(1) ?: return null
-        val dateStr = CREDIT_DATE.find(body)?.groupValues?.get(1)   ?: return null
         val vpa     = CREDIT_VPA.find(body)?.groupValues?.get(1)    ?: return null
         val ref     = CREDIT_REF.find(body)?.groupValues?.get(1)    ?: return null
-
-        val epoch = try {
-            creditDateFmt.parse(dateStr)?.time ?: System.currentTimeMillis()
-        } catch (e: Exception) {
-            System.currentTimeMillis()
-        }
 
         return ParsedSms(
             amountPaise = toP(amount),
             direction   = "CREDIT",
             payeeRaw    = vpa.trim(),
             upiRefId    = ref.trim(),
-            dateEpoch   = epoch
+            dateEpoch   = timestamp
         )
     }
 
-    private fun parseDebit(body: String): ParsedSms? {
+    private fun parseDebit(body: String, timestamp: Long): ParsedSms? {
         val amount  = DEBIT_AMOUNT.find(body)?.groupValues?.get(1) ?: return null
         val payee   = DEBIT_PAYEE.find(body)?.groupValues?.get(1)  ?: return null
-        val dateStr = DEBIT_DATE.find(body)?.groupValues?.get(1)   ?: return null
         val ref     = DEBIT_REF.find(body)?.groupValues?.get(1)    ?: return null
-
-        val epoch = try {
-            debitDateFmt.parse(dateStr)?.time ?: System.currentTimeMillis()
-        } catch (e: Exception) {
-            System.currentTimeMillis()
-        }
 
         return ParsedSms(
             amountPaise = toP(amount),
             direction   = "DEBIT",
             payeeRaw    = payee.trim(),
             upiRefId    = ref.trim(),
-            dateEpoch   = epoch
+            dateEpoch   = timestamp
         )
     }
 

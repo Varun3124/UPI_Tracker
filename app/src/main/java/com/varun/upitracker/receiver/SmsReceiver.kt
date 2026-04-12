@@ -28,10 +28,11 @@ class SmsReceiver : BroadcastReceiver() {
         for (sms in messages) {
             val sender = sms.originatingAddress ?: continue
             val body   = sms.messageBody        ?: continue
+            val timestamp = sms.timestampMillis
 
             Log.d(TAG, "SMS from $sender: $body")
 
-            val parsed = SmsParser.parse(sender, body) ?: continue
+            val parsed = SmsParser.parse(sender, body, timestamp) ?: continue
 
             Log.d(TAG, "Parsed: $parsed")
 

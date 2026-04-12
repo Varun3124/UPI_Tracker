@@ -32,6 +32,8 @@ class DashboardActivity : AppCompatActivity() {
     private lateinit var iouContainer:        LinearLayout
     private val dateFmt = SimpleDateFormat("dd MMM", Locale.getDefault())
 
+    private var loadDataJob: Job? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
@@ -66,7 +68,8 @@ class DashboardActivity : AppCompatActivity() {
     }
 
     private fun loadData() {
-        lifecycleScope.launch {
+        loadDataJob?.cancel()
+        loadDataJob = lifecycleScope.launch {
             val db = AppDatabase.getInstance(applicationContext)
 
             // --- Spend totals ---
@@ -84,11 +87,19 @@ class DashboardActivity : AppCompatActivity() {
             tvDailySpend.text   = "₹${"%.0f".format(dailySpend / 100.0)}"
             tvMonthlySpend.text = "₹${"%.0f".format(monthlySpend / 100.0)}"
 
-            // --- Recent transactions (last 5) ---
-            val recent = withContext(Dispatchers.IO) {
-                db.transactionDao().getRecentTransactions(5)
+            // --- Recent transactions (last 5) with pre-resolved names ---
+            val recentWithNames = withContext(Dispatchers.IO) {
+                val txs = db.transactionDao().getRecentTransactions(5)
+                txs.map { tx ->
+                    val displayName = when (tx.payeeType) {
+                        "FRIEND"   -> tx.resolvedFriendId?.let { db.friendDao().getFriendById(it)?.name }
+                        "MERCHANT" -> tx.resolvedMerchantId?.let { db.merchantDao().getMerchantById(it)?.name }
+                        else       -> null
+                    } ?: tx.payeeRaw.ifEmpty { "Unknown" }
+                    tx to displayName
+                }
             }
-            buildRecentRow(recent, db)
+            buildRecentRow(recentWithNames)
 
             // --- IOU summaries ---
             val summaries = withContext(Dispatchers.IO) {
@@ -98,21 +109,12 @@ class DashboardActivity : AppCompatActivity() {
         }
     }
 
-    private suspend fun buildRecentRow(
-        transactions: List<Transaction>,
-        db: AppDatabase
+    private fun buildRecentRow(
+        transactionsWithNames: List<Pair<Transaction, String>>
     ) {
         recentRow.removeAllViews()
 
-        transactions.forEach { tx ->
-            val displayName = withContext(Dispatchers.IO) {
-                when (tx.payeeType) {
-                    "FRIEND"   -> tx.resolvedFriendId?.let { db.friendDao().getFriendById(it)?.name }
-                    "MERCHANT" -> tx.resolvedMerchantId?.let { db.merchantDao().getMerchantById(it)?.name }
-                    else       -> null
-                } ?: tx.payeeRaw.ifEmpty { "Unknown" }
-            }
-
+        transactionsWithNames.forEach { (tx, displayName) ->
             val cardView = LayoutInflater.from(this)
                 .inflate(R.layout.item_transaction_card, recentRow, false)
 
