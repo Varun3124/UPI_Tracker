@@ -42,6 +42,7 @@ import com.varun.upitracker.database.entity.Transaction
 import com.varun.upitracker.database.entity.TransactionCategorySplit
 import com.varun.upitracker.database.entity.TransactionShare
 import com.varun.upitracker.ledger.LedgerManager
+import com.varun.upitracker.receiver.TransactionNotificationHelper
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -855,6 +856,7 @@ class TransactionEntryActivity : AppCompatActivity() {
         if (!validateActorInputs(payerLabel, payeeLabel) || !validateShares(amountPaise)) return
         val db = AppDatabase.getInstance(applicationContext)
         withContext(Dispatchers.IO) { persistTransaction(db, amountPaise, payerLabel, payeeLabel) }
+        currentTransaction?.let { TransactionNotificationHelper.cancel(applicationContext, it.id.toInt()) }
         finish()
     }
 

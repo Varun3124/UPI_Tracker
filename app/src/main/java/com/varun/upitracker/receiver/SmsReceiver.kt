@@ -132,10 +132,17 @@ class SmsReceiver : BroadcastReceiver() {
         }
 
         if (needsOverlay && id != -1L) {
-            val overlayIntent = Intent(context, com.varun.upitracker.overlay.OverlayService::class.java).apply {
-                putExtra(com.varun.upitracker.overlay.OverlayService.EXTRA_TRANSACTION_ID, id)
+            val displayLabel = when (resolution) {
+                is ResolvedAs.AsFriend -> resolution.name
+                is ResolvedAs.AsMerchant -> resolution.name
+                is ResolvedAs.Unknown -> parsed.payeeRaw
             }
-            context.startForegroundService(overlayIntent)
+            TransactionNotificationHelper.showPendingTransactionNotification(
+                context = context,
+                transactionId = id,
+                amountPaise = parsed.amountPaise,
+                displayLabel = displayLabel
+            )
         }
     }
 }

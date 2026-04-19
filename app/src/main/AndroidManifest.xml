@@ -39,6 +39,10 @@
             </intent-filter>
         </receiver>
 
+        <receiver
+            android:name=".receiver.PendingTransactionReviewReceiver"
+            android:exported="false" />
+
         <activity
             android:name=".ui.TransactionEntryActivity"
             android:windowSoftInputMode="adjustResize"

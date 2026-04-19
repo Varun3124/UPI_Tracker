@@ -90,3 +90,8 @@ fun Transaction.resolveTypeLabel(): String {
         else -> "Transaction"
     }
 }
+
+fun Transaction.shouldDefaultSmsDebitToMerchant(): Boolean {
+    val observed = observedDirection ?: direction
+    return source == "SMS" && isPending && observed == "DEBIT"
+}
