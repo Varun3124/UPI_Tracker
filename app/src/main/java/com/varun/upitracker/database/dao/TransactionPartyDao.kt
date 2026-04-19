@@ -28,4 +28,7 @@ interface TransactionPartyDao {
         WHERE friendId = :friendId
     """)
     suspend fun getTransactionCountForFriend(friendId: Long): Int
+
+    @Query("DELETE FROM transaction_parties WHERE transactionId = :txId")
+    suspend fun deleteForTransaction(txId: Long)
 }

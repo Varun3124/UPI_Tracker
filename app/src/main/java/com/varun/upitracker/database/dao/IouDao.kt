@@ -44,6 +44,26 @@ interface IouDao {
     suspend fun getUnsettledOldestFirst(friendId: Long): List<IouEntry>
 
     @Query("""
+    SELECT iou_entries.* FROM iou_entries
+    INNER JOIN transactions ON iou_entries.transactionId = transactions.id
+    WHERE iou_entries.friendId = :friendId
+      AND iou_entries.isSettled = 0
+      AND iou_entries.amountPaise > 0
+    ORDER BY transactions.dateEpoch ASC
+""")
+    suspend fun getPositiveUnsettledOldestFirst(friendId: Long): List<IouEntry>
+
+    @Query("""
+    SELECT iou_entries.* FROM iou_entries
+    INNER JOIN transactions ON iou_entries.transactionId = transactions.id
+    WHERE iou_entries.friendId = :friendId
+      AND iou_entries.isSettled = 0
+      AND iou_entries.amountPaise < 0
+    ORDER BY transactions.dateEpoch ASC
+""")
+    suspend fun getNegativeUnsettledOldestFirst(friendId: Long): List<IouEntry>
+
+    @Query("""
     SELECT MAX(transactions.dateEpoch) FROM iou_entries
     INNER JOIN transactions ON iou_entries.transactionId = transactions.id
     WHERE iou_entries.friendId = :friendId
@@ -53,6 +73,9 @@ interface IouDao {
     // All entries ever for a friend — settled and unsettled, for lifetime totals
     @Query("SELECT * FROM iou_entries WHERE friendId = :friendId")
     suspend fun getAllEntriesForFriend(friendId: Long): List<IouEntry>
+
+    @Query("DELETE FROM iou_entries WHERE transactionId = :txId")
+    suspend fun deleteForTransaction(txId: Long)
 }
 
 data class FriendBalance(

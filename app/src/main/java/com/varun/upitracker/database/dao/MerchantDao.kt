@@ -38,6 +38,12 @@ interface MerchantDao {
     @Query("SELECT * FROM merchant_raw_names WHERE merchantId = :merchantId")
     suspend fun getRawNamesForMerchant(merchantId: Long): List<MerchantRawName>
 
+    @Query("SELECT * FROM merchants WHERE name = :name LIMIT 1")
+    suspend fun findByName(name: String): Merchant?
+
+    @Query("SELECT * FROM merchants ORDER BY name ASC")
+    suspend fun getAllMerchantsSync(): List<Merchant>
+
     @Delete
     suspend fun deleteMerchant(merchant: Merchant)
 

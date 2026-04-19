@@ -8,6 +8,7 @@ import android.os.IBinder
 import androidx.core.app.NotificationCompat
 import androidx.lifecycle.LifecycleService
 import com.varun.upitracker.R
+import com.varun.upitracker.ui.TransactionEntryActivity
 
 class OverlayService : LifecycleService() {
 

@@ -1,7 +1,10 @@
 package com.varun.upitracker.database.dao
 
 import androidx.lifecycle.LiveData
-import androidx.room.*
+import androidx.room.Dao
+import androidx.room.Insert
+import androidx.room.Query
+import androidx.room.Update
 import com.varun.upitracker.database.entity.Transaction
 
 @Dao
@@ -25,17 +28,32 @@ interface TransactionDao {
     @Query("SELECT * FROM transactions WHERE upiRefId = :refId LIMIT 1")
     suspend fun findByRefId(refId: String): Transaction?
 
-    @Query("""
-        SELECT SUM(amountPaise) FROM transactions 
-        WHERE direction = 'DEBIT' AND dateEpoch >= :fromEpoch
-    """)
+    @Query(
+        """
+        SELECT SUM(t.mySharePaise) FROM transactions t
+        INNER JOIN transaction_shares s
+            ON s.transactionId = t.id
+           AND s.participantType = 'ME'
+           AND s.shareSide = 'MEANT_TO_PAY'
+        WHERE t.dateEpoch >= :fromEpoch
+          AND t.mySharePaise IS NOT NULL
+          AND (t.payerActorType = 'MERCHANT' OR t.payeeActorType = 'MERCHANT')
+        """
+    )
     suspend fun getTotalDebitSince(fromEpoch: Long): Long?
 
-    @Query("""
-        SELECT * FROM transactions 
-        WHERE (resolvedFriendId = :friendId OR resolvedMerchantId = :merchantId)
+    @Query(
+        """
+        SELECT * FROM transactions
+        WHERE (
+            payerFriendId = :friendId
+            OR payeeFriendId = :friendId
+            OR resolvedFriendId = :friendId
+            OR resolvedMerchantId = :merchantId
+        )
         ORDER BY dateEpoch DESC, id DESC
-    """)
+        """
+    )
     fun getTransactionsForEntity(friendId: Long?, merchantId: Long?): LiveData<List<Transaction>>
 
     @Query("SELECT * FROM transactions WHERE id = :id")
@@ -47,12 +65,26 @@ interface TransactionDao {
     @Query("SELECT * FROM transactions WHERE dateEpoch >= :fromEpoch ORDER BY dateEpoch DESC, id DESC")
     suspend fun getTransactionsSinceSync(fromEpoch: Long): List<Transaction>
 
-    @Query("""
-    SELECT DISTINCT t.* FROM transactions t
-    LEFT JOIN iou_entries i ON t.id = i.transactionId AND i.friendId = :friendId
-    LEFT JOIN transaction_parties p ON t.id = p.transactionId AND p.friendId = :friendId
-    WHERE t.resolvedFriendId = :friendId OR i.friendId = :friendId OR p.friendId = :friendId
-    ORDER BY t.dateEpoch DESC, t.id DESC
-""")
+    @Query(
+        """
+        SELECT DISTINCT t.* FROM transactions t
+        LEFT JOIN iou_entries i
+            ON t.id = i.transactionId
+           AND i.friendId = :friendId
+        LEFT JOIN transaction_shares s
+            ON t.id = s.transactionId
+           AND s.friendId = :friendId
+        LEFT JOIN transaction_parties p
+            ON t.id = p.transactionId
+           AND p.friendId = :friendId
+        WHERE t.payerFriendId = :friendId
+           OR t.payeeFriendId = :friendId
+           OR t.resolvedFriendId = :friendId
+           OR i.friendId = :friendId
+           OR s.friendId = :friendId
+           OR p.friendId = :friendId
+        ORDER BY t.dateEpoch DESC, t.id DESC
+        """
+    )
     suspend fun getTransactionsForFriendSync(friendId: Long): List<Transaction>
 }

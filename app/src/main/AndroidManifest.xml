@@ -40,7 +40,8 @@
         </receiver>
 
         <activity
-            android:name=".overlay.TransactionEntryActivity"
+            android:name=".ui.TransactionEntryActivity"
+            android:windowSoftInputMode="adjustResize"
             android:exported="false"
             android:theme="@style/Theme.UPITracker"
             android:showForAllUsers="true"

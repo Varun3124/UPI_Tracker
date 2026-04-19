@@ -44,6 +44,27 @@ interface FriendDao {
     @Query("SELECT * FROM friends ORDER BY name ASC")
     suspend fun getAllFriendsSync(): List<Friend>
 
+    @Query("SELECT * FROM friends WHERE name = :name LIMIT 1")
+    suspend fun findByName(name: String): Friend?
+
+    @Query("""
+    SELECT friends.* FROM friends
+    LEFT JOIN (
+        SELECT friendId, COUNT(*) as cnt FROM iou_entries GROUP BY friendId
+    ) iou ON friends.id = iou.friendId
+    LEFT JOIN (
+        SELECT friendId, COUNT(*) as cnt FROM transaction_shares
+        WHERE friendId IS NOT NULL
+        GROUP BY friendId
+    ) share ON friends.id = share.friendId
+    LEFT JOIN (
+        SELECT friendId, COUNT(*) as cnt FROM transaction_parties GROUP BY friendId
+    ) party ON friends.id = party.friendId
+    GROUP BY friends.id
+    ORDER BY (COALESCE(iou.cnt,0) + COALESCE(share.cnt,0) + COALESCE(party.cnt,0)) DESC, friends.name ASC
+""")
+    suspend fun getAllFriendsByFrequency(): List<Friend>
+
     @Delete
     suspend fun deleteFriend(friend: Friend)
 
