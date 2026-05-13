@@ -1,10 +1,17 @@
 package com.varun.upitracker.database.dao
 
 import androidx.lifecycle.LiveData
-import androidx.room.*
+import androidx.room.Dao
+import androidx.room.Delete
+import androidx.room.Insert
+import androidx.room.OnConflictStrategy
+import androidx.room.Query
+import androidx.room.Transaction
+import androidx.room.Update
 import com.varun.upitracker.database.entity.Merchant
 import com.varun.upitracker.database.entity.MerchantRawName
 import com.varun.upitracker.database.entity.MerchantUpiId
+import com.varun.upitracker.database.model.MerchantAliasBundle
 
 @Dao
 interface MerchantDao {
@@ -38,15 +45,40 @@ interface MerchantDao {
     @Query("SELECT * FROM merchant_raw_names WHERE merchantId = :merchantId")
     suspend fun getRawNamesForMerchant(merchantId: Long): List<MerchantRawName>
 
+    @Query("SELECT * FROM merchant_upi_ids WHERE merchantId = :merchantId")
+    suspend fun getUpiIdsForMerchant(merchantId: Long): List<MerchantUpiId>
+
     @Query("SELECT * FROM merchants WHERE name = :name LIMIT 1")
     suspend fun findByName(name: String): Merchant?
 
+    @Query("SELECT * FROM merchants WHERE LOWER(TRIM(name)) = LOWER(TRIM(:name)) LIMIT 1")
+    suspend fun findByNormalizedName(name: String): Merchant?
+
     @Query("SELECT * FROM merchants ORDER BY name ASC")
     suspend fun getAllMerchantsSync(): List<Merchant>
+
+    @Transaction
+    @Query("SELECT * FROM merchants ORDER BY name COLLATE NOCASE ASC, id ASC")
+    suspend fun getAliasBundles(): List<MerchantAliasBundle>
+
+    @Query("UPDATE merchant_raw_names SET merchantId = :merchantId WHERE id = :mappingId")
+    suspend fun reassignRawName(mappingId: Long, merchantId: Long)
+
+    @Query("UPDATE merchant_upi_ids SET merchantId = :merchantId WHERE id = :mappingId")
+    suspend fun reassignUpiId(mappingId: Long, merchantId: Long)
+
+    @Query("UPDATE merchant_raw_names SET merchantId = :targetId WHERE merchantId = :sourceId")
+    suspend fun moveAllRawNames(sourceId: Long, targetId: Long)
+
+    @Query("UPDATE merchant_upi_ids SET merchantId = :targetId WHERE merchantId = :sourceId")
+    suspend fun moveAllUpiIds(sourceId: Long, targetId: Long)
 
     @Delete
     suspend fun deleteMerchant(merchant: Merchant)
 
     @Delete
     suspend fun deleteRawName(rawName: MerchantRawName)
+
+    @Delete
+    suspend fun deleteUpiId(upiId: MerchantUpiId)
 }

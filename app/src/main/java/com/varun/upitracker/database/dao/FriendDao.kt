@@ -1,10 +1,17 @@
 package com.varun.upitracker.database.dao
 
 import androidx.lifecycle.LiveData
-import androidx.room.*
+import androidx.room.Dao
+import androidx.room.Delete
+import androidx.room.Insert
+import androidx.room.OnConflictStrategy
+import androidx.room.Query
+import androidx.room.Transaction
+import androidx.room.Update
 import com.varun.upitracker.database.entity.Friend
 import com.varun.upitracker.database.entity.FriendRawName
 import com.varun.upitracker.database.entity.FriendUpiId
+import com.varun.upitracker.database.model.FriendAliasBundle
 
 @Dao
 interface FriendDao {
@@ -47,6 +54,9 @@ interface FriendDao {
     @Query("SELECT * FROM friends WHERE name = :name LIMIT 1")
     suspend fun findByName(name: String): Friend?
 
+    @Query("SELECT * FROM friends WHERE LOWER(TRIM(name)) = LOWER(TRIM(:name)) LIMIT 1")
+    suspend fun findByNormalizedName(name: String): Friend?
+
     @Query("""
     SELECT friends.* FROM friends
     LEFT JOIN (
@@ -64,6 +74,22 @@ interface FriendDao {
     ORDER BY (COALESCE(iou.cnt,0) + COALESCE(share.cnt,0) + COALESCE(party.cnt,0)) DESC, friends.name ASC
 """)
     suspend fun getAllFriendsByFrequency(): List<Friend>
+
+    @Transaction
+    @Query("SELECT * FROM friends ORDER BY name COLLATE NOCASE ASC, id ASC")
+    suspend fun getAliasBundles(): List<FriendAliasBundle>
+
+    @Query("UPDATE friend_raw_names SET friendId = :friendId WHERE id = :mappingId")
+    suspend fun reassignRawName(mappingId: Long, friendId: Long)
+
+    @Query("UPDATE friend_upi_ids SET friendId = :friendId WHERE id = :mappingId")
+    suspend fun reassignUpiId(mappingId: Long, friendId: Long)
+
+    @Query("UPDATE friend_raw_names SET friendId = :targetId WHERE friendId = :sourceId")
+    suspend fun moveAllRawNames(sourceId: Long, targetId: Long)
+
+    @Query("UPDATE friend_upi_ids SET friendId = :targetId WHERE friendId = :sourceId")
+    suspend fun moveAllUpiIds(sourceId: Long, targetId: Long)
 
     @Delete
     suspend fun deleteFriend(friend: Friend)

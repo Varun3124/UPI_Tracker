@@ -31,4 +31,10 @@ interface TransactionPartyDao {
 
     @Query("DELETE FROM transaction_parties WHERE transactionId = :txId")
     suspend fun deleteForTransaction(txId: Long)
+
+    @Query("SELECT COUNT(*) FROM transaction_parties WHERE friendId = :friendId")
+    suspend fun countForFriend(friendId: Long): Int
+
+    @Query("UPDATE transaction_parties SET friendId = :targetId WHERE friendId = :sourceId")
+    suspend fun reassignFriend(sourceId: Long, targetId: Long)
 }

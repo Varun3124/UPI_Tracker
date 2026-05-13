@@ -1,4 +1,4 @@
-package com.varun.upitracker.database
+﻿package com.varun.upitracker.database
 
 import android.content.Context
 import androidx.room.Database
@@ -6,6 +6,7 @@ import androidx.room.Room
 import androidx.room.RoomDatabase
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.varun.upitracker.database.dao.AppSettingsDao
 import com.varun.upitracker.database.dao.BudgetDao
 import com.varun.upitracker.database.dao.CategoryDao
 import com.varun.upitracker.database.dao.FriendDao
@@ -15,6 +16,7 @@ import com.varun.upitracker.database.dao.TransactionCategorySplitDao
 import com.varun.upitracker.database.dao.TransactionDao
 import com.varun.upitracker.database.dao.TransactionPartyDao
 import com.varun.upitracker.database.dao.TransactionShareDao
+import com.varun.upitracker.database.entity.AppSettings
 import com.varun.upitracker.database.entity.BudgetSettings
 import com.varun.upitracker.database.entity.Category
 import com.varun.upitracker.database.entity.Friend
@@ -47,10 +49,11 @@ import kotlinx.coroutines.launch
         MerchantUpiId::class,
         Category::class,
         MerchantCategory::class,
+        AppSettings::class,
         BudgetSettings::class,
         TransactionCategorySplit::class
     ],
-    version = 4,
+    version = 5,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
@@ -62,6 +65,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun transactionShareDao(): TransactionShareDao
     abstract fun merchantDao(): MerchantDao
     abstract fun categoryDao(): CategoryDao
+    abstract fun appSettingsDao(): AppSettingsDao
     abstract fun budgetDao(): BudgetDao
     abstract fun categorySplitDao(): TransactionCategorySplitDao
 
@@ -312,6 +316,159 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `app_settings` (
+                        `id` INTEGER NOT NULL,
+                        `totalBalancePaise` INTEGER,
+                        `updatedEpoch` INTEGER NOT NULL,
+                        PRIMARY KEY(`id`)
+                    )
+                    """.trimIndent()
+                )
+
+                // A previous failed 4->5 attempt may already have created these
+                // expression indexes. Drop them so the migrated schema matches
+                // the Room entity model exactly during validation.
+                db.execSQL("DROP INDEX IF EXISTS `index_friends_name_normalized`")
+                db.execSQL("DROP INDEX IF EXISTS `index_merchants_name_normalized`")
+                db.execSQL("DROP INDEX IF EXISTS `index_categories_name_normalized`")
+
+                mergeDuplicateFriends(db)
+                mergeDuplicateMerchants(db)
+                mergeDuplicateCategories(db)
+            }
+        }
+
+        private fun mergeDuplicateFriends(db: SupportSQLiteDatabase) {
+            val groups = linkedMapOf<String, MutableList<Long>>()
+            db.query("SELECT id, name FROM friends ORDER BY id ASC").use { cursor ->
+                val idIndex = cursor.getColumnIndexOrThrow("id")
+                val nameIndex = cursor.getColumnIndexOrThrow("name")
+                while (cursor.moveToNext()) {
+                    val id = cursor.getLong(idIndex)
+                    val normalized = normalizeKey(cursor.getString(nameIndex))
+                    groups.getOrPut(normalized) { mutableListOf() }.add(id)
+                }
+            }
+            groups.values.forEach { ids ->
+                if (ids.size < 2) return@forEach
+                val targetId = ids.first()
+                ids.drop(1).forEach { sourceId ->
+                    db.execSQL("UPDATE transactions SET resolvedFriendId = ? WHERE resolvedFriendId = ?", arrayOf(targetId, sourceId))
+                    db.execSQL("UPDATE transactions SET payerFriendId = ? WHERE payerFriendId = ?", arrayOf(targetId, sourceId))
+                    db.execSQL("UPDATE transactions SET payeeFriendId = ? WHERE payeeFriendId = ?", arrayOf(targetId, sourceId))
+                    db.execSQL("UPDATE transaction_shares SET friendId = ? WHERE friendId = ?", arrayOf(targetId, sourceId))
+                    db.execSQL("UPDATE transaction_parties SET friendId = ? WHERE friendId = ?", arrayOf(targetId, sourceId))
+                    db.execSQL("UPDATE iou_entries SET friendId = ? WHERE friendId = ?", arrayOf(targetId, sourceId))
+                    db.execSQL("UPDATE friend_raw_names SET friendId = ? WHERE friendId = ?", arrayOf(targetId, sourceId))
+                    db.execSQL("UPDATE friend_upi_ids SET friendId = ? WHERE friendId = ?", arrayOf(targetId, sourceId))
+                    db.execSQL("DELETE FROM friends WHERE id = ?", arrayOf(sourceId))
+                }
+            }
+        }
+
+        private fun mergeDuplicateMerchants(db: SupportSQLiteDatabase) {
+            val groups = linkedMapOf<String, MutableList<Long>>()
+            db.query("SELECT id, name FROM merchants ORDER BY id ASC").use { cursor ->
+                val idIndex = cursor.getColumnIndexOrThrow("id")
+                val nameIndex = cursor.getColumnIndexOrThrow("name")
+                while (cursor.moveToNext()) {
+                    val id = cursor.getLong(idIndex)
+                    val normalized = normalizeKey(cursor.getString(nameIndex))
+                    groups.getOrPut(normalized) { mutableListOf() }.add(id)
+                }
+            }
+            groups.values.forEach { ids ->
+                if (ids.size < 2) return@forEach
+                val targetId = ids.first()
+                ids.drop(1).forEach { sourceId ->
+                    db.execSQL("UPDATE transactions SET resolvedMerchantId = ? WHERE resolvedMerchantId = ?", arrayOf(targetId, sourceId))
+                    db.execSQL("UPDATE transactions SET payerMerchantId = ? WHERE payerMerchantId = ?", arrayOf(targetId, sourceId))
+                    db.execSQL("UPDATE transactions SET payeeMerchantId = ? WHERE payeeMerchantId = ?", arrayOf(targetId, sourceId))
+                    db.execSQL("UPDATE merchant_raw_names SET merchantId = ? WHERE merchantId = ?", arrayOf(targetId, sourceId))
+                    db.execSQL("UPDATE merchant_upi_ids SET merchantId = ? WHERE merchantId = ?", arrayOf(targetId, sourceId))
+                    db.execSQL(
+                        """
+                        INSERT OR IGNORE INTO merchant_categories (merchantId, categoryId)
+                        SELECT ?, categoryId FROM merchant_categories WHERE merchantId = ?
+                        """.trimIndent(),
+                        arrayOf(targetId, sourceId)
+                    )
+                    db.execSQL("DELETE FROM merchant_categories WHERE merchantId = ?", arrayOf(sourceId))
+                    db.execSQL("DELETE FROM merchants WHERE id = ?", arrayOf(sourceId))
+                }
+            }
+        }
+
+        private fun mergeDuplicateCategories(db: SupportSQLiteDatabase) {
+            val groups = linkedMapOf<String, MutableList<Long>>()
+            db.query("SELECT id, name FROM categories ORDER BY id ASC").use { cursor ->
+                val idIndex = cursor.getColumnIndexOrThrow("id")
+                val nameIndex = cursor.getColumnIndexOrThrow("name")
+                while (cursor.moveToNext()) {
+                    val id = cursor.getLong(idIndex)
+                    val normalized = normalizeKey(cursor.getString(nameIndex))
+                    groups.getOrPut(normalized) { mutableListOf() }.add(id)
+                }
+            }
+            groups.values.forEach { ids ->
+                if (ids.size < 2) return@forEach
+                val targetId = ids.first()
+                ids.drop(1).forEach { sourceId ->
+                    db.execSQL(
+                        """
+                        INSERT OR IGNORE INTO merchant_categories (merchantId, categoryId)
+                        SELECT merchantId, ? FROM merchant_categories WHERE categoryId = ?
+                        """.trimIndent(),
+                        arrayOf(targetId, sourceId)
+                    )
+                    db.execSQL("DELETE FROM merchant_categories WHERE categoryId = ?", arrayOf(sourceId))
+
+                    db.query(
+                        "SELECT transactionId, myAmountPaise, partyAmountPaise FROM transaction_category_splits WHERE categoryId = ?",
+                        arrayOf(sourceId)
+                    ).use { cursor ->
+                        val txIndex = cursor.getColumnIndexOrThrow("transactionId")
+                        val myIndex = cursor.getColumnIndexOrThrow("myAmountPaise")
+                        val partyIndex = cursor.getColumnIndexOrThrow("partyAmountPaise")
+                        while (cursor.moveToNext()) {
+                            val txId = cursor.getLong(txIndex)
+                            val myAmount = cursor.getLong(myIndex)
+                            val partyAmount = cursor.getLong(partyIndex)
+                            db.query(
+                                "SELECT myAmountPaise, partyAmountPaise FROM transaction_category_splits WHERE transactionId = ? AND categoryId = ? LIMIT 1",
+                                arrayOf(txId, targetId)
+                            ).use { existing ->
+                                if (existing.moveToFirst()) {
+                                    val mergedMy = existing.getLong(0) + myAmount
+                                    val mergedParty = existing.getLong(1) + partyAmount
+                                    db.execSQL(
+                                        "UPDATE transaction_category_splits SET myAmountPaise = ?, partyAmountPaise = ? WHERE transactionId = ? AND categoryId = ?",
+                                        arrayOf(mergedMy, mergedParty, txId, targetId)
+                                    )
+                                    db.execSQL(
+                                        "DELETE FROM transaction_category_splits WHERE transactionId = ? AND categoryId = ?",
+                                        arrayOf(txId, sourceId)
+                                    )
+                                } else {
+                                    db.execSQL(
+                                        "UPDATE transaction_category_splits SET categoryId = ? WHERE transactionId = ? AND categoryId = ?",
+                                        arrayOf(targetId, txId, sourceId)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    db.execSQL("DELETE FROM categories WHERE id = ?", arrayOf(sourceId))
+                }
+            }
+        }
+
+        private fun normalizeKey(value: String?): String = value?.trim()?.lowercase() ?: ""
+
         fun getInstance(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 Room.databaseBuilder(
@@ -319,7 +476,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "upi_tracker_db"
                 )
-                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4)
+                    .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                     .addCallback(object : Callback() {
                         override fun onCreate(db: SupportSQLiteDatabase) {
                             super.onCreate(db)
@@ -337,3 +494,4 @@ abstract class AppDatabase : RoomDatabase() {
         }
     }
 }
+

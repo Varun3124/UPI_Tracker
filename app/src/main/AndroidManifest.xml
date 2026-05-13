@@ -1,4 +1,4 @@
-<?xml version="1.0" encoding="utf-8"?>
+﻿<?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.RECEIVE_SMS" />
@@ -26,10 +26,13 @@
             </intent-filter>
         </activity>
 
-        <activity android:name=".ui.DashboardActivity" android:exported="false"/>
-        <activity android:name=".ui.FriendDetailActivity" android:exported="false"/>
-        <activity android:name=".ui.AllTransactionsActivity" android:exported="false"/>
-        <activity android:name=".ui.OnboardingActivity" android:exported="false"/>
+        <activity android:name=".ui.DashboardActivity" android:exported="false" />
+        <activity android:name=".ui.SettingsActivity" android:exported="false" />
+        <activity android:name=".ui.CategorySettingsActivity" android:exported="false" />
+        <activity android:name=".ui.AliasMappingsActivity" android:exported="false" />
+        <activity android:name=".ui.FriendDetailActivity" android:exported="false" />
+        <activity android:name=".ui.AllTransactionsActivity" android:exported="false" />
+        <activity android:name=".ui.OnboardingActivity" android:exported="false" />
 
         <receiver
             android:name=".receiver.SmsReceiver"
@@ -50,7 +53,7 @@
             android:theme="@style/Theme.UPITracker"
             android:showForAllUsers="true"
             android:showOnLockScreen="true"
-            android:turnScreenOn="true"/>
+            android:turnScreenOn="true" />
 
         <service
             android:name=".overlay.OverlayService"

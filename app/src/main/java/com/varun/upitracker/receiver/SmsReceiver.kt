@@ -131,17 +131,18 @@ class SmsReceiver : BroadcastReceiver() {
             )
         }
 
-        if (needsOverlay && id != -1L) {
+        if (id != -1L) {
             val displayLabel = when (resolution) {
-                is ResolvedAs.AsFriend -> resolution.name
+                is ResolvedAs.AsFriend   -> resolution.name
                 is ResolvedAs.AsMerchant -> resolution.name
-                is ResolvedAs.Unknown -> parsed.payeeRaw
+                is ResolvedAs.Unknown    -> parsed.payeeRaw
             }
             TransactionNotificationHelper.showPendingTransactionNotification(
-                context = context,
+                context      = context,
                 transactionId = id,
-                amountPaise = parsed.amountPaise,
-                displayLabel = displayLabel
+                amountPaise  = parsed.amountPaise,
+                displayLabel = displayLabel,
+                needsReview  = needsOverlay
             )
         }
     }

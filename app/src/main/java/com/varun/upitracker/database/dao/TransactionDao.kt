@@ -87,4 +87,42 @@ interface TransactionDao {
         """
     )
     suspend fun getTransactionsForFriendSync(friendId: Long): List<Transaction>
+
+    @Query(
+        """
+        SELECT COUNT(*) FROM transactions
+        WHERE payerFriendId = :friendId
+           OR payeeFriendId = :friendId
+           OR resolvedFriendId = :friendId
+        """
+    )
+    suspend fun countReferencesForFriend(friendId: Long): Int
+
+    @Query(
+        """
+        SELECT COUNT(*) FROM transactions
+        WHERE payerMerchantId = :merchantId
+           OR payeeMerchantId = :merchantId
+           OR resolvedMerchantId = :merchantId
+        """
+    )
+    suspend fun countReferencesForMerchant(merchantId: Long): Int
+
+    @Query("UPDATE transactions SET resolvedFriendId = :targetId WHERE resolvedFriendId = :sourceId")
+    suspend fun reassignResolvedFriend(sourceId: Long, targetId: Long)
+
+    @Query("UPDATE transactions SET payerFriendId = :targetId WHERE payerFriendId = :sourceId")
+    suspend fun reassignPayerFriend(sourceId: Long, targetId: Long)
+
+    @Query("UPDATE transactions SET payeeFriendId = :targetId WHERE payeeFriendId = :sourceId")
+    suspend fun reassignPayeeFriend(sourceId: Long, targetId: Long)
+
+    @Query("UPDATE transactions SET resolvedMerchantId = :targetId WHERE resolvedMerchantId = :sourceId")
+    suspend fun reassignResolvedMerchant(sourceId: Long, targetId: Long)
+
+    @Query("UPDATE transactions SET payerMerchantId = :targetId WHERE payerMerchantId = :sourceId")
+    suspend fun reassignPayerMerchant(sourceId: Long, targetId: Long)
+
+    @Query("UPDATE transactions SET payeeMerchantId = :targetId WHERE payeeMerchantId = :sourceId")
+    suspend fun reassignPayeeMerchant(sourceId: Long, targetId: Long)
 }

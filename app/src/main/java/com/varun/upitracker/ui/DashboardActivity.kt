@@ -54,6 +54,10 @@ class DashboardActivity : AppCompatActivity() {
         recentRow = findViewById(R.id.recentTransactionsRow)
         iouContainer = findViewById(R.id.iouContainer)
 
+        findViewById<TextView>(R.id.btnSettings).setOnClickListener {
+            startActivity(Intent(this, SettingsActivity::class.java))
+        }
+
         findViewById<Button>(R.id.btnAddManual).setOnClickListener { launchManualEntry() }
         loadData()
     }

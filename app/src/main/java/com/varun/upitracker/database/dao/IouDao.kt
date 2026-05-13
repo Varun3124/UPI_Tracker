@@ -76,6 +76,12 @@ interface IouDao {
 
     @Query("DELETE FROM iou_entries WHERE transactionId = :txId")
     suspend fun deleteForTransaction(txId: Long)
+
+    @Query("SELECT COUNT(*) FROM iou_entries WHERE friendId = :friendId")
+    suspend fun countEntriesForFriend(friendId: Long): Int
+
+    @Query("UPDATE iou_entries SET friendId = :targetId WHERE friendId = :sourceId")
+    suspend fun reassignFriend(sourceId: Long, targetId: Long)
 }
 
 data class FriendBalance(
