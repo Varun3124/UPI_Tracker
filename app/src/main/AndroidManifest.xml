@@ -26,16 +26,16 @@
             </intent-filter>
         </activity>
 
-        <activity android:name=".ui.DashboardActivity" android:exported="false" />
+        <activity android:name=".ui.dashboard.DashboardActivity" android:exported="false" />
         <activity android:name=".ui.SettingsActivity" android:exported="false" />
         <activity android:name=".ui.CategorySettingsActivity" android:exported="false" />
         <activity android:name=".ui.AliasMappingsActivity" android:exported="false" />
         <activity android:name=".ui.FriendDetailActivity" android:exported="false" />
         <activity android:name=".ui.AllTransactionsActivity" android:exported="false" />
-        <activity android:name=".ui.OnboardingActivity" android:exported="false" />
+        <activity android:name=".ui.onboarding.OnboardingActivity" android:exported="false" />
 
         <receiver
-            android:name=".receiver.SmsReceiver"
+            android:name=".sms.receiver.SmsReceiver"
             android:exported="true">
             <intent-filter android:priority="999">
                 <action android:name="android.provider.Telephony.SMS_RECEIVED" />
@@ -43,7 +43,7 @@
         </receiver>
 
         <receiver
-            android:name=".receiver.PendingTransactionReviewReceiver"
+            android:name=".sms.receiver.PendingTransactionReviewReceiver"
             android:exported="false" />
 
         <activity

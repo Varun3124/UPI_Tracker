@@ -9,13 +9,13 @@ import androidx.room.Index
     primaryKeys = ["transactionId", "categoryId"],
     foreignKeys = [
         ForeignKey(
-            entity = Transaction::class,
+            entity = _root_ide_package_.com.varun.upitracker.database.entity.Transaction::class,
             parentColumns = ["id"],
             childColumns = ["transactionId"],
             onDelete = ForeignKey.CASCADE
         ),
         ForeignKey(
-            entity = Category::class,
+            entity = _root_ide_package_.com.varun.upitracker.database.entity.Category::class,
             parentColumns = ["id"],
             childColumns = ["categoryId"],
             onDelete = ForeignKey.CASCADE

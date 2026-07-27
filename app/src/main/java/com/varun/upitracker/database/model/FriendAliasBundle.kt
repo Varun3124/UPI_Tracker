@@ -8,9 +8,9 @@ import com.varun.upitracker.database.entity.FriendUpiId
 
 data class FriendAliasBundle(
     @Embedded
-    val friend: Friend,
+    val friend: com.varun.upitracker.database.entity.Friend,
     @Relation(parentColumn = "id", entityColumn = "friendId")
-    val rawNames: List<FriendRawName>,
+    val rawNames: List<com.varun.upitracker.database.entity.FriendRawName>,
     @Relation(parentColumn = "id", entityColumn = "friendId")
-    val upiIds: List<FriendUpiId>
+    val upiIds: List<com.varun.upitracker.database.entity.FriendUpiId>
 )

@@ -6,11 +6,10 @@ import android.util.Log
 import com.varun.upitracker.database.AppDatabase
 import com.varun.upitracker.database.entity.Transaction
 import com.varun.upitracker.database.entity.TransactionShare
-import com.varun.upitracker.parser.SmsParser
-import com.varun.upitracker.resolver.AliasResolver
-import com.varun.upitracker.resolver.ResolvedAs
+import com.varun.upitracker.sms.parser.SmsParser
+import com.varun.upitracker.sms.resolver.AliasResolver
+import com.varun.upitracker.sms.resolver.ResolvedAs
 import com.varun.upitracker.ui.ActorType
-import com.varun.upitracker.ui.ShareSide
 
 private const val TAG = "SmsBacklogScanner"
 
@@ -28,9 +27,6 @@ class SmsBacklogScanner(private val context: Context) {
     suspend fun scan() {
         val windowDays = prefs.getInt(PREF_BACKLOG_DAYS, DEFAULT_WINDOW_DAYS)
         val windowStart = System.currentTimeMillis() - (windowDays * 24 * 60 * 60 * 1000L)
-
-        Log.d(TAG, "Starting backlog scan window=$windowDays from=$windowStart")
-
         val db = AppDatabase.getInstance(context)
         val resolver = AliasResolver(db)
 
@@ -57,11 +53,8 @@ class SmsBacklogScanner(private val context: Context) {
             while (it.moveToNext()) {
                 val sender = it.getString(colAddress) ?: continue
                 val body = it.getString(colBody) ?: continue
-                val date = it.getLong(colDate)
-
+                val parsed = SmsParser.parse(sender, body, it.getLong(colDate)) ?: continue
                 scanned++
-
-                val parsed = SmsParser.parse(sender, body, date) ?: continue
 
                 if (db.transactionDao().findByRefId(parsed.upiRefId) != null) {
                     skipped++
@@ -69,15 +62,10 @@ class SmsBacklogScanner(private val context: Context) {
                 }
 
                 val resolution = resolver.resolve(parsed.payeeRaw, parsed.direction)
-                val payeeType = when (resolution) {
-                    is ResolvedAs.AsFriend -> "FRIEND"
-                    is ResolvedAs.AsMerchant -> "MERCHANT"
-                    is ResolvedAs.Unknown -> "UNKNOWN"
-                }
-                val resolvedFriendId = (resolution as? ResolvedAs.AsFriend)?.friendId
-                val resolvedMerchantId = (resolution as? ResolvedAs.AsMerchant)?.merchantId
-
-                val needsOverlay = when (resolution) {
+                val matchedFriendId = (resolution as? ResolvedAs.AsFriend)?.friendId
+                val matchedMerchantId = (resolution as? ResolvedAs.AsMerchant)?.merchantId
+                val resolvedActorType = resolution.actorType()
+                val needsReview = when (resolution) {
                     is ResolvedAs.AsMerchant -> false
                     is ResolvedAs.AsFriend -> !resolution.isConfident
                     is ResolvedAs.Unknown -> true
@@ -85,53 +73,28 @@ class SmsBacklogScanner(private val context: Context) {
 
                 val transaction = Transaction(
                     amountPaise = parsed.amountPaise,
-                    direction = parsed.direction,
-                    observedDirection = parsed.direction,
-                    payeeRaw = parsed.payeeRaw,
-                    payeeType = payeeType,
-                    mySharePaise = if (needsOverlay) null else parsed.amountPaise,
-                    resolvedFriendId = resolvedFriendId,
-                    resolvedMerchantId = resolvedMerchantId,
-                    payerActorType = if (parsed.direction == "DEBIT") {
-                        ActorType.ME
-                    } else {
-                        when (resolution) {
-                            is ResolvedAs.AsFriend -> ActorType.FRIEND
-                            is ResolvedAs.AsMerchant -> ActorType.MERCHANT
-                            is ResolvedAs.Unknown -> ActorType.UNKNOWN
-                        }
-                    },
-                    payerFriendId = if (parsed.direction == "CREDIT") resolvedFriendId else null,
-                    payerMerchantId = if (parsed.direction == "CREDIT") resolvedMerchantId else null,
+                    payerActorType = if (parsed.direction == "DEBIT") ActorType.ME else resolvedActorType,
+                    payerFriendId = if (parsed.direction == "CREDIT") matchedFriendId else null,
+                    payerMerchantId = if (parsed.direction == "CREDIT") matchedMerchantId else null,
                     payerRawLabel = if (parsed.direction == "CREDIT") parsed.payeeRaw else null,
-                    payeeActorType = if (parsed.direction == "CREDIT") {
-                        ActorType.ME
-                    } else {
-                        ActorType.MERCHANT
-                    },
-                    payeeFriendId = null,
-                    payeeMerchantId = if (parsed.direction == "DEBIT" && resolution is ResolvedAs.AsMerchant) {
-                        resolvedMerchantId
-                    } else null,
+                    payeeActorType = if (parsed.direction == "CREDIT") ActorType.ME else resolvedActorType,
+                    payeeFriendId = if (parsed.direction == "DEBIT") matchedFriendId else null,
+                    payeeMerchantId = if (parsed.direction == "DEBIT") matchedMerchantId else null,
                     payeeRawLabel = if (parsed.direction == "DEBIT") parsed.payeeRaw else null,
                     upiRefId = parsed.upiRefId,
                     dateEpoch = parsed.dateEpoch,
                     source = "SMS",
-                    isPending = needsOverlay
+                    isPending = needsReview
                 )
 
                 try {
                     val id = db.transactionDao().insert(transaction)
-                    if (!needsOverlay) {
+                    if (!needsReview && parsed.direction == "DEBIT") {
                         db.transactionShareDao().insert(
                             TransactionShare(
                                 transactionId = id,
+                                side = "PAYER",
                                 participantType = ActorType.ME,
-                                shareSide = if (parsed.direction == "DEBIT") {
-                                    ShareSide.MEANT_TO_PAY
-                                } else {
-                                    ShareSide.MEANT_TO_RECEIVE
-                                },
                                 amountPaise = parsed.amountPaise
                             )
                         )
@@ -156,4 +119,10 @@ class SmsBacklogScanner(private val context: Context) {
     }
 
     fun getLastScanEpoch(): Long = prefs.getLong(PREF_LAST_SCAN_EPOCH, 0L)
+
+    private fun ResolvedAs.actorType(): String = when (this) {
+        is ResolvedAs.AsFriend -> ActorType.FRIEND
+        is ResolvedAs.AsMerchant -> ActorType.MERCHANT
+        is ResolvedAs.Unknown -> ActorType.UNKNOWN
+    }
 }

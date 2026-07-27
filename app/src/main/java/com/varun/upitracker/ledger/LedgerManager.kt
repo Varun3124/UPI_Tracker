@@ -25,7 +25,7 @@ class LedgerManager(private val db: AppDatabase) {
         if (deltaPaise == 0L) return
 
         db.iouDao().insert(
-            IouEntry(
+            _root_ide_package_.com.varun.upitracker.database.entity.IouEntry(
                 transactionId = transactionId,
                 friendId = friendId,
                 amountPaise = deltaPaise,
@@ -145,7 +145,7 @@ class LedgerManager(private val db: AppDatabase) {
         }
     }
 
-    private suspend fun settleEntry(entry: IouEntry, settlementAmount: Long): Long {
+    private suspend fun settleEntry(entry: com.varun.upitracker.database.entity.IouEntry, settlementAmount: Long): Long {
         val magnitude = kotlin.math.abs(entry.amountPaise)
         val now = System.currentTimeMillis()
 
@@ -168,7 +168,7 @@ class LedgerManager(private val db: AppDatabase) {
                 )
             )
             db.iouDao().insert(
-                IouEntry(
+                _root_ide_package_.com.varun.upitracker.database.entity.IouEntry(
                     transactionId = entry.transactionId,
                     friendId = entry.friendId,
                     amountPaise = residualSigned,

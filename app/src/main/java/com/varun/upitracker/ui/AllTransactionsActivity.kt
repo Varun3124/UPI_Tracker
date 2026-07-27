@@ -91,11 +91,16 @@ class AllTransactionsAdapter(
             holder.tvPayee.text = withContext(Dispatchers.IO) { tx.resolvePrimaryDisplay(db) }
         }
         holder.tvDate.text = dateFmt.format(Date(tx.dateEpoch))
-        val amount = "Rs${"%.0f".format(tx.amountPaise / 100.0)}"
-        holder.tvAmount.text = if (tx.direction == "DEBIT") "-$amount" else "+$amount"
-        holder.tvAmount.setTextColor(if (tx.direction == "DEBIT") Color.parseColor("#C62828") else Color.parseColor("#2E7D32"))
+        holder.tvAmount.text = tx.formatPerspectiveAmount()
+        holder.tvAmount.setTextColor(tx.perspectiveColor())
         holder.tvNote.text = tx.resolveTypeLabel()
         holder.tvIou.text = ""
         holder.itemView.setOnClickListener { onTap(tx.id) }
     }
+}
+
+private fun Transaction.perspectiveColor(): Int = when (amountPerspective()) {
+    AmountPerspective.OUTGOING -> Color.parseColor("#C62828")
+    AmountPerspective.INCOMING -> Color.parseColor("#2E7D32")
+    AmountPerspective.NEUTRAL -> Color.parseColor("#AAAAAA")
 }

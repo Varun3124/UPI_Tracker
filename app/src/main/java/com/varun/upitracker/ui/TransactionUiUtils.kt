@@ -11,11 +11,6 @@ object ActorType {
     const val UNKNOWN = "UNKNOWN"
 }
 
-object ShareSide {
-    const val MEANT_TO_PAY = "MEANT_TO_PAY"
-    const val MEANT_TO_RECEIVE = "MEANT_TO_RECEIVE"
-}
-
 data class ActorRef(
     val actorType: String,
     val friendId: Long? = null,
@@ -38,23 +33,11 @@ suspend fun resolveActorDisplayName(db: AppDatabase, actor: ActorRef): String {
     }
 }
 
-fun deriveLegacyDirection(
-    payerActorType: String,
-    payeeActorType: String,
-    myShareSide: String?,
-    mySharePaise: Long
-): String {
-    return when {
-        payerActorType == ActorType.ME -> "DEBIT"
-        payeeActorType == ActorType.ME -> "CREDIT"
-        mySharePaise > 0 && myShareSide == ShareSide.MEANT_TO_PAY -> "DEBIT"
-        mySharePaise > 0 && myShareSide == ShareSide.MEANT_TO_RECEIVE -> "CREDIT"
-        else -> "DEBIT"
-    }
-}
-
 fun myShareFromShares(shares: List<TransactionShare>): TransactionShare? =
     shares.firstOrNull { it.participantType == ActorType.ME }
+
+fun meShareOnSide(shares: List<TransactionShare>, side: String): Long =
+    shares.firstOrNull { it.side == side && it.participantType == ActorType.ME }?.amountPaise ?: 0L
 
 fun Transaction.payerActorRef(): ActorRef = ActorRef(
     actorType = payerActorType,
@@ -91,7 +74,25 @@ fun Transaction.resolveTypeLabel(): String {
     }
 }
 
-fun Transaction.shouldDefaultSmsDebitToMerchant(): Boolean {
-    val observed = observedDirection ?: direction
-    return source == "SMS" && isPending && observed == "DEBIT"
+enum class AmountPerspective {
+    OUTGOING,
+    INCOMING,
+    NEUTRAL
+}
+
+fun Transaction.amountPerspective(): AmountPerspective {
+    return when {
+        payerActorType == ActorType.ME -> AmountPerspective.OUTGOING
+        payeeActorType == ActorType.ME -> AmountPerspective.INCOMING
+        else -> AmountPerspective.NEUTRAL
+    }
+}
+
+fun Transaction.formatPerspectiveAmount(): String {
+    val amount = "Rs${"%.0f".format(amountPaise / 100.0)}"
+    return when (amountPerspective()) {
+        AmountPerspective.OUTGOING -> "-$amount"
+        AmountPerspective.INCOMING -> "+$amount"
+        AmountPerspective.NEUTRAL -> amount
+    }
 }

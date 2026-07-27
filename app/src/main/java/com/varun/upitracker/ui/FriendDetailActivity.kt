@@ -118,9 +118,8 @@ class FriendTransactionAdapter(
             holder.tvPayee.text = withContext(Dispatchers.IO) { tx.resolvePrimaryDisplay(db) }
         }
         holder.tvDate.text = dateFmt.format(Date(tx.dateEpoch))
-        val amount = "Rs${"%.0f".format(tx.amountPaise / 100.0)}"
-        holder.tvAmount.text = if (tx.direction == "DEBIT") "-$amount" else "+$amount"
-        holder.tvAmount.setTextColor(if (tx.direction == "DEBIT") Color.parseColor("#C62828") else Color.parseColor("#2E7D32"))
+        holder.tvAmount.text = tx.formatPerspectiveAmount()
+        holder.tvAmount.setTextColor(tx.perspectiveColor())
 
         CoroutineScope(Dispatchers.Main).launch {
             val entries = withContext(Dispatchers.IO) { db.iouDao().getEntriesForTransaction(tx.id).filter { it.friendId == friendId } }
@@ -141,7 +140,7 @@ class FriendTransactionAdapter(
                     holder.tvIouAmount.setTextColor(if (iouAmt > 0) Color.parseColor("#2E7D32") else Color.parseColor("#C62828"))
                 }
                 share != null -> {
-                    holder.tvIouNote.text = if (share.shareSide == ShareSide.MEANT_TO_PAY) "Friend meant to pay" else "Friend meant to receive"
+                    holder.tvIouNote.text = "Friend share"
                     holder.tvIouAmount.text = "Rs${"%.0f".format(share.amountPaise / 100.0)}"
                     holder.tvIouAmount.setTextColor(Color.parseColor("#5C6BC0"))
                 }
@@ -154,4 +153,10 @@ class FriendTransactionAdapter(
 
         holder.itemView.setOnClickListener { onTap(tx.id) }
     }
+}
+
+private fun Transaction.perspectiveColor(): Int = when (amountPerspective()) {
+    AmountPerspective.OUTGOING -> Color.parseColor("#C62828")
+    AmountPerspective.INCOMING -> Color.parseColor("#2E7D32")
+    AmountPerspective.NEUTRAL -> Color.parseColor("#AAAAAA")
 }

@@ -9,13 +9,13 @@ import androidx.room.PrimaryKey
     tableName = "iou_entries",
     foreignKeys = [
         ForeignKey(
-            entity = Transaction::class,
+            entity = _root_ide_package_.com.varun.upitracker.database.entity.Transaction::class,
             parentColumns = ["id"],
             childColumns = ["transactionId"],
             onDelete = ForeignKey.CASCADE
         ),
         ForeignKey(
-            entity = Friend::class,
+            entity = _root_ide_package_.com.varun.upitracker.database.entity.Friend::class,
             parentColumns = ["id"],
             childColumns = ["friendId"],
             onDelete = ForeignKey.CASCADE

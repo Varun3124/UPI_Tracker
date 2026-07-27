@@ -7,8 +7,8 @@ import com.varun.upitracker.database.entity.BudgetSettings
 interface BudgetDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun save(settings: BudgetSettings)
+    suspend fun save(settings: com.varun.upitracker.database.entity.BudgetSettings)
 
     @Query("SELECT * FROM budget_settings WHERE id = 1")
-    suspend fun get(): BudgetSettings?
+    suspend fun get(): com.varun.upitracker.database.entity.BudgetSettings?
 }

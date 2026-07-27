@@ -25,6 +25,8 @@ import com.varun.upitracker.database.entity.FriendRawName
 import com.varun.upitracker.database.entity.FriendUpiId
 import com.varun.upitracker.database.entity.MerchantRawName
 import com.varun.upitracker.database.entity.MerchantUpiId
+import com.varun.upitracker.database.model.FriendAliasBundle
+import com.varun.upitracker.database.model.MerchantAliasBundle
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -92,9 +94,9 @@ class AliasMappingsActivity : AppCompatActivity() {
 
     private fun loadAliases() {
         lifecycleScope.launch {
-            val cards = withContext(Dispatchers.IO) {
+            val cards: List<AliasCardItem> = withContext(Dispatchers.IO) {
                 if (mode == MODE_MERCHANT) {
-                    repository.getMerchantAliasBundles().map { bundle ->
+                    repository.getMerchantAliasBundles().map { bundle: MerchantAliasBundle ->
                         AliasCardItem(
                             id = bundle.merchant.id,
                             title = bundle.merchant.name,
@@ -107,7 +109,7 @@ class AliasMappingsActivity : AppCompatActivity() {
                         )
                     }
                 } else {
-                    repository.getFriendAliasBundles().map { bundle ->
+                    repository.getFriendAliasBundles().map { bundle: FriendAliasBundle ->
                         AliasCardItem(
                             id = bundle.friend.id,
                             title = bundle.friend.name,

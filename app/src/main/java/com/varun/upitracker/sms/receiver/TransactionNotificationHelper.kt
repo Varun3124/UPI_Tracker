@@ -1,4 +1,4 @@
-package com.varun.upitracker.receiver
+package com.varun.upitracker.sms.receiver
 
 import android.Manifest
 import android.app.NotificationChannel

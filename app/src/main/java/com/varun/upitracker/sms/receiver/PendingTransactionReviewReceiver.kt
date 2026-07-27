@@ -1,4 +1,4 @@
-package com.varun.upitracker.receiver
+package com.varun.upitracker.sms.receiver
 
 import android.content.BroadcastReceiver
 import android.content.Context

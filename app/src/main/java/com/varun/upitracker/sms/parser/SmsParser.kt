@@ -1,4 +1,4 @@
-package com.varun.upitracker.parser
+package com.varun.upitracker.sms.parser
 
 import java.text.SimpleDateFormat
 import java.util.Locale

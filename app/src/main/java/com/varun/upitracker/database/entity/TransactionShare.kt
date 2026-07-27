@@ -9,13 +9,13 @@ import androidx.room.PrimaryKey
     tableName = "transaction_shares",
     foreignKeys = [
         ForeignKey(
-            entity = Transaction::class,
+            entity = _root_ide_package_.com.varun.upitracker.database.entity.Transaction::class,
             parentColumns = ["id"],
             childColumns = ["transactionId"],
             onDelete = ForeignKey.CASCADE
         ),
         ForeignKey(
-            entity = Friend::class,
+            entity = _root_ide_package_.com.varun.upitracker.database.entity.Friend::class,
             parentColumns = ["id"],
             childColumns = ["friendId"],
             onDelete = ForeignKey.CASCADE
@@ -31,8 +31,8 @@ data class TransactionShare(
     val id: Long = 0,
 
     val transactionId: Long,
+    val side: String? = null, // "PAYER" or "PAYEE"; null = legacy
     val participantType: String, // "ME" or "FRIEND"
     val friendId: Long? = null,
-    val shareSide: String,       // "MEANT_TO_PAY" or "MEANT_TO_RECEIVE"
     val amountPaise: Long
 )

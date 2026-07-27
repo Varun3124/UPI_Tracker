@@ -70,56 +70,22 @@
                         android:textSize="14sp"
                         android:textStyle="bold" />
 
-                    <RadioGroup
-                        android:id="@+id/rgPayerType"
+                    <View
                         android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:gravity="end"
-                        android:orientation="horizontal">
+                        android:layout_height="0dp"
+                        android:layout_weight="1" />
 
-                        <RadioButton
-                            android:id="@+id/rbPayerMe"
-                            android:layout_width="wrap_content"
-                            android:layout_height="36dp"
-                            android:layout_marginStart="6dp"
-                            android:background="#262626"
-                            android:button="@null"
-                            android:gravity="center"
-                            android:minWidth="54dp"
-                            android:paddingStart="12dp"
-                            android:paddingEnd="12dp"
-                            android:text="Me"
-                            android:textColor="#FFFFFF" />
-
-                        <RadioButton
-                            android:id="@+id/rbPayerFriend"
-                            android:layout_width="wrap_content"
-                            android:layout_height="36dp"
-                            android:layout_marginStart="6dp"
-                            android:background="#262626"
-                            android:button="@null"
-                            android:gravity="center"
-                            android:minWidth="72dp"
-                            android:paddingStart="12dp"
-                            android:paddingEnd="12dp"
-                            android:text="Friend"
-                            android:textColor="#FFFFFF" />
-
-                        <RadioButton
-                            android:id="@+id/rbPayerMerchant"
-                            android:layout_width="wrap_content"
-                            android:layout_height="36dp"
-                            android:layout_marginStart="6dp"
-                            android:background="#262626"
-                            android:button="@null"
-                            android:gravity="center"
-                            android:minWidth="86dp"
-                            android:paddingStart="12dp"
-                            android:paddingEnd="12dp"
-                            android:text="Merchant"
-                            android:textColor="#FFFFFF" />
-                    </RadioGroup>
+                    <ToggleButton
+                        android:id="@+id/tbPayerMerchant"
+                        android:layout_width="wrap_content"
+                        android:layout_height="36dp"
+                        android:background="#262626"
+                        android:minWidth="86dp"
+                        android:paddingStart="12dp"
+                        android:paddingEnd="12dp"
+                        android:textOff="Merchant"
+                        android:textOn="Merchant"
+                        android:textColor="#FFFFFF" />
                 </LinearLayout>
 
                 <AutoCompleteTextView
@@ -130,16 +96,73 @@
                     android:background="@null"
                     android:completionThreshold="1"
                     android:hint="Select payer"
+                    android:imeOptions="actionDone"
                     android:inputType="textCapWords"
                     android:textColor="#FFFFFF"
                     android:textColorHint="#555555"
                     android:textSize="18sp" />
+
+                <LinearLayout
+                    android:id="@+id/payerSharesContainer"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:orientation="vertical" />
+
+                <Button
+                    android:id="@+id/btnAddPayerPerson"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:backgroundTint="#262626"
+                    android:text="+ Add person"
+                    android:textColor="#AAAAAA"
+                    android:textSize="12sp" />
+
+                <TextView
+                    android:id="@+id/tvPayerBalance"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:textColor="#AAAAAA"
+                    android:textSize="11sp" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="14dp"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Rs"
+                    android:textColor="#FFFFFF"
+                    android:textSize="30sp"
+                    android:textStyle="bold" />
+
+                <EditText
+                    android:id="@+id/etAmount"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="8dp"
+                    android:layout_weight="1"
+                    android:background="@null"
+                    android:hint="0.00"
+                    android:imeOptions="actionDone"
+                    android:inputType="numberDecimal"
+                    android:textColor="#FFFFFF"
+                    android:textColorHint="#333333"
+                    android:textSize="32sp"
+                    android:textStyle="bold" />
             </LinearLayout>
 
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginBottom="16dp"
+                android:layout_marginBottom="14dp"
                 android:background="#1C1C1C"
                 android:orientation="vertical"
                 android:padding="14dp">
@@ -159,56 +182,22 @@
                         android:textSize="14sp"
                         android:textStyle="bold" />
 
-                    <RadioGroup
-                        android:id="@+id/rgPayeeType"
+                    <View
                         android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:gravity="end"
-                        android:orientation="horizontal">
+                        android:layout_height="0dp"
+                        android:layout_weight="1" />
 
-                        <RadioButton
-                            android:id="@+id/rbPayeeMe"
-                            android:layout_width="wrap_content"
-                            android:layout_height="36dp"
-                            android:layout_marginStart="6dp"
-                            android:background="#262626"
-                            android:button="@null"
-                            android:gravity="center"
-                            android:minWidth="54dp"
-                            android:paddingStart="12dp"
-                            android:paddingEnd="12dp"
-                            android:text="Me"
-                            android:textColor="#FFFFFF" />
-
-                        <RadioButton
-                            android:id="@+id/rbPayeeFriend"
-                            android:layout_width="wrap_content"
-                            android:layout_height="36dp"
-                            android:layout_marginStart="6dp"
-                            android:background="#262626"
-                            android:button="@null"
-                            android:gravity="center"
-                            android:minWidth="72dp"
-                            android:paddingStart="12dp"
-                            android:paddingEnd="12dp"
-                            android:text="Friend"
-                            android:textColor="#FFFFFF" />
-
-                        <RadioButton
-                            android:id="@+id/rbPayeeMerchant"
-                            android:layout_width="wrap_content"
-                            android:layout_height="36dp"
-                            android:layout_marginStart="6dp"
-                            android:background="#262626"
-                            android:button="@null"
-                            android:gravity="center"
-                            android:minWidth="86dp"
-                            android:paddingStart="12dp"
-                            android:paddingEnd="12dp"
-                            android:text="Merchant"
-                            android:textColor="#FFFFFF" />
-                    </RadioGroup>
+                    <ToggleButton
+                        android:id="@+id/tbPayeeMerchant"
+                        android:layout_width="wrap_content"
+                        android:layout_height="36dp"
+                        android:background="#262626"
+                        android:minWidth="86dp"
+                        android:paddingStart="12dp"
+                        android:paddingEnd="12dp"
+                        android:textOff="Merchant"
+                        android:textOn="Merchant"
+                        android:textColor="#FFFFFF" />
                 </LinearLayout>
 
                 <AutoCompleteTextView
@@ -219,77 +208,46 @@
                     android:background="@null"
                     android:completionThreshold="1"
                     android:hint="Select payee"
+                    android:imeOptions="actionDone"
                     android:inputType="textCapWords"
                     android:textColor="#FFFFFF"
                     android:textColorHint="#555555"
                     android:textSize="18sp" />
-            </LinearLayout>
 
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="10dp"
-                android:gravity="center_vertical"
-                android:orientation="horizontal">
+                <LinearLayout
+                    android:id="@+id/payeeSharesContainer"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:orientation="vertical" />
 
-                <TextView
+                <Button
+                    android:id="@+id/btnAddPayeePerson"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="Rs"
-                    android:textColor="#FFFFFF"
-                    android:textSize="30sp"
-                    android:textStyle="bold" />
+                    android:layout_marginTop="4dp"
+                    android:backgroundTint="#262626"
+                    android:text="+ Add person"
+                    android:textColor="#AAAAAA"
+                    android:textSize="12sp" />
 
-                <EditText
-                    android:id="@+id/etAmount"
-                    android:layout_width="0dp"
+                <TextView
+                    android:id="@+id/tvPayeeBalance"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginStart="8dp"
-                    android:layout_weight="1"
-                    android:background="@null"
-                    android:hint="0.00"
-                    android:inputType="numberDecimal"
-                    android:textColor="#FFFFFF"
-                    android:textColorHint="#333333"
-                    android:textSize="32sp"
-                    android:textStyle="bold" />
+                    android:layout_marginTop="6dp"
+                    android:textColor="#AAAAAA"
+                    android:textSize="11sp" />
             </LinearLayout>
 
-            <LinearLayout
+            <TextView
+                android:id="@+id/tvBalance"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginBottom="16dp"
-                android:orientation="horizontal">
-
-                <TextView
-                    android:id="@+id/tvMeantPay"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:text="Pay: Rs0"
-                    android:textColor="#AAAAAA"
-                    android:textSize="12sp" />
-
-                <TextView
-                    android:id="@+id/tvMeantReceive"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:gravity="center"
-                    android:text="Receive: Rs0"
-                    android:textColor="#AAAAAA"
-                    android:textSize="12sp" />
-
-                <TextView
-                    android:id="@+id/tvBalance"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_weight="1"
-                    android:gravity="end"
-                    android:text="Unallocated"
-                    android:textColor="#AAAAAA"
-                    android:textSize="12sp" />
-            </LinearLayout>
+                android:text="Unallocated"
+                android:textColor="#AAAAAA"
+                android:textSize="12sp" />
 
             <View
                 android:layout_width="match_parent"
@@ -304,34 +262,6 @@
                 android:orientation="vertical" />
         </LinearLayout>
     </ScrollView>
-
-    <LinearLayout
-        android:id="@+id/shutterPanel"
-        android:layout_width="match_parent"
-        android:layout_height="120dp"
-        android:background="#1A1A1A"
-        android:orientation="vertical">
-
-        <View
-            android:id="@+id/dragHandle"
-            android:layout_width="match_parent"
-            android:layout_height="28dp"
-            android:paddingTop="10dp"
-            android:paddingBottom="10dp" />
-
-        <ScrollView
-            android:layout_width="match_parent"
-            android:layout_height="match_parent"
-            android:scrollbars="none">
-
-            <LinearLayout
-                android:id="@+id/friendsGrid"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:padding="8dp" />
-        </ScrollView>
-    </LinearLayout>
 
     <LinearLayout
         android:layout_width="match_parent"

@@ -9,13 +9,13 @@ import com.varun.upitracker.database.entity.TransactionShare
 interface TransactionShareDao {
 
     @Insert
-    suspend fun insert(share: TransactionShare): Long
+    suspend fun insert(share: com.varun.upitracker.database.entity.TransactionShare): Long
 
     @Insert
-    suspend fun insertAll(shares: List<TransactionShare>)
+    suspend fun insertAll(shares: List<com.varun.upitracker.database.entity.TransactionShare>)
 
     @Query("SELECT * FROM transaction_shares WHERE transactionId = :transactionId")
-    suspend fun getSharesForTransaction(transactionId: Long): List<TransactionShare>
+    suspend fun getSharesForTransaction(transactionId: Long): List<com.varun.upitracker.database.entity.TransactionShare>
 
     @Query("DELETE FROM transaction_shares WHERE transactionId = :transactionId")
     suspend fun deleteForTransaction(transactionId: Long)

@@ -5,8 +5,8 @@ import android.content.Intent
 import android.os.Bundle
 import androidx.appcompat.app.AppCompatActivity
 import com.varun.upitracker.sms.SmsBacklogScanner
-import com.varun.upitracker.ui.DashboardActivity
-import com.varun.upitracker.ui.OnboardingActivity
+import com.varun.upitracker.ui.dashboard.DashboardActivity
+import com.varun.upitracker.ui.onboarding.OnboardingActivity
 
 class MainActivity : AppCompatActivity() {
 

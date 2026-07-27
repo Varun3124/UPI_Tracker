@@ -8,13 +8,13 @@ import com.varun.upitracker.database.entity.IouEntry
 interface IouDao {
 
     @Insert
-    suspend fun insert(entry: IouEntry)
+    suspend fun insert(entry: com.varun.upitracker.database.entity.IouEntry)
 
     @Update
-    suspend fun update(entry: IouEntry)
+    suspend fun update(entry: com.varun.upitracker.database.entity.IouEntry)
 
     @Query("SELECT * FROM iou_entries WHERE friendId = :friendId AND isSettled = 0")
-    fun getUnsettledForFriend(friendId: Long): LiveData<List<IouEntry>>
+    fun getUnsettledForFriend(friendId: Long): LiveData<List<com.varun.upitracker.database.entity.IouEntry>>
 
     // Net balance: positive = friend owes you, negative = you owe friend
     @Query("""
@@ -24,7 +24,7 @@ interface IouDao {
     suspend fun getNetBalanceForFriend(friendId: Long): Long?
 
     @Query("SELECT * FROM iou_entries WHERE transactionId = :transactionId")
-    suspend fun getEntriesForTransaction(transactionId: Long): List<IouEntry>
+    suspend fun getEntriesForTransaction(transactionId: Long): List<com.varun.upitracker.database.entity.IouEntry>
 
     // For all friends at once — used by home screen IOU summary
     @Query("""
@@ -32,7 +32,7 @@ interface IouDao {
         FROM iou_entries WHERE isSettled = 0 
         GROUP BY friendId
     """)
-    suspend fun getAllNetBalances(): List<FriendBalance>
+    suspend fun getAllNetBalances(): List<com.varun.upitracker.database.dao.FriendBalance>
 
     // For auto-offset — oldest unsettled entries first
     @Query("""
@@ -41,7 +41,7 @@ interface IouDao {
     WHERE iou_entries.friendId = :friendId AND iou_entries.isSettled = 0
     ORDER BY transactions.dateEpoch ASC
 """)
-    suspend fun getUnsettledOldestFirst(friendId: Long): List<IouEntry>
+    suspend fun getUnsettledOldestFirst(friendId: Long): List<com.varun.upitracker.database.entity.IouEntry>
 
     @Query("""
     SELECT iou_entries.* FROM iou_entries
@@ -51,7 +51,7 @@ interface IouDao {
       AND iou_entries.amountPaise > 0
     ORDER BY transactions.dateEpoch ASC
 """)
-    suspend fun getPositiveUnsettledOldestFirst(friendId: Long): List<IouEntry>
+    suspend fun getPositiveUnsettledOldestFirst(friendId: Long): List<com.varun.upitracker.database.entity.IouEntry>
 
     @Query("""
     SELECT iou_entries.* FROM iou_entries
@@ -61,7 +61,7 @@ interface IouDao {
       AND iou_entries.amountPaise < 0
     ORDER BY transactions.dateEpoch ASC
 """)
-    suspend fun getNegativeUnsettledOldestFirst(friendId: Long): List<IouEntry>
+    suspend fun getNegativeUnsettledOldestFirst(friendId: Long): List<com.varun.upitracker.database.entity.IouEntry>
 
     @Query("""
     SELECT MAX(transactions.dateEpoch) FROM iou_entries
@@ -72,7 +72,7 @@ interface IouDao {
 
     // All entries ever for a friend — settled and unsettled, for lifetime totals
     @Query("SELECT * FROM iou_entries WHERE friendId = :friendId")
-    suspend fun getAllEntriesForFriend(friendId: Long): List<IouEntry>
+    suspend fun getAllEntriesForFriend(friendId: Long): List<com.varun.upitracker.database.entity.IouEntry>
 
     @Query("DELETE FROM iou_entries WHERE transactionId = :txId")
     suspend fun deleteForTransaction(txId: Long)

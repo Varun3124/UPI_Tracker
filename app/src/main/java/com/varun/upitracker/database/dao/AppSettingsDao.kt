@@ -10,8 +10,8 @@ import com.varun.upitracker.database.entity.AppSettings
 interface AppSettingsDao {
 
     @Query("SELECT * FROM app_settings WHERE id = 1")
-    suspend fun get(): AppSettings?
+    suspend fun get(): com.varun.upitracker.database.entity.AppSettings?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun save(settings: AppSettings)
+    suspend fun save(settings: com.varun.upitracker.database.entity.AppSettings)
 }

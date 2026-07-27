@@ -8,7 +8,7 @@ import androidx.room.PrimaryKey
 @Entity(
     tableName = "friend_upi_ids",
     foreignKeys = [ForeignKey(
-        entity = Friend::class,
+        entity = _root_ide_package_.com.varun.upitracker.database.entity.Friend::class,
         parentColumns = ["id"],
         childColumns = ["friendId"],
         onDelete = ForeignKey.CASCADE

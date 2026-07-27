@@ -327,11 +327,9 @@ class SettingsRepository(private val context: Context) {
 
     private suspend fun mergeFriendInto(source: Friend, target: Friend, targetName: String) {
         if (source.id == target.id) return
-        db.transactionDao().reassignResolvedFriend(source.id, target.id)
         db.transactionDao().reassignPayerFriend(source.id, target.id)
         db.transactionDao().reassignPayeeFriend(source.id, target.id)
         db.transactionShareDao().reassignFriend(source.id, target.id)
-        db.transactionPartyDao().reassignFriend(source.id, target.id)
         db.iouDao().reassignFriend(source.id, target.id)
         db.friendDao().moveAllRawNames(source.id, target.id)
         db.friendDao().moveAllUpiIds(source.id, target.id)
@@ -341,7 +339,6 @@ class SettingsRepository(private val context: Context) {
 
     private suspend fun mergeMerchantInto(source: Merchant, target: Merchant, targetName: String) {
         if (source.id == target.id) return
-        db.transactionDao().reassignResolvedMerchant(source.id, target.id)
         db.transactionDao().reassignPayerMerchant(source.id, target.id)
         db.transactionDao().reassignPayeeMerchant(source.id, target.id)
         db.merchantDao().moveAllRawNames(source.id, target.id)
@@ -359,8 +356,7 @@ class SettingsRepository(private val context: Context) {
     private suspend fun friendHasHistory(friendId: Long): Boolean {
         return db.transactionDao().countReferencesForFriend(friendId) > 0 ||
             db.iouDao().countEntriesForFriend(friendId) > 0 ||
-            db.transactionShareDao().countForFriend(friendId) > 0 ||
-            db.transactionPartyDao().countForFriend(friendId) > 0
+            db.transactionShareDao().countForFriend(friendId) > 0
     }
 
     private suspend fun merchantHasHistory(merchantId: Long): Boolean {

@@ -1,8 +1,6 @@
-package com.varun.upitracker.resolver
+package com.varun.upitracker.sms.resolver
 
 import com.varun.upitracker.database.AppDatabase
-import com.varun.upitracker.database.entity.Merchant
-import com.varun.upitracker.database.entity.Friend
 
 sealed class ResolvedAs {
     data class AsFriend(

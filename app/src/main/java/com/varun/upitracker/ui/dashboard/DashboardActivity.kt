@@ -1,4 +1,4 @@
-package com.varun.upitracker.ui
+package com.varun.upitracker.ui.dashboard
 
 import android.content.Intent
 import android.graphics.Color
@@ -20,6 +20,14 @@ import com.varun.upitracker.database.entity.Transaction
 import com.varun.upitracker.ledger.FriendLedgerSummary
 import com.varun.upitracker.ledger.LedgerManager
 import com.varun.upitracker.sms.SmsBacklogScanner
+import com.varun.upitracker.ui.AllTransactionsActivity
+import com.varun.upitracker.ui.AmountPerspective
+import com.varun.upitracker.ui.FriendDetailActivity
+import com.varun.upitracker.ui.SettingsActivity
+import com.varun.upitracker.ui.TransactionEntryActivity
+import com.varun.upitracker.ui.amountPerspective
+import com.varun.upitracker.ui.formatPerspectiveAmount
+import com.varun.upitracker.ui.resolvePrimaryDisplay
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -93,9 +101,8 @@ class DashboardActivity : AppCompatActivity() {
             card.findViewById<TextView>(R.id.tvCardPayee).text = withContext(Dispatchers.IO) { tx.resolvePrimaryDisplay(db) }
             card.findViewById<TextView>(R.id.tvCardDate).text = dateFmt.format(Date(tx.dateEpoch))
             val amountTv = card.findViewById<TextView>(R.id.tvCardAmount)
-            val amount = "Rs${"%.0f".format(tx.amountPaise / 100.0)}"
-            amountTv.text = if (tx.direction == "DEBIT") "-$amount" else "+$amount"
-            amountTv.setTextColor(if (tx.direction == "DEBIT") Color.parseColor("#C62828") else Color.parseColor("#2E7D32"))
+            amountTv.text = tx.formatPerspectiveAmount()
+            amountTv.setTextColor(tx.perspectiveColor())
             card.findViewById<TextView>(R.id.tvPendingBadge).visibility = if (tx.isPending) View.VISIBLE else View.GONE
             card.setOnClickListener { openTransactionEntry(tx.id) }
             recentRow.addView(card)
@@ -152,7 +159,7 @@ class DashboardActivity : AppCompatActivity() {
             }
             card.setOnClickListener {
                 startActivity(Intent(this, FriendDetailActivity::class.java).apply {
-                    putExtra(FriendDetailActivity.EXTRA_FRIEND_ID, summary.friendId)
+                    putExtra(FriendDetailActivity.Companion.EXTRA_FRIEND_ID, summary.friendId)
                 })
             }
             iouContainer.addView(card)
@@ -165,7 +172,7 @@ class DashboardActivity : AppCompatActivity() {
 
     private fun openTransactionEntry(transactionId: Long) {
         startActivity(Intent(this, TransactionEntryActivity::class.java).apply {
-            putExtra(TransactionEntryActivity.EXTRA_TRANSACTION_ID, transactionId)
+            putExtra(TransactionEntryActivity.Companion.EXTRA_TRANSACTION_ID, transactionId)
         })
     }
 
@@ -187,4 +194,10 @@ class DashboardActivity : AppCompatActivity() {
         cal.set(Calendar.MILLISECOND, 0)
         return cal.timeInMillis
     }
+}
+
+private fun Transaction.perspectiveColor(): Int = when (amountPerspective()) {
+    AmountPerspective.OUTGOING -> Color.parseColor("#C62828")
+    AmountPerspective.INCOMING -> Color.parseColor("#2E7D32")
+    AmountPerspective.NEUTRAL -> Color.parseColor("#AAAAAA")
 }

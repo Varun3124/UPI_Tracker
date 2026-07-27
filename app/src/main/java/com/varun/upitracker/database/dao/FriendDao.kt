@@ -8,54 +8,51 @@ import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Transaction
 import androidx.room.Update
-import com.varun.upitracker.database.entity.Friend
-import com.varun.upitracker.database.entity.FriendRawName
-import com.varun.upitracker.database.entity.FriendUpiId
 import com.varun.upitracker.database.model.FriendAliasBundle
 
 @Dao
 interface FriendDao {
 
     @Insert
-    suspend fun insertFriend(friend: Friend): Long
+    suspend fun insertFriend(friend: com.varun.upitracker.database.entity.Friend): Long
 
     @Insert(onConflict = OnConflictStrategy.IGNORE)
-    suspend fun insertUpiId(upiId: FriendUpiId)
+    suspend fun insertUpiId(upiId: com.varun.upitracker.database.entity.FriendUpiId)
 
     @Insert(onConflict = OnConflictStrategy.IGNORE)
-    suspend fun insertRawName(rawName: FriendRawName)
+    suspend fun insertRawName(rawName: com.varun.upitracker.database.entity.FriendRawName)
 
     @Update
-    suspend fun updateFriend(friend: Friend)
+    suspend fun updateFriend(friend: com.varun.upitracker.database.entity.Friend)
 
     @Query("SELECT * FROM friends ORDER BY name ASC")
-    fun getAllFriends(): LiveData<List<Friend>>
+    fun getAllFriends(): LiveData<List<com.varun.upitracker.database.entity.Friend>>
 
     @Query("SELECT * FROM friends WHERE id = :id")
-    suspend fun getFriendById(id: Long): Friend?
+    suspend fun getFriendById(id: Long): com.varun.upitracker.database.entity.Friend?
 
     // Credit resolution — look up by UPI ID
     @Query("SELECT * FROM friend_upi_ids WHERE upiId = :upiId LIMIT 1")
-    suspend fun findByUpiId(upiId: String): FriendUpiId?
+    suspend fun findByUpiId(upiId: String): com.varun.upitracker.database.entity.FriendUpiId?
 
     // Debit resolution — look up by raw name
     @Query("SELECT * FROM friend_raw_names WHERE rawName = :rawName LIMIT 1")
-    suspend fun findByRawName(rawName: String): FriendRawName?
+    suspend fun findByRawName(rawName: String): com.varun.upitracker.database.entity.FriendRawName?
 
     @Query("SELECT * FROM friend_upi_ids WHERE friendId = :friendId")
-    suspend fun getUpiIdsForFriend(friendId: Long): List<FriendUpiId>
+    suspend fun getUpiIdsForFriend(friendId: Long): List<com.varun.upitracker.database.entity.FriendUpiId>
 
     @Query("SELECT * FROM friend_raw_names WHERE friendId = :friendId")
-    suspend fun getRawNamesForFriend(friendId: Long): List<FriendRawName>
+    suspend fun getRawNamesForFriend(friendId: Long): List<com.varun.upitracker.database.entity.FriendRawName>
 
     @Query("SELECT * FROM friends ORDER BY name ASC")
-    suspend fun getAllFriendsSync(): List<Friend>
+    suspend fun getAllFriendsSync(): List<com.varun.upitracker.database.entity.Friend>
 
     @Query("SELECT * FROM friends WHERE name = :name LIMIT 1")
-    suspend fun findByName(name: String): Friend?
+    suspend fun findByName(name: String): com.varun.upitracker.database.entity.Friend?
 
     @Query("SELECT * FROM friends WHERE LOWER(TRIM(name)) = LOWER(TRIM(:name)) LIMIT 1")
-    suspend fun findByNormalizedName(name: String): Friend?
+    suspend fun findByNormalizedName(name: String): com.varun.upitracker.database.entity.Friend?
 
     @Query("""
     SELECT friends.* FROM friends
@@ -67,17 +64,14 @@ interface FriendDao {
         WHERE friendId IS NOT NULL
         GROUP BY friendId
     ) share ON friends.id = share.friendId
-    LEFT JOIN (
-        SELECT friendId, COUNT(*) as cnt FROM transaction_parties GROUP BY friendId
-    ) party ON friends.id = party.friendId
     GROUP BY friends.id
-    ORDER BY (COALESCE(iou.cnt,0) + COALESCE(share.cnt,0) + COALESCE(party.cnt,0)) DESC, friends.name ASC
+    ORDER BY (COALESCE(iou.cnt,0) + COALESCE(share.cnt,0)) DESC, friends.name ASC
 """)
-    suspend fun getAllFriendsByFrequency(): List<Friend>
+    suspend fun getAllFriendsByFrequency(): List<com.varun.upitracker.database.entity.Friend>
 
     @Transaction
     @Query("SELECT * FROM friends ORDER BY name COLLATE NOCASE ASC, id ASC")
-    suspend fun getAliasBundles(): List<FriendAliasBundle>
+    suspend fun getAliasBundles(): List<com.varun.upitracker.database.model.FriendAliasBundle>
 
     @Query("UPDATE friend_raw_names SET friendId = :friendId WHERE id = :mappingId")
     suspend fun reassignRawName(mappingId: Long, friendId: Long)
@@ -92,11 +86,11 @@ interface FriendDao {
     suspend fun moveAllUpiIds(sourceId: Long, targetId: Long)
 
     @Delete
-    suspend fun deleteFriend(friend: Friend)
+    suspend fun deleteFriend(friend: com.varun.upitracker.database.entity.Friend)
 
     @Delete
-    suspend fun deleteUpiId(upiId: FriendUpiId)
+    suspend fun deleteUpiId(upiId: com.varun.upitracker.database.entity.FriendUpiId)
 
     @Delete
-    suspend fun deleteRawName(rawName: FriendRawName)
+    suspend fun deleteRawName(rawName: com.varun.upitracker.database.entity.FriendRawName)
 }
