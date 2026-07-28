@@ -13,13 +13,12 @@ import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import com.varun.upitracker.R
 import com.varun.upitracker.database.AppDatabase
 import com.varun.upitracker.database.entity.Transaction
 import com.varun.upitracker.ledger.FriendLedgerSummary
-import com.varun.upitracker.ledger.LedgerManager
-import com.varun.upitracker.sms.SmsBacklogScanner
 import com.varun.upitracker.ui.AllTransactionsActivity
 import com.varun.upitracker.ui.AmountPerspective
 import com.varun.upitracker.ui.FriendDetailActivity
@@ -29,11 +28,9 @@ import com.varun.upitracker.ui.amountPerspective
 import com.varun.upitracker.ui.formatPerspectiveAmount
 import com.varun.upitracker.ui.resolvePrimaryDisplay
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
-import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 
@@ -44,7 +41,7 @@ class DashboardActivity : AppCompatActivity() {
     private lateinit var recentRow: LinearLayout
     private lateinit var iouContainer: LinearLayout
     private val dateFmt = SimpleDateFormat("dd MMM", Locale.getDefault())
-    private var loadDataJob: Job? = null
+    private lateinit var viewModel: DashboardViewModel
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
@@ -61,44 +58,45 @@ class DashboardActivity : AppCompatActivity() {
         tvMonthlySpend = findViewById(R.id.tvMonthlySpend)
         recentRow = findViewById(R.id.recentTransactionsRow)
         iouContainer = findViewById(R.id.iouContainer)
+        viewModel = ViewModelProvider(
+            this,
+            DashboardViewModelFactory(applicationContext)
+        )[DashboardViewModel::class.java]
 
         findViewById<TextView>(R.id.btnSettings).setOnClickListener {
             startActivity(Intent(this, SettingsActivity::class.java))
         }
 
         findViewById<Button>(R.id.btnAddManual).setOnClickListener { launchManualEntry() }
+        viewModel.uiState.observe(this) { state ->
+            tvDailySpend.text = "Rs${"%.0f".format(state.dailySpendPaise / 100.0)}"
+            tvMonthlySpend.text = "Rs${"%.0f".format(state.monthlySpendPaise / 100.0)}"
+            buildRecentRow(state.recentTransactions)
+            buildIouSection(state.iouSummaries)
+        }
         loadData()
     }
 
     override fun onResume() {
         super.onResume()
         loadData()
-        lifecycleScope.launch(Dispatchers.IO) { SmsBacklogScanner(applicationContext).scan() }
+        viewModel.scanSmsBacklog()
     }
 
     private fun loadData() {
-        loadDataJob?.cancel()
-        loadDataJob = lifecycleScope.launch {
-            val db = AppDatabase.getInstance(applicationContext)
-            val now = System.currentTimeMillis()
-            val dailySpend = withContext(Dispatchers.IO) { db.transactionDao().getTotalDebitSince(startOfDay(now)) ?: 0L }
-            val monthlySpend = withContext(Dispatchers.IO) { db.transactionDao().getTotalDebitSince(startOfMonth(now)) ?: 0L }
-            tvDailySpend.text = "Rs${"%.0f".format(dailySpend / 100.0)}"
-            tvMonthlySpend.text = "Rs${"%.0f".format(monthlySpend / 100.0)}"
-
-            val recent = withContext(Dispatchers.IO) { db.transactionDao().getRecentTransactions(5) }
-            buildRecentRow(recent, db)
-
-            val summaries = withContext(Dispatchers.IO) { LedgerManager(db).getAllSummaries() }
-            buildIouSection(summaries)
-        }
+        viewModel.loadData()
     }
 
-    private suspend fun buildRecentRow(transactions: List<Transaction>, db: AppDatabase) {
+    private fun buildRecentRow(transactions: List<Transaction>) {
+        val db = AppDatabase.getInstance(applicationContext)
         recentRow.removeAllViews()
         transactions.forEach { tx ->
             val card = LayoutInflater.from(this).inflate(R.layout.item_transaction_card, recentRow, false)
-            card.findViewById<TextView>(R.id.tvCardPayee).text = withContext(Dispatchers.IO) { tx.resolvePrimaryDisplay(db) }
+            lifecycleScope.launch {
+                card.findViewById<TextView>(R.id.tvCardPayee).text = withContext(Dispatchers.IO) {
+                    tx.resolvePrimaryDisplay(db)
+                }
+            }
             card.findViewById<TextView>(R.id.tvCardDate).text = dateFmt.format(Date(tx.dateEpoch))
             val amountTv = card.findViewById<TextView>(R.id.tvCardAmount)
             amountTv.text = tx.formatPerspectiveAmount()
@@ -174,25 +172,6 @@ class DashboardActivity : AppCompatActivity() {
         startActivity(Intent(this, TransactionEntryActivity::class.java).apply {
             putExtra(TransactionEntryActivity.Companion.EXTRA_TRANSACTION_ID, transactionId)
         })
-    }
-
-    private fun startOfDay(now: Long): Long {
-        val cal = Calendar.getInstance().apply { timeInMillis = now }
-        cal.set(Calendar.HOUR_OF_DAY, 0)
-        cal.set(Calendar.MINUTE, 0)
-        cal.set(Calendar.SECOND, 0)
-        cal.set(Calendar.MILLISECOND, 0)
-        return cal.timeInMillis
-    }
-
-    private fun startOfMonth(now: Long): Long {
-        val cal = Calendar.getInstance().apply { timeInMillis = now }
-        cal.set(Calendar.DAY_OF_MONTH, 1)
-        cal.set(Calendar.HOUR_OF_DAY, 0)
-        cal.set(Calendar.MINUTE, 0)
-        cal.set(Calendar.SECOND, 0)
-        cal.set(Calendar.MILLISECOND, 0)
-        return cal.timeInMillis
     }
 }
 

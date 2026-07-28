@@ -9,15 +9,12 @@ import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
-import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.ViewModelProvider
 import com.varun.upitracker.R
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 class SettingsActivity : AppCompatActivity() {
 
-    private lateinit var repository: SettingsRepository
+    private lateinit var viewModel: SettingsViewModel
     private lateinit var tvBalanceValue: TextView
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -25,7 +22,10 @@ class SettingsActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_settings)
 
-        repository = SettingsRepository(applicationContext)
+        viewModel = ViewModelProvider(
+            this,
+            AppViewModelFactory(applicationContext)
+        )[SettingsViewModel::class.java]
 
         ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main)) { view, insets ->
             val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
@@ -46,6 +46,10 @@ class SettingsActivity : AppCompatActivity() {
         findViewById<android.view.View>(R.id.cardMerchantAliases).setOnClickListener {
             startActivity(AliasMappingsActivity.createIntent(this, AliasMappingsActivity.MODE_MERCHANT))
         }
+
+        viewModel.balancePaise.observe(this) { balance ->
+            tvBalanceValue.text = if (balance == null) "Not set" else "Rs${"%.2f".format(balance / 100.0)}"
+        }
     }
 
     override fun onResume() {
@@ -54,10 +58,7 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     private fun loadBalance() {
-        lifecycleScope.launch {
-            val balance = withContext(Dispatchers.IO) { repository.getTotalBalancePaise() }
-            tvBalanceValue.text = if (balance == null) "Not set" else "Rs${"%.2f".format(balance / 100.0)}"
-        }
+        viewModel.loadBalance()
     }
 
     private fun showBalanceDialog() {
@@ -80,13 +81,8 @@ class SettingsActivity : AppCompatActivity() {
                     Toast.makeText(this, "Enter a valid amount.", Toast.LENGTH_SHORT).show()
                     return@setPositiveButton
                 }
-                lifecycleScope.launch {
-                    try {
-                        withContext(Dispatchers.IO) { repository.updateTotalBalancePaise(paise) }
-                        loadBalance()
-                    } catch (error: Exception) {
-                        Toast.makeText(this@SettingsActivity, error.message ?: "Could not save balance.", Toast.LENGTH_SHORT).show()
-                    }
+                viewModel.saveBalance(paise) { message ->
+                    Toast.makeText(this@SettingsActivity, message, Toast.LENGTH_SHORT).show()
                 }
             }
             .setNegativeButton("Cancel", null)

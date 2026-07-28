@@ -6,6 +6,7 @@ import android.content.Intent
 import android.provider.Telephony
 import android.util.Log
 import com.varun.upitracker.database.AppDatabase
+import com.varun.upitracker.data.repository.AccountRepository
 import com.varun.upitracker.database.entity.Transaction
 import com.varun.upitracker.database.entity.TransactionShare
 import com.varun.upitracker.sms.parser.ParsedSms
@@ -40,6 +41,7 @@ class SmsReceiver : BroadcastReceiver() {
 
     private suspend fun saveTransaction(context: Context, parsed: ParsedSms) {
         val db = AppDatabase.getInstance(context)
+        AccountRepository(db).ensureDefaultAccounts()
         if (db.transactionDao().findByRefId(parsed.upiRefId) != null) {
             Log.d(TAG, "Duplicate ref ${parsed.upiRefId}, skipping")
             return

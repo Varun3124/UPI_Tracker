@@ -10,7 +10,7 @@ import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
-import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.ViewModelProvider
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.varun.upitracker.R
@@ -27,6 +27,7 @@ import java.util.Locale
 class AllTransactionsActivity : AppCompatActivity() {
 
     private val dateFmt = SimpleDateFormat("dd MMM yyyy", Locale.getDefault())
+    private lateinit var viewModel: AllTransactionsViewModel
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
@@ -41,26 +42,22 @@ class AllTransactionsActivity : AppCompatActivity() {
 
         findViewById<TextView>(R.id.btnBackAll).setOnClickListener { finish() }
 
-        lifecycleScope.launch {
+        viewModel = ViewModelProvider(
+            this,
+            ScreenViewModelFactory(applicationContext)
+        )[AllTransactionsViewModel::class.java]
+        viewModel.uiState.observe(this) { state ->
             val db = AppDatabase.getInstance(applicationContext)
-            val startOfMonth = java.util.Calendar.getInstance().apply {
-                set(java.util.Calendar.DAY_OF_MONTH, 1)
-                set(java.util.Calendar.HOUR_OF_DAY, 0)
-                set(java.util.Calendar.MINUTE, 0)
-                set(java.util.Calendar.SECOND, 0)
-                set(java.util.Calendar.MILLISECOND, 0)
-            }.timeInMillis
-
-            val txList = withContext(Dispatchers.IO) { db.transactionDao().getTransactionsSinceSync(startOfMonth) }
             findViewById<RecyclerView>(R.id.rvAllTransactions).apply {
                 layoutManager = LinearLayoutManager(this@AllTransactionsActivity)
-                adapter = AllTransactionsAdapter(txList, db, dateFmt) { txId ->
+                adapter = AllTransactionsAdapter(state.transactions, db, dateFmt) { txId ->
                     startActivity(Intent(this@AllTransactionsActivity, TransactionEntryActivity::class.java).apply {
                         putExtra(TransactionEntryActivity.EXTRA_TRANSACTION_ID, txId)
                     })
                 }
             }
         }
+        viewModel.loadCurrentMonth()
     }
 }
 

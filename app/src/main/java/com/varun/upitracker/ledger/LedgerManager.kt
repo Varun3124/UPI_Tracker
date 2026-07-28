@@ -1,181 +1,31 @@
 package com.varun.upitracker.ledger
 
-import android.util.Log
+import com.varun.upitracker.data.repository.LedgerRepository
 import com.varun.upitracker.database.AppDatabase
-import com.varun.upitracker.database.entity.IouEntry
 
-private const val TAG = "LedgerManager"
-
-data class FriendLedgerSummary(
-    val friendId: Long,
-    val friendName: String,
-    val netBalancePaise: Long,
-    val totalTheyOwedYou: Long,
-    val totalYouOwedThem: Long,
-    val lastActivityEpoch: Long?
-)
+typealias FriendLedgerSummary = com.varun.upitracker.data.repository.FriendLedgerSummary
 
 class LedgerManager(private val db: AppDatabase) {
+    private val repository = LedgerRepository(db)
 
-    suspend fun recordBalanceChange(
-        transactionId: Long,
-        friendId: Long,
-        deltaPaise: Long
-    ) {
-        if (deltaPaise == 0L) return
+    suspend fun recordBalanceChange(transactionId: Long, friendId: Long, deltaPaise: Long) =
+        repository.recordBalanceChange(transactionId, friendId, deltaPaise)
 
-        db.iouDao().insert(
-            _root_ide_package_.com.varun.upitracker.database.entity.IouEntry(
-                transactionId = transactionId,
-                friendId = friendId,
-                amountPaise = deltaPaise,
-                isSettled = false
-            )
-        )
-        Log.d(TAG, "Recorded balance change friend=$friendId delta=$deltaPaise on tx=$transactionId")
-    }
+    suspend fun recordDebts(transactionId: Long, friendShares: Map<Long, Long>) =
+        repository.recordDebts(transactionId, friendShares)
 
-    suspend fun recordDebts(
-        transactionId: Long,
-        friendShares: Map<Long, Long>
-    ) {
-        db.runInTransaction {
-            kotlinx.coroutines.runBlocking {
-                friendShares.forEach { (friendId, amountPaise) ->
-                    recordBalanceChange(transactionId, friendId, amountPaise)
-                }
-            }
-        }
-    }
+    suspend fun recordReverseDebt(transactionId: Long, friendId: Long, amountPaise: Long) =
+        repository.recordReverseDebt(transactionId, friendId, amountPaise)
 
-    suspend fun recordReverseDebt(
-        transactionId: Long,
-        friendId: Long,
-        amountPaise: Long
-    ) {
-        recordBalanceChange(transactionId, friendId, -amountPaise)
-    }
+    suspend fun applyRepayment(transactionId: Long, friendId: Long, creditAmountPaise: Long) =
+        repository.applyRepayment(transactionId, friendId, creditAmountPaise)
 
-    suspend fun applyRepayment(
-        transactionId: Long,
-        friendId: Long,
-        creditAmountPaise: Long
-    ) {
-        applyAgainstPositiveBalance(transactionId, friendId, creditAmountPaise)
-    }
+    suspend fun applyOutgoingSettlement(transactionId: Long, friendId: Long, debitAmountPaise: Long) =
+        repository.applyOutgoingSettlement(transactionId, friendId, debitAmountPaise)
 
-    suspend fun applyOutgoingSettlement(
-        transactionId: Long,
-        friendId: Long,
-        debitAmountPaise: Long
-    ) {
-        applyAgainstNegativeBalance(transactionId, friendId, debitAmountPaise)
-    }
+    suspend fun getSummaryForFriend(friendId: Long): FriendLedgerSummary? =
+        repository.getSummaryForFriend(friendId)
 
-    suspend fun getSummaryForFriend(friendId: Long): FriendLedgerSummary? {
-        val friend = db.friendDao().getFriendById(friendId) ?: return null
-        val netBalance = db.iouDao().getNetBalanceForFriend(friendId) ?: 0L
-        val lastActivity = db.iouDao().getLastActivityEpoch(friendId)
-        val allFriendEntries = db.iouDao().getAllEntriesForFriend(friendId)
-
-        val totalTheyOwedYou = allFriendEntries
-            .filter { it.amountPaise > 0 }
-            .sumOf { it.amountPaise }
-        val totalYouOwedThem = allFriendEntries
-            .filter { it.amountPaise < 0 }
-            .sumOf { -it.amountPaise }
-
-        return FriendLedgerSummary(
-            friendId = friendId,
-            friendName = friend.name,
-            netBalancePaise = netBalance,
-            totalTheyOwedYou = totalTheyOwedYou,
-            totalYouOwedThem = totalYouOwedThem,
-            lastActivityEpoch = lastActivity
-        )
-    }
-
-    suspend fun getAllSummaries(): List<FriendLedgerSummary> {
-        val balances = db.iouDao().getAllNetBalances()
-        return balances.mapNotNull { getSummaryForFriend(it.friendId) }
-            .sortedByDescending { kotlin.math.abs(it.netBalancePaise) }
-    }
-
-    private suspend fun applyAgainstPositiveBalance(
-        transactionId: Long,
-        friendId: Long,
-        amountPaise: Long
-    ) {
-        db.runInTransaction {
-            kotlinx.coroutines.runBlocking {
-                val unsettled = db.iouDao().getPositiveUnsettledOldestFirst(friendId)
-                var remaining = amountPaise
-
-                unsettled.forEach { entry ->
-                    if (remaining <= 0) return@forEach
-                    remaining = settleEntry(entry, remaining)
-                }
-
-                if (remaining > 0) {
-                    recordBalanceChange(transactionId, friendId, -remaining)
-                }
-            }
-        }
-    }
-
-    private suspend fun applyAgainstNegativeBalance(
-        transactionId: Long,
-        friendId: Long,
-        amountPaise: Long
-    ) {
-        db.runInTransaction {
-            kotlinx.coroutines.runBlocking {
-                val unsettled = db.iouDao().getNegativeUnsettledOldestFirst(friendId)
-                var remaining = amountPaise
-
-                unsettled.forEach { entry ->
-                    if (remaining <= 0) return@forEach
-                    remaining = settleEntry(entry, remaining)
-                }
-
-                if (remaining > 0) {
-                    recordBalanceChange(transactionId, friendId, remaining)
-                }
-            }
-        }
-    }
-
-    private suspend fun settleEntry(entry: com.varun.upitracker.database.entity.IouEntry, settlementAmount: Long): Long {
-        val magnitude = kotlin.math.abs(entry.amountPaise)
-        val now = System.currentTimeMillis()
-
-        return if (settlementAmount >= magnitude) {
-            db.iouDao().update(
-                entry.copy(
-                    isSettled = true,
-                    settledEpoch = now
-                )
-            )
-            settlementAmount - magnitude
-        } else {
-            val residualMagnitude = magnitude - settlementAmount
-            val residualSigned = if (entry.amountPaise >= 0) residualMagnitude else -residualMagnitude
-
-            db.iouDao().update(
-                entry.copy(
-                    isSettled = true,
-                    settledEpoch = now
-                )
-            )
-            db.iouDao().insert(
-                _root_ide_package_.com.varun.upitracker.database.entity.IouEntry(
-                    transactionId = entry.transactionId,
-                    friendId = entry.friendId,
-                    amountPaise = residualSigned,
-                    isSettled = false
-                )
-            )
-            0L
-        }
-    }
+    suspend fun getAllSummaries(): List<FriendLedgerSummary> =
+        repository.getAllSummaries()
 }

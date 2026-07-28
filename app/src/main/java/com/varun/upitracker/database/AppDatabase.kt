@@ -4,19 +4,29 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.room.TypeConverters
 import androidx.sqlite.db.SupportSQLiteDatabase
+import com.varun.upitracker.database.dao.AccountDao
+import com.varun.upitracker.database.dao.AccountTransferDao
 import com.varun.upitracker.database.dao.AppSettingsDao
+import com.varun.upitracker.database.dao.BalanceSnapshotDao
 import com.varun.upitracker.database.dao.BudgetDao
 import com.varun.upitracker.database.dao.CategoryDao
+import com.varun.upitracker.database.dao.FixedDepositDao
 import com.varun.upitracker.database.dao.FriendDao
 import com.varun.upitracker.database.dao.IouDao
 import com.varun.upitracker.database.dao.MerchantDao
 import com.varun.upitracker.database.dao.TransactionCategorySplitDao
 import com.varun.upitracker.database.dao.TransactionDao
 import com.varun.upitracker.database.dao.TransactionShareDao
+import com.varun.upitracker.database.entity.Account
+import com.varun.upitracker.database.entity.AccountTransfer
+import com.varun.upitracker.database.entity.AccountType
 import com.varun.upitracker.database.entity.AppSettings
+import com.varun.upitracker.database.entity.BalanceSnapshot
 import com.varun.upitracker.database.entity.BudgetSettings
 import com.varun.upitracker.database.entity.Category
+import com.varun.upitracker.database.entity.FixedDepositDetail
 import com.varun.upitracker.database.entity.Friend
 import com.varun.upitracker.database.entity.FriendRawName
 import com.varun.upitracker.database.entity.FriendUpiId
@@ -47,13 +57,22 @@ import kotlinx.coroutines.launch
         _root_ide_package_.com.varun.upitracker.database.entity.MerchantCategory::class,
         _root_ide_package_.com.varun.upitracker.database.entity.AppSettings::class,
         _root_ide_package_.com.varun.upitracker.database.entity.BudgetSettings::class,
-        _root_ide_package_.com.varun.upitracker.database.entity.TransactionCategorySplit::class
+        _root_ide_package_.com.varun.upitracker.database.entity.TransactionCategorySplit::class,
+        _root_ide_package_.com.varun.upitracker.database.entity.Account::class,
+        _root_ide_package_.com.varun.upitracker.database.entity.FixedDepositDetail::class,
+        _root_ide_package_.com.varun.upitracker.database.entity.AccountTransfer::class,
+        _root_ide_package_.com.varun.upitracker.database.entity.BalanceSnapshot::class
     ],
-    version = 7,
+    version = 8,
     exportSchema = false
 )
+@TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
 
+    abstract fun accountDao(): com.varun.upitracker.database.dao.AccountDao
+    abstract fun accountTransferDao(): com.varun.upitracker.database.dao.AccountTransferDao
+    abstract fun balanceSnapshotDao(): com.varun.upitracker.database.dao.BalanceSnapshotDao
+    abstract fun fixedDepositDao(): com.varun.upitracker.database.dao.FixedDepositDao
     abstract fun transactionDao(): com.varun.upitracker.database.dao.TransactionDao
     abstract fun friendDao(): com.varun.upitracker.database.dao.FriendDao
     abstract fun iouDao(): com.varun.upitracker.database.dao.IouDao
@@ -92,6 +111,23 @@ abstract class AppDatabase : RoomDatabase() {
                                         )
                                     )
                                 }
+                                val now = System.currentTimeMillis()
+                                instance.accountDao().insertAll(
+                                    listOf(
+                                        _root_ide_package_.com.varun.upitracker.database.entity.Account(
+                                            id = DefaultAccounts.CASH_ID,
+                                            type = _root_ide_package_.com.varun.upitracker.database.entity.AccountType.CASH,
+                                            label = "Cash",
+                                            addedEpoch = now
+                                        ),
+                                        _root_ide_package_.com.varun.upitracker.database.entity.Account(
+                                            id = DefaultAccounts.SAVINGS_ID,
+                                            type = _root_ide_package_.com.varun.upitracker.database.entity.AccountType.SAVINGS,
+                                            label = "Savings",
+                                            addedEpoch = now
+                                        )
+                                    )
+                                )
                             }
                         }
                     })

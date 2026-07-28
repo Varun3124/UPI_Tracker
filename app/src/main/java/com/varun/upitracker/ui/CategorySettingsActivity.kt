@@ -9,18 +9,15 @@ import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
-import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.ViewModelProvider
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.varun.upitracker.R
 import com.varun.upitracker.database.entity.Category
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 class CategorySettingsActivity : AppCompatActivity() {
 
-    private lateinit var repository: SettingsRepository
+    private lateinit var viewModel: CategorySettingsViewModel
     private lateinit var adapter: CategorySettingsAdapter
     private lateinit var tvEmpty: TextView
 
@@ -29,7 +26,10 @@ class CategorySettingsActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_category_settings)
 
-        repository = SettingsRepository(applicationContext)
+        viewModel = ViewModelProvider(
+            this,
+            AppViewModelFactory(applicationContext)
+        )[CategorySettingsViewModel::class.java]
 
         ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main)) { view, insets ->
             val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
@@ -49,6 +49,10 @@ class CategorySettingsActivity : AppCompatActivity() {
             layoutManager = LinearLayoutManager(this@CategorySettingsActivity)
             adapter = this@CategorySettingsActivity.adapter
         }
+        viewModel.categories.observe(this) { categories ->
+            adapter.submit(categories)
+            tvEmpty.visibility = if (categories.isEmpty()) android.view.View.VISIBLE else android.view.View.GONE
+        }
     }
 
     override fun onResume() {
@@ -57,11 +61,7 @@ class CategorySettingsActivity : AppCompatActivity() {
     }
 
     private fun loadCategories() {
-        lifecycleScope.launch {
-            val categories = withContext(Dispatchers.IO) { repository.getCategories() }
-            adapter.submit(categories)
-            tvEmpty.visibility = if (categories.isEmpty()) android.view.View.VISIBLE else android.view.View.GONE
-        }
+        viewModel.loadCategories()
     }
 
     private fun showCreateDialog() {
@@ -69,11 +69,7 @@ class CategorySettingsActivity : AppCompatActivity() {
             title = "Add category",
             initialValue = ""
         ) { value ->
-            lifecycleScope.launch {
-                runMutation {
-                    createCategory(value)
-                }
-            }
+            viewModel.createCategory(value, ::showMutationError)
         }
     }
 
@@ -82,41 +78,32 @@ class CategorySettingsActivity : AppCompatActivity() {
             title = "Rename category",
             initialValue = category.name
         ) { value ->
-            lifecycleScope.launch {
-                runMutation {
-                    renameCategory(category.id, value)
-                }
-            }
+            viewModel.renameCategory(category.id, value, ::showMutationError)
         }
     }
 
     private fun showDeleteDialog(category: Category) {
-        lifecycleScope.launch {
-            val isUsed = withContext(Dispatchers.IO) { repository.isCategoryInUse(category.id) }
+        viewModel.isCategoryInUse(category.id) { isUsed ->
             if (!isUsed) {
                 AlertDialog.Builder(this@CategorySettingsActivity)
                     .setTitle("Delete category?")
                     .setMessage("Delete '${category.name}'?")
                     .setPositiveButton("Delete") { _, _ ->
-                        lifecycleScope.launch {
-                            runMutation {
-                                deleteCategory(category.id)
-                            }
-                        }
+                        viewModel.deleteCategory(category.id, null, ::showMutationError)
                     }
                     .setNegativeButton("Cancel", null)
                     .show()
-                return@launch
+                return@isCategoryInUse
             }
 
-            val replacements = withContext(Dispatchers.IO) { repository.getReplacementCategories(category.id) }
+            viewModel.replacementCategories(category.id) { replacements ->
             if (replacements.isEmpty()) {
                 Toast.makeText(
                     this@CategorySettingsActivity,
                     "Create another category first so this one can be reassigned.",
                     Toast.LENGTH_SHORT
                 ).show()
-                return@launch
+                return@replacementCategories
             }
 
             var selectedIndex = 0
@@ -126,14 +113,11 @@ class CategorySettingsActivity : AppCompatActivity() {
                 .setSingleChoiceItems(labels, 0) { _, which -> selectedIndex = which }
                 .setMessage("This category is already in use. Reassign it before deleting.")
                 .setPositiveButton("Reassign & delete") { _, _ ->
-                    lifecycleScope.launch {
-                        runMutation {
-                            deleteCategory(category.id, replacements[selectedIndex].id)
-                        }
-                    }
+                    viewModel.deleteCategory(category.id, replacements[selectedIndex].id, ::showMutationError)
                 }
                 .setNegativeButton("Cancel", null)
                 .show()
+            }
         }
     }
 
@@ -150,13 +134,8 @@ class CategorySettingsActivity : AppCompatActivity() {
             .show()
     }
 
-    private suspend fun runMutation(block: suspend SettingsRepository.() -> Unit) {
-        try {
-            withContext(Dispatchers.IO) { repository.block() }
-            loadCategories()
-        } catch (error: Exception) {
-            Toast.makeText(this, error.message ?: "Could not update categories.", Toast.LENGTH_SHORT).show()
-        }
+    private fun showMutationError(message: String) {
+        Toast.makeText(this, message, Toast.LENGTH_SHORT).show()
     }
 }
 

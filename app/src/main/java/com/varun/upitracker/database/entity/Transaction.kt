@@ -32,6 +32,12 @@ import androidx.room.PrimaryKey
             parentColumns = ["id"],
             childColumns = ["payeeMerchantId"],
             onDelete = ForeignKey.SET_NULL
+        ),
+        ForeignKey(
+            entity = _root_ide_package_.com.varun.upitracker.database.entity.Account::class,
+            parentColumns = ["id"],
+            childColumns = ["myAccountId"],
+            onDelete = ForeignKey.RESTRICT
         )
     ],
     indices = [
@@ -39,6 +45,8 @@ import androidx.room.PrimaryKey
         Index("payerMerchantId"),
         Index("payeeFriendId"),
         Index("payeeMerchantId"),
+        Index("myAccountId"),
+        Index(value = ["myAccountId", "dateEpoch"]),
         Index("upiRefId", unique = true)
     ]
 )
@@ -60,6 +68,7 @@ data class Transaction(
 
     val reason: String? = null,
     val upiRefId: String? = null,
+    val myAccountId: String = com.varun.upitracker.database.DefaultAccounts.SAVINGS_ID,
     val dateEpoch: Long,
     val source: String,
     val isPending: Boolean = false

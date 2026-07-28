@@ -18,6 +18,7 @@ import android.widget.AutoCompleteTextView
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
+import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
 import android.widget.ToggleButton
@@ -25,9 +26,13 @@ import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
+import androidx.lifecycle.ViewModelProvider
 import com.google.android.material.chip.Chip
 import com.varun.upitracker.R
 import com.varun.upitracker.database.AppDatabase
+import com.varun.upitracker.database.DefaultAccounts
+import com.varun.upitracker.data.repository.AccountRepository
+import com.varun.upitracker.database.entity.Account
 import com.varun.upitracker.database.entity.Category
 import com.varun.upitracker.database.entity.Friend
 import com.varun.upitracker.database.entity.FriendRawName
@@ -75,12 +80,15 @@ class TransactionEntryActivity : AppCompatActivity() {
     )
 
     private val activityScope = CoroutineScope(Dispatchers.Main + SupervisorJob())
+    private lateinit var viewModel: TransactionEntryViewModel
 
     private var currentTransaction: Transaction? = null
     private var isSmsSource = false
     private var allFriends = listOf<Friend>()
     private var allMerchants = listOf<Merchant>()
     private var allCategories = listOf<Category>()
+    private var transactionAccounts = listOf<Account>()
+    private var selectedAccountId = DefaultAccounts.SAVINGS_ID
 
     private var payerActorType = ActorType.ME
     private var payeeActorType = ActorType.MERCHANT
@@ -99,6 +107,7 @@ class TransactionEntryActivity : AppCompatActivity() {
     private lateinit var etPayerAlias: AutoCompleteTextView
     private lateinit var etPayeeAlias: AutoCompleteTextView
     private lateinit var etAmount: EditText
+    private lateinit var spMyAccount: Spinner
     private lateinit var tvBalance: TextView
     private lateinit var tvPayerBalance: TextView
     private lateinit var tvPayeeBalance: TextView
@@ -125,16 +134,22 @@ class TransactionEntryActivity : AppCompatActivity() {
 
         bindViews()
         val transactionId = intent.getLongExtra(EXTRA_TRANSACTION_ID, -1L).takeIf { it != -1L }
-        activityScope.launch {
+        viewModel = ViewModelProvider(
+            this,
+            ScreenViewModelFactory(applicationContext)
+        )[TransactionEntryViewModel::class.java]
+        viewModel.referenceData.observe(this) { referenceData ->
             val db = AppDatabase.getInstance(applicationContext)
-            allFriends = withContext(Dispatchers.IO) { db.friendDao().getAllFriendsByFrequency() }
-            allMerchants = withContext(Dispatchers.IO) { db.merchantDao().getAllMerchantsSync() }
-            allCategories = withContext(Dispatchers.IO) { db.categoryDao().getAllCategoriesSync() }
-            currentTransaction = transactionId?.let {
-                withContext(Dispatchers.IO) { db.transactionDao().getTransactionById(it) }
+            allFriends = referenceData.friends
+            allMerchants = referenceData.merchants
+            allCategories = referenceData.categories
+            transactionAccounts = referenceData.accounts
+            currentTransaction = referenceData.transaction
+            activityScope.launch {
+                setupUi(db)
             }
-            setupUi(db)
         }
+        viewModel.load(transactionId)
     }
 
     override fun onDestroy() {
@@ -164,6 +179,7 @@ class TransactionEntryActivity : AppCompatActivity() {
         etPayerAlias = findViewById(R.id.etPayerAlias)
         etPayeeAlias = findViewById(R.id.etPayeeAlias)
         etAmount = findViewById(R.id.etAmount)
+        spMyAccount = findViewById(R.id.spMyAccount)
         tvBalance = findViewById(R.id.tvBalance)
         tvPayerBalance = findViewById(R.id.tvPayerBalance)
         tvPayeeBalance = findViewById(R.id.tvPayeeBalance)
@@ -185,6 +201,7 @@ class TransactionEntryActivity : AppCompatActivity() {
         findViewById<TextView>(R.id.btnClose).setOnClickListener { finish() }
         setupEndpointControls()
         setupAmountField()
+        setupAccountPicker(tx)
         setupCategories()
 
         if (tx != null) populateExistingTransaction(tx, db) else seedDefaultState()
@@ -204,6 +221,36 @@ class TransactionEntryActivity : AppCompatActivity() {
         buildShareSection(true)
         buildShareSection(false)
         updateLiveCalc()
+    }
+
+    private fun setupAccountPicker(tx: Transaction?) {
+        if (transactionAccounts.isEmpty()) {
+            transactionAccounts = listOf(
+                Account(
+                    id = DefaultAccounts.SAVINGS_ID,
+                    type = com.varun.upitracker.database.entity.AccountType.SAVINGS,
+                    label = "Savings",
+                    addedEpoch = System.currentTimeMillis()
+                )
+            )
+        }
+        selectedAccountId = tx?.myAccountId ?: DefaultAccounts.SAVINGS_ID
+        val labels = transactionAccounts.map { it.label }
+        spMyAccount.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, labels)
+        val selectedIndex = transactionAccounts.indexOfFirst { it.id == selectedAccountId }.takeIf { it >= 0 } ?: 0
+        spMyAccount.setSelection(selectedIndex)
+        spMyAccount.onItemSelectedListener = object : android.widget.AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(
+                parent: android.widget.AdapterView<*>?,
+                view: View?,
+                position: Int,
+                id: Long
+            ) {
+                selectedAccountId = transactionAccounts.getOrNull(position)?.id ?: DefaultAccounts.SAVINGS_ID
+            }
+
+            override fun onNothingSelected(parent: android.widget.AdapterView<*>?) = Unit
+        }
     }
 
     private suspend fun resolveHeaderLabel(db: AppDatabase, tx: Transaction): String {
@@ -896,6 +943,7 @@ class TransactionEntryActivity : AppCompatActivity() {
                     payeeFriendId = payee.friendId,
                     payeeMerchantId = payee.merchantId,
                     payeeRawLabel = payee.rawLabel,
+                    myAccountId = selectedAccountId,
                     dateEpoch = System.currentTimeMillis(),
                     source = "MANUAL",
                     isPending = false
@@ -909,6 +957,7 @@ class TransactionEntryActivity : AppCompatActivity() {
                     payeeFriendId = payee.friendId,
                     payeeMerchantId = payee.merchantId,
                     payeeRawLabel = payee.rawLabel,
+                    myAccountId = selectedAccountId,
                     isPending = false
                 )
                 val transactionId = if (tx == null) db.transactionDao().insert(base) else {

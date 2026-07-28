@@ -65,6 +65,21 @@ interface TransactionDao {
 
     @Query(
         """
+        SELECT * FROM transactions
+        WHERE myAccountId = :accountId
+          AND dateEpoch > :fromEpochExclusive
+          AND dateEpoch <= :toEpochInclusive
+        ORDER BY dateEpoch ASC, id ASC
+        """
+    )
+    suspend fun getAccountTransactionsBetween(
+        accountId: String,
+        fromEpochExclusive: Long,
+        toEpochInclusive: Long
+    ): List<com.varun.upitracker.database.entity.Transaction>
+
+    @Query(
+        """
         SELECT DISTINCT t.* FROM transactions t
         LEFT JOIN iou_entries i
             ON t.id = i.transactionId

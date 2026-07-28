@@ -3,6 +3,7 @@ package com.varun.upitracker.sms
 import android.content.Context
 import android.net.Uri
 import android.util.Log
+import com.varun.upitracker.data.repository.AccountRepository
 import com.varun.upitracker.database.AppDatabase
 import com.varun.upitracker.database.entity.Transaction
 import com.varun.upitracker.database.entity.TransactionShare
@@ -28,6 +29,7 @@ class SmsBacklogScanner(private val context: Context) {
         val windowDays = prefs.getInt(PREF_BACKLOG_DAYS, DEFAULT_WINDOW_DAYS)
         val windowStart = System.currentTimeMillis() - (windowDays * 24 * 60 * 60 * 1000L)
         val db = AppDatabase.getInstance(context)
+        AccountRepository(db).ensureDefaultAccounts()
         val resolver = AliasResolver(db)
 
         val cursor = context.contentResolver.query(

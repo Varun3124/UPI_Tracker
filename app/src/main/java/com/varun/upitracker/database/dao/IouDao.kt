@@ -34,6 +34,9 @@ interface IouDao {
     """)
     suspend fun getAllNetBalances(): List<com.varun.upitracker.database.dao.FriendBalance>
 
+    @Query("SELECT SUM(amountPaise) FROM iou_entries WHERE isSettled = 0")
+    suspend fun getTotalUnsettledBalance(): Long?
+
     // For auto-offset — oldest unsettled entries first
     @Query("""
     SELECT iou_entries.* FROM iou_entries

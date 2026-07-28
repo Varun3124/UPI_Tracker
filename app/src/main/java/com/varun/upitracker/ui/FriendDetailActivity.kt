@@ -10,13 +10,12 @@ import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
-import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.ViewModelProvider
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.varun.upitracker.R
 import com.varun.upitracker.database.AppDatabase
 import com.varun.upitracker.database.entity.Transaction
-import com.varun.upitracker.ledger.LedgerManager
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -32,6 +31,7 @@ class FriendDetailActivity : AppCompatActivity() {
     }
 
     private val dateFmt = SimpleDateFormat("dd MMM yyyy", Locale.getDefault())
+    private lateinit var viewModel: FriendDetailViewModel
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
@@ -52,14 +52,17 @@ class FriendDetailActivity : AppCompatActivity() {
 
         findViewById<TextView>(R.id.btnBack).setOnClickListener { finish() }
 
-        lifecycleScope.launch {
+        viewModel = ViewModelProvider(
+            this,
+            ScreenViewModelFactory(applicationContext)
+        )[FriendDetailViewModel::class.java]
+        viewModel.uiState.observe(this) { state ->
             val db = AppDatabase.getInstance(applicationContext)
-            val friend = withContext(Dispatchers.IO) { db.friendDao().getFriendById(friendId) } ?: run {
+            val friend = state.friend ?: run {
                 finish()
-                return@launch
+                return@observe
             }
-            val summary = withContext(Dispatchers.IO) { LedgerManager(db).getSummaryForFriend(friendId) }
-            val txList = withContext(Dispatchers.IO) { db.transactionDao().getTransactionsForFriendSync(friendId) }
+            val summary = state.summary
 
             findViewById<TextView>(R.id.tvFriendDetailName).text = friend.name
             findViewById<TextView>(R.id.tvFriendDetailBalance).apply {
@@ -80,13 +83,14 @@ class FriendDetailActivity : AppCompatActivity() {
 
             findViewById<RecyclerView>(R.id.rvFriendTransactions).apply {
                 layoutManager = LinearLayoutManager(this@FriendDetailActivity)
-                adapter = FriendTransactionAdapter(txList, friendId, db, dateFmt) { txId ->
+                adapter = FriendTransactionAdapter(state.transactions, friendId, db, dateFmt) { txId ->
                     startActivity(Intent(this@FriendDetailActivity, TransactionEntryActivity::class.java).apply {
                         putExtra(TransactionEntryActivity.EXTRA_TRANSACTION_ID, txId)
                     })
                 }
             }
         }
+        viewModel.load(friendId)
     }
 }
 
