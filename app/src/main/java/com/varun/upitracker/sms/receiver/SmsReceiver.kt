@@ -7,12 +7,12 @@ import android.provider.Telephony
 import android.util.Log
 import com.varun.upitracker.database.AppDatabase
 import com.varun.upitracker.data.repository.AccountRepository
+import com.varun.upitracker.database.entity.AccountType
 import com.varun.upitracker.database.entity.Transaction
-import com.varun.upitracker.database.entity.TransactionShare
 import com.varun.upitracker.sms.parser.ParsedSms
 import com.varun.upitracker.sms.parser.SmsParser
-import com.varun.upitracker.sms.resolver.AliasResolver
-import com.varun.upitracker.sms.resolver.ResolvedAs
+import com.varun.upitracker.resolver.AliasResolver
+import com.varun.upitracker.resolver.ResolvedAs
 import com.varun.upitracker.ui.ActorType
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -41,7 +41,8 @@ class SmsReceiver : BroadcastReceiver() {
 
     private suspend fun saveTransaction(context: Context, parsed: ParsedSms) {
         val db = AppDatabase.getInstance(context)
-        AccountRepository(db).ensureDefaultAccounts()
+        val accountRepository = AccountRepository(db)
+        val defaultSavingsAccount = accountRepository.getDefaultAccountByType(AccountType.SAVINGS)
         if (db.transactionDao().findByRefId(parsed.upiRefId) != null) {
             Log.d(TAG, "Duplicate ref ${parsed.upiRefId}, skipping")
             return
@@ -53,11 +54,6 @@ class SmsReceiver : BroadcastReceiver() {
         val matchedMerchantId = (resolution as? ResolvedAs.AsMerchant)?.merchantId
         val resolvedActorType = resolution.actorType()
 
-        val needsReview = when (resolution) {
-            is ResolvedAs.AsMerchant -> false
-            is ResolvedAs.AsFriend -> !resolution.isConfident
-            is ResolvedAs.Unknown -> true
-        }
 
         val transaction = Transaction(
             amountPaise = parsed.amountPaise,
@@ -70,24 +66,14 @@ class SmsReceiver : BroadcastReceiver() {
             payeeMerchantId = if (parsed.direction == "DEBIT") matchedMerchantId else null,
             payeeRawLabel = if (parsed.direction == "DEBIT") parsed.payeeRaw else null,
             upiRefId = parsed.upiRefId,
+            myAccountId = defaultSavingsAccount.id,
             dateEpoch = parsed.dateEpoch,
             source = "SMS",
-            isPending = needsReview
+            isPending = true
         )
 
         val id = db.transactionDao().insert(transaction)
-        Log.d(TAG, "Saved transaction id=$id actor=$resolvedActorType pending=$needsReview")
-
-        if (!needsReview && parsed.direction == "DEBIT") {
-            db.transactionShareDao().insert(
-                TransactionShare(
-                    transactionId = id,
-                    side = "PAYER",
-                    participantType = ActorType.ME,
-                    amountPaise = parsed.amountPaise
-                )
-            )
-        }
+        Log.d(TAG, "Saved transaction id=$id actor=$resolvedActorType pending=true")
 
         val displayLabel = when (resolution) {
             is ResolvedAs.AsFriend -> resolution.name
@@ -99,7 +85,7 @@ class SmsReceiver : BroadcastReceiver() {
             transactionId = id,
             amountPaise = parsed.amountPaise,
             displayLabel = displayLabel,
-            needsReview = needsReview
+            needsReview = true
         )
     }
 

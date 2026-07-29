@@ -5,12 +5,22 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
+import android.app.DatePickerDialog
+import android.app.TimePickerDialog
 import android.view.LayoutInflater
 import android.view.View
+import android.widget.ArrayAdapter
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
+import android.widget.Spinner
 import android.widget.TextView
+import com.varun.upitracker.database.entity.AccountType
+import java.math.BigDecimal
+import java.math.RoundingMode
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Locale
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
@@ -29,18 +39,17 @@ class OnboardingActivity : AppCompatActivity() {
 
     // --- Screens ---
     private lateinit var screenPermissions: LinearLayout
-    private lateinit var screenFriends: LinearLayout
+    private lateinit var screenAccounts: LinearLayout
     private lateinit var screenScanning: LinearLayout
 
     // --- Permission screen ---
     private lateinit var btnGrantSms: Button
     private lateinit var btnGrantNotifications: Button
-    private lateinit var btnNextToFriends: Button
+    private lateinit var btnNextToAccount: Button
 
-    // --- Friends screen ---
-    private lateinit var friendsInputContainer: LinearLayout
-    private lateinit var btnAddFriendRow: Button
-    private lateinit var btnSkipFriends: Button
+    // --- Accounts screen ---
+    private lateinit var accountInputContainer: LinearLayout
+    private lateinit var btnAddAccountRow: Button
     private lateinit var btnNextToScan: Button
 
     // --- Scan screen ---
@@ -76,27 +85,26 @@ class OnboardingActivity : AppCompatActivity() {
 
         // Screens
         screenPermissions = findViewById(R.id.screenPermissions)
-        screenFriends     = findViewById(R.id.screenFriends)
+        screenAccounts     = findViewById(R.id.screenAccounts)
         screenScanning    = findViewById(R.id.screenScanning)
 
         // Permission screen
         btnGrantSms           = findViewById(R.id.btnGrantSms)
         btnGrantNotifications = findViewById(R.id.btnGrantNotifications)
-        btnNextToFriends      = findViewById(R.id.btnNextToFriends)
+        btnNextToAccount      = findViewById(R.id.btnNextToAccounts)
 
-        // Friends screen
-        friendsInputContainer = findViewById(R.id.friendsInputContainer)
-        btnAddFriendRow       = findViewById(R.id.btnAddFriendRow)
-        btnSkipFriends        = findViewById(R.id.btnSkipFriends)
+        // Accounts screen
+        accountInputContainer = findViewById(R.id.accountInputContainer)
+        btnAddAccountRow       = findViewById(R.id.btnAddAccountRow)
         btnNextToScan         = findViewById(R.id.btnNextToScan)
 
         // Scan screen
         tvScanStatus = findViewById(R.id.tvScanStatus)
 
-
+        showScreen(screenPermissions)
         bindViewModel()
         setupPermissionScreen()
-        setupFriendsScreen()
+        setupAccountsScreen()
         updatePermissionButtons()
     }
 
@@ -127,8 +135,8 @@ class OnboardingActivity : AppCompatActivity() {
             btnGrantNotifications.visibility = View.GONE
         }
 
-        btnNextToFriends.setOnClickListener {
-            showScreen(screenFriends)
+        btnNextToAccount.setOnClickListener {
+            showScreen(screenAccounts)
         }
     }
 
@@ -148,7 +156,7 @@ class OnboardingActivity : AppCompatActivity() {
         }
 
         // Only SMS is mandatory to proceed
-        btnNextToFriends.isEnabled = smsGranted
+        btnNextToAccount.isEnabled = smsGranted
     }
 
     private fun isSmsGranted() =
@@ -158,52 +166,123 @@ class OnboardingActivity : AppCompatActivity() {
                 PackageManager.PERMISSION_GRANTED
 
     // ------------------------------------------------------------------
-    // Screen 2 — Friends
+    // Screen 2 — Accounts
     // ------------------------------------------------------------------
 
-    private fun setupFriendsScreen() {
-        btnAddFriendRow.setOnClickListener { addFriendRow() }
-        btnSkipFriends.setOnClickListener {
-            showScreen(screenScanning)
-            viewModel.scanOnly()
-        }
+    private fun setupAccountsScreen() {
+        btnAddAccountRow.setOnClickListener { addAccountRow() }
         btnNextToScan.setOnClickListener {
+            val inputs = collectAccountInputs()
+            if (inputs.isEmpty()) {
+                tvScanStatus.text = "Please add at least one account."
+                return@setOnClickListener
+            }
             showScreen(screenScanning)
-            viewModel.saveFriendsAndScan(collectFriendInputs())
+            viewModel.saveAccountsAndScan(inputs)
         }
 
         // Start with one empty row
-        addFriendRow()
+        addAccountRow()
+
+        // Make the first row compulsory and default its type to SAVINGS
+        if (accountInputContainer.childCount > 0) {
+            val firstRow = accountInputContainer.getChildAt(0)
+            val spFirst = firstRow.findViewById<Spinner>(R.id.spAccountType)
+            val savingsIndex = AccountType.values().indexOf(AccountType.SAVINGS)
+            if (savingsIndex >= 0) spFirst.setSelection(savingsIndex)
+
+            // Hide/remove button for the compulsory row
+            val btnRemoveFirst = firstRow.findViewById<TextView>(R.id.btnRemoveRow)
+            btnRemoveFirst.visibility = View.GONE
+
+            // Prefill label to 'Savings' if empty
+            val etLabel = firstRow.findViewById<EditText>(R.id.etAccountLabel)
+            if (etLabel.text.toString().isBlank()) etLabel.setText("Savings")
+        }
     }
 
-    private fun addFriendRow() {
+    private fun addAccountRow() {
         val row = LayoutInflater.from(this)
-            .inflate(R.layout.item_friend_input_row, friendsInputContainer, false)
+            .inflate(R.layout.item_account_input_row, accountInputContainer, false)
 
-        row.findViewById<TextView>(R.id.btnRemoveRow).setOnClickListener {
-            friendsInputContainer.removeView(row)
+        val btnRemove = row.findViewById<TextView>(R.id.btnRemoveRow)
+        btnRemove.setOnClickListener {
+            accountInputContainer.removeView(row)
         }
 
-        friendsInputContainer.addView(row)
+        // Setup spinner with AccountType values
+        val sp = row.findViewById<Spinner>(R.id.spAccountType)
+        val types = AccountType.values()
+        val adapter = ArrayAdapter(this, android.R.layout.simple_spinner_item, types.map { it.name })
+        adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
+        sp.adapter = adapter
+
+        // Snapshot picker: set tag to epoch when selected
+        val etSnapshot = row.findViewById<EditText>(R.id.etSnapshotEpoch)
+        etSnapshot.setOnClickListener {
+            showDateTimePicker(etSnapshot)
+        }
+
+        accountInputContainer.addView(row)
     }
 
-    private fun collectFriendInputs(): List<FriendInput> {
-        val inputs = mutableListOf<FriendInput>()
+    private fun collectAccountInputs(): List<AccountInput> {
+        val inputs = mutableListOf<AccountInput>()
 
-        for (i in 0 until friendsInputContainer.childCount) {
-            val row = friendsInputContainer.getChildAt(i)
-            val name = row.findViewById<EditText>(R.id.etFriendName).text
+        for (i in 0 until accountInputContainer.childCount) {
+            val row = accountInputContainer.getChildAt(i)
+            val label = row.findViewById<EditText>(R.id.etAccountLabel).text
                 .toString()
                 .trim()
-            val upiId = row.findViewById<EditText>(R.id.etFriendUpiId).text
+            if (label.isEmpty()) continue
+
+            val sp = row.findViewById<Spinner>(R.id.spAccountType)
+            val type = AccountType.values()[sp.selectedItemPosition]
+
+            val balanceText = row.findViewById<EditText>(R.id.etInitialBalance).text
                 .toString()
                 .trim()
+            val initialPaise = try {
+                BigDecimal(balanceText).multiply(BigDecimal(100)).setScale(0, RoundingMode.HALF_UP).longValueExact()
+            } catch (e: Exception) {
+                0L
+            }
 
-            if (name.isEmpty()) continue
-            inputs.add(FriendInput(name = name, upiId = upiId))
+            val snapshotView = row.findViewById<EditText>(R.id.etSnapshotEpoch)
+            val snapshotEpoch = (snapshotView.tag as? Long) ?: System.currentTimeMillis()
+
+            inputs.add(
+                AccountInput(
+                    label = label,
+                    type = type,
+                    initialBalancePaise = initialPaise,
+                    snapshotEpoch = snapshotEpoch
+                )
+            )
         }
 
         return inputs
+    }
+
+    private fun showDateTimePicker(target: EditText) {
+        val cal = Calendar.getInstance()
+        val dateSet = DatePickerDialog(this, { _, year, month, dayOfMonth ->
+            cal.set(Calendar.YEAR, year)
+            cal.set(Calendar.MONTH, month)
+            cal.set(Calendar.DAY_OF_MONTH, dayOfMonth)
+
+            TimePickerDialog(this, { _, hourOfDay, minute ->
+                cal.set(Calendar.HOUR_OF_DAY, hourOfDay)
+                cal.set(Calendar.MINUTE, minute)
+                cal.set(Calendar.SECOND, 0)
+                val epoch = cal.timeInMillis
+                target.tag = epoch
+                val fmt = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.getDefault())
+                target.setText(fmt.format(cal.time))
+            }, cal.get(Calendar.HOUR_OF_DAY), cal.get(Calendar.MINUTE), true).show()
+
+        }, cal.get(Calendar.YEAR), cal.get(Calendar.MONTH), cal.get(Calendar.DAY_OF_MONTH))
+        dateSet.show()
     }
 
     // ------------------------------------------------------------------
@@ -215,7 +294,6 @@ class OnboardingActivity : AppCompatActivity() {
             if (state.statusMessage.isNotEmpty()) {
                 tvScanStatus.text = state.statusMessage
             }
-            btnSkipFriends.isEnabled = !state.isBusy
             btnNextToScan.isEnabled = !state.isBusy
         }
 
@@ -245,7 +323,7 @@ class OnboardingActivity : AppCompatActivity() {
 
     private fun showScreen(screen: LinearLayout) {
         screenPermissions.visibility = View.GONE
-        screenFriends.visibility     = View.GONE
+        screenAccounts.visibility     = View.GONE
         screenScanning.visibility    = View.GONE
         screen.visibility            = View.VISIBLE
     }

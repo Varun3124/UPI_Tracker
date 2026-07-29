@@ -6,20 +6,18 @@ import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
-import androidx.room.withTransaction
-import com.varun.upitracker.database.AppDatabase
-import com.varun.upitracker.database.entity.Friend
-import com.varun.upitracker.database.entity.FriendUpiId
-import com.varun.upitracker.sms.SmsBacklogScanner
-import kotlinx.coroutines.Dispatchers
+import com.varun.upitracker.data.repository.DefaultOnboardingRepository
+import com.varun.upitracker.data.repository.OnboardingRepository
+import com.varun.upitracker.database.entity.AccountType
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
-data class FriendInput(
-    val name: String,
-    val upiId: String
+data class AccountInput(
+    val label: String,
+    val type: AccountType,
+    val initialBalancePaise: Long,
+    val snapshotEpoch: Long
 )
 
 data class OnboardingUiState(
@@ -32,70 +30,6 @@ sealed interface OnboardingEffect {
     data class ShowError(val message: String) : OnboardingEffect
 }
 
-interface OnboardingRepository {
-    suspend fun saveFriends(friends: List<FriendInput>)
-    suspend fun scanSmsBacklog()
-    fun markOnboardingComplete()
-}
-
-class DefaultOnboardingRepository(context: Context) : OnboardingRepository {
-
-    private val appContext = context.applicationContext
-    private val db = AppDatabase.getInstance(appContext)
-    private val prefs = appContext.getSharedPreferences(
-        SmsBacklogScanner.PREF_NAME,
-        Context.MODE_PRIVATE
-    )
-
-    override suspend fun saveFriends(friends: List<FriendInput>) {
-        withContext(Dispatchers.IO) {
-            db.withTransaction {
-                friends.forEach { friendInput ->
-                    val name = friendInput.name.trim()
-                    if (name.isEmpty()) return@forEach
-
-                    val initials = buildInitials(name)
-                    val friendId = db.friendDao().insertFriend(
-                        Friend(
-                            name = name,
-                            avatarInitials = initials,
-                            addedEpoch = System.currentTimeMillis()
-                        )
-                    )
-
-                    val upiId = friendInput.upiId.trim()
-                    if (upiId.isNotEmpty()) {
-                        db.friendDao().insertUpiId(
-                            FriendUpiId(friendId = friendId, upiId = upiId)
-                        )
-                    }
-                }
-            }
-        }
-    }
-
-    override suspend fun scanSmsBacklog() {
-        withContext(Dispatchers.IO) {
-            SmsBacklogScanner(appContext).scan()
-        }
-    }
-
-    override fun markOnboardingComplete() {
-        prefs.edit().putBoolean(ONBOARDING_COMPLETE_KEY, true).apply()
-    }
-
-    private fun buildInitials(name: String): String {
-        return name.split(" ")
-            .filter { it.isNotEmpty() }
-            .take(2)
-            .joinToString("") { it.first().uppercaseChar().toString() }
-    }
-
-    private companion object {
-        const val ONBOARDING_COMPLETE_KEY = "onboarding_complete"
-    }
-}
-
 class OnboardingViewModel(
     private val repository: OnboardingRepository
 ) : ViewModel() {
@@ -106,22 +40,16 @@ class OnboardingViewModel(
     private val _effects = MutableSharedFlow<OnboardingEffect>()
     val effects = _effects.asSharedFlow()
 
-    fun saveFriendsAndScan(friends: List<FriendInput>) {
+    fun saveAccountsAndScan(accounts: List<AccountInput>) {
         viewModelScope.launch {
-            runOnboardingFlow(friends)
+            runOnboardingAccountsFlow(accounts)
         }
     }
 
-    fun scanOnly() {
-        viewModelScope.launch {
-            runOnboardingFlow(emptyList())
-        }
-    }
-
-    private suspend fun runOnboardingFlow(friends: List<FriendInput>) {
+    private suspend fun runOnboardingAccountsFlow(accounts: List<AccountInput>) {
         try {
-            updateState(isBusy = true, message = "Saving your friends...")
-            repository.saveFriends(friends)
+            updateState(isBusy = true, message = "Saving your accounts...")
+            repository.saveAccounts(accounts)
 
             updateState(isBusy = true, message = "Scanning your SMS history...")
             repository.scanSmsBacklog()

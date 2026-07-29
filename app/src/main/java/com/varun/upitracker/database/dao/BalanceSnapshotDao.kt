@@ -28,6 +28,16 @@ interface BalanceSnapshotDao {
     @Query(
         """
         SELECT * FROM balance_snapshot
+        WHERE accountId = :accountId
+        ORDER BY snapshotEpoch ASC
+        LIMIT 1
+        """
+    )
+    suspend fun getEarliestForAccount(accountId: String): BalanceSnapshot?
+
+    @Query(
+        """
+        SELECT * FROM balance_snapshot
         WHERE accountId = :accountId AND snapshotEpoch > :atEpoch
         ORDER BY snapshotEpoch ASC
         LIMIT 1

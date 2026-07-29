@@ -1,8 +1,5 @@
 package com.varun.upitracker.sms.parser
 
-import java.text.SimpleDateFormat
-import java.util.Locale
-
 data class ParsedSms(
     val amountPaise: Long,
     val direction: String,       // "DEBIT" or "CREDIT"
@@ -15,25 +12,20 @@ object SmsParser {
 
     // Credit pattern — "Credit Alert!\nRs.40.00 credited to HDFC Bank A/c XX7478 on 07-04-26 from VPA guy9@pingpay (UPI 695909760976)"
     private val CREDIT_AMOUNT  = Regex("""Rs\.(\d+(?:\.\d+)?) credited""")
-    private val CREDIT_DATE    = Regex("""on (\d{2}-\d{2}-\d{2}) from VPA""")
     private val CREDIT_VPA     = Regex("""from VPA ([^\s]+)\s*\(UPI""")
     private val CREDIT_REF     = Regex("""\(UPI (\d+)\)""")
 
     // Debit pattern — "Sent Rs.110.00\nFrom HDFC Bank A/C *7478\nTo GUY UPI USERNAME\nOn 29/03/26\nRef 645440000144\n..."
     private val DEBIT_AMOUNT   = Regex("""Sent Rs\.(\d+(?:\.\d+)?)""")
     private val DEBIT_PAYEE    = Regex("""To (.+)""")
-    private val DEBIT_DATE     = Regex("""On (\d{2}/\d{2}/\d{2})""")
     private val DEBIT_REF      = Regex("""Ref (\d+)""")
-
-    private val creditDateFmt  = SimpleDateFormat("dd-MM-yy", Locale.getDefault())
-    private val debitDateFmt   = SimpleDateFormat("dd/MM/yy", Locale.getDefault())
 
     /**
      * Returns a ParsedSms if the message is a recognized HDFC UPI SMS, null otherwise.
      */
     fun parse(sender: String, body: String, timestamp: Long): ParsedSms? {
         // Only process HDFC messages
-//        if (!sender.contains("HDFC", ignoreCase = true)) return null
+        if (!sender.contains("HDFC", ignoreCase = true)) return null
 
         return when {
             body.contains("Credit Alert!", ignoreCase = true) -> parseCredit(body, timestamp)

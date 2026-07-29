@@ -68,7 +68,7 @@ data class Transaction(
 
     val reason: String? = null,
     val upiRefId: String? = null,
-    val myAccountId: String = com.varun.upitracker.database.DefaultAccounts.SAVINGS_ID,
+    val myAccountId: String,
     val dateEpoch: Long,
     val source: String,
     val isPending: Boolean = false

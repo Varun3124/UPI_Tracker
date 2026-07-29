@@ -5,11 +5,11 @@ import android.net.Uri
 import android.util.Log
 import com.varun.upitracker.data.repository.AccountRepository
 import com.varun.upitracker.database.AppDatabase
+import com.varun.upitracker.database.entity.AccountType
 import com.varun.upitracker.database.entity.Transaction
-import com.varun.upitracker.database.entity.TransactionShare
 import com.varun.upitracker.sms.parser.SmsParser
-import com.varun.upitracker.sms.resolver.AliasResolver
-import com.varun.upitracker.sms.resolver.ResolvedAs
+import com.varun.upitracker.resolver.AliasResolver
+import com.varun.upitracker.resolver.ResolvedAs
 import com.varun.upitracker.ui.ActorType
 
 private const val TAG = "SmsBacklogScanner"
@@ -18,18 +18,18 @@ class SmsBacklogScanner(private val context: Context) {
 
     companion object {
         const val PREF_NAME = "upi_tracker_prefs"
-        const val PREF_BACKLOG_DAYS = "backlog_window_days"
         const val PREF_LAST_SCAN_EPOCH = "last_scan_epoch"
-        const val DEFAULT_WINDOW_DAYS = 30
     }
 
     private val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
 
     suspend fun scan() {
-        val windowDays = prefs.getInt(PREF_BACKLOG_DAYS, DEFAULT_WINDOW_DAYS)
-        val windowStart = System.currentTimeMillis() - (windowDays * 24 * 60 * 60 * 1000L)
         val db = AppDatabase.getInstance(context)
-        AccountRepository(db).ensureDefaultAccounts()
+        val accountRepository = AccountRepository(db)
+        val defaultSavingsAccount = accountRepository.getDefaultAccountByType(AccountType.SAVINGS)
+        val windowStart = db.balanceSnapshotDao()
+            .getEarliestForAccount(defaultSavingsAccount.id)
+            ?.snapshotEpoch ?: defaultSavingsAccount.addedEpoch
         val resolver = AliasResolver(db)
 
         val cursor = context.contentResolver.query(
@@ -53,6 +53,7 @@ class SmsBacklogScanner(private val context: Context) {
             val colDate = it.getColumnIndexOrThrow("date")
 
             while (it.moveToNext()) {
+                //Parsing
                 val sender = it.getString(colAddress) ?: continue
                 val body = it.getString(colBody) ?: continue
                 val parsed = SmsParser.parse(sender, body, it.getLong(colDate)) ?: continue
@@ -67,11 +68,6 @@ class SmsBacklogScanner(private val context: Context) {
                 val matchedFriendId = (resolution as? ResolvedAs.AsFriend)?.friendId
                 val matchedMerchantId = (resolution as? ResolvedAs.AsMerchant)?.merchantId
                 val resolvedActorType = resolution.actorType()
-                val needsReview = when (resolution) {
-                    is ResolvedAs.AsMerchant -> false
-                    is ResolvedAs.AsFriend -> !resolution.isConfident
-                    is ResolvedAs.Unknown -> true
-                }
 
                 val transaction = Transaction(
                     amountPaise = parsed.amountPaise,
@@ -84,23 +80,14 @@ class SmsBacklogScanner(private val context: Context) {
                     payeeMerchantId = if (parsed.direction == "DEBIT") matchedMerchantId else null,
                     payeeRawLabel = if (parsed.direction == "DEBIT") parsed.payeeRaw else null,
                     upiRefId = parsed.upiRefId,
+                    myAccountId = defaultSavingsAccount.id,
                     dateEpoch = parsed.dateEpoch,
                     source = "SMS",
-                    isPending = needsReview
+                    isPending = true
                 )
 
                 try {
-                    val id = db.transactionDao().insert(transaction)
-                    if (!needsReview && parsed.direction == "DEBIT") {
-                        db.transactionShareDao().insert(
-                            TransactionShare(
-                                transactionId = id,
-                                side = "PAYER",
-                                participantType = ActorType.ME,
-                                amountPaise = parsed.amountPaise
-                            )
-                        )
-                    }
+                    db.transactionDao().insert(transaction)
                     inserted++
                 } catch (e: Exception) {
                     skipped++
@@ -112,15 +99,6 @@ class SmsBacklogScanner(private val context: Context) {
         prefs.edit().putLong(PREF_LAST_SCAN_EPOCH, System.currentTimeMillis()).apply()
         Log.d(TAG, "Backlog scan complete scanned=$scanned inserted=$inserted skipped=$skipped")
     }
-
-    fun getWindowDays(): Int = prefs.getInt(PREF_BACKLOG_DAYS, DEFAULT_WINDOW_DAYS)
-
-    fun setWindowDays(days: Int) {
-        prefs.edit().putInt(PREF_BACKLOG_DAYS, days).apply()
-        Log.d(TAG, "Backlog window updated to $days days")
-    }
-
-    fun getLastScanEpoch(): Long = prefs.getLong(PREF_LAST_SCAN_EPOCH, 0L)
 
     private fun ResolvedAs.actorType(): String = when (this) {
         is ResolvedAs.AsFriend -> ActorType.FRIEND

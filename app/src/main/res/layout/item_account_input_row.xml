@@ -14,19 +14,34 @@
         android:layout_marginEnd="8dp">
 
         <EditText
-            android:id="@+id/etFriendName"
+            android:id="@+id/etAccountLabel"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:hint="Name *"
+            android:hint="Account label *"
             android:inputType="textCapWords"
             android:layout_marginBottom="4dp"/>
 
-        <EditText
-            android:id="@+id/etFriendUpiId"
+        <Spinner
+            android:id="@+id/spAccountType"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:hint="UPI ID (optional)"
-            android:inputType="textNoSuggestions"/>
+            android:layout_marginBottom="4dp"/>
+
+        <EditText
+            android:id="@+id/etInitialBalance"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Initial balance (e.g. 1234.56)"
+            android:inputType="numberDecimal"
+            android:layout_marginBottom="4dp"/>
+
+        <EditText
+            android:id="@+id/etSnapshotEpoch"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Snapshot date &amp; time"
+            android:focusable="false"
+            android:clickable="true"/>
     </LinearLayout>
 
     <TextView

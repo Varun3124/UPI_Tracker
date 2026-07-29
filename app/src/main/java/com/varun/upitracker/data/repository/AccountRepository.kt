@@ -3,7 +3,6 @@ package com.varun.upitracker.data.repository
 import androidx.lifecycle.LiveData
 import androidx.room.withTransaction
 import com.varun.upitracker.database.AppDatabase
-import com.varun.upitracker.database.DefaultAccounts
 import com.varun.upitracker.database.entity.Account
 import com.varun.upitracker.database.entity.AccountTransfer
 import com.varun.upitracker.database.entity.AccountTransferType
@@ -17,22 +16,26 @@ class AccountRepository(private val db: AppDatabase) {
 
     fun observeActiveAccounts(): LiveData<List<Account>> = db.accountDao().observeActiveAccounts()
 
+    suspend fun getDefaultAccountByType(type: AccountType): Account {
+        val accounts = db.accountDao().getByType(type).filter { !it.isArchived }
+
+        val scoredAccounts = accounts.map { account ->
+            account to db.balanceSnapshotDao().getEarliestForAccount(account.id)?.snapshotEpoch
+        }
+
+        val snapshotBackedAccount = scoredAccounts
+            .filter { it.second != null }
+            .minByOrNull { it.second!! }
+            ?.first
+
+        return snapshotBackedAccount ?: accounts.minBy { it.addedEpoch }
+    }
+
     suspend fun getTransactionAccounts(): List<Account> {
-        ensureDefaultAccounts()
         return db.accountDao().getActiveByTypes(listOf(AccountType.CASH, AccountType.SAVINGS))
     }
 
     suspend fun getAccount(id: String): Account? = db.accountDao().getById(id)
-
-    suspend fun ensureDefaultAccounts() {
-        val now = System.currentTimeMillis()
-        db.accountDao().insertAll(
-            listOf(
-                Account(DefaultAccounts.CASH_ID, AccountType.CASH, "Cash", now),
-                Account(DefaultAccounts.SAVINGS_ID, AccountType.SAVINGS, "Savings", now)
-            )
-        )
-    }
 
     suspend fun recordTransfer(transfer: AccountTransfer): Boolean {
         transfer.statementRefNo?.let { ref ->

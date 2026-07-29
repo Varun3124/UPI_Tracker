@@ -30,7 +30,6 @@ import androidx.lifecycle.ViewModelProvider
 import com.google.android.material.chip.Chip
 import com.varun.upitracker.R
 import com.varun.upitracker.database.AppDatabase
-import com.varun.upitracker.database.DefaultAccounts
 import com.varun.upitracker.data.repository.AccountRepository
 import com.varun.upitracker.database.entity.Account
 import com.varun.upitracker.database.entity.Category
@@ -88,7 +87,7 @@ class TransactionEntryActivity : AppCompatActivity() {
     private var allMerchants = listOf<Merchant>()
     private var allCategories = listOf<Category>()
     private var transactionAccounts = listOf<Account>()
-    private var selectedAccountId = DefaultAccounts.SAVINGS_ID
+    private var selectedAccountId = ""
 
     private var payerActorType = ActorType.ME
     private var payeeActorType = ActorType.MERCHANT
@@ -225,16 +224,11 @@ class TransactionEntryActivity : AppCompatActivity() {
 
     private fun setupAccountPicker(tx: Transaction?) {
         if (transactionAccounts.isEmpty()) {
-            transactionAccounts = listOf(
-                Account(
-                    id = DefaultAccounts.SAVINGS_ID,
-                    type = com.varun.upitracker.database.entity.AccountType.SAVINGS,
-                    label = "Savings",
-                    addedEpoch = System.currentTimeMillis()
-                )
-            )
+            selectedAccountId = tx?.myAccountId ?: ""
+            spMyAccount.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, emptyList<String>())
+            return
         }
-        selectedAccountId = tx?.myAccountId ?: DefaultAccounts.SAVINGS_ID
+        selectedAccountId = tx?.myAccountId ?: transactionAccounts.firstOrNull()?.id.orEmpty()
         val labels = transactionAccounts.map { it.label }
         spMyAccount.adapter = ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, labels)
         val selectedIndex = transactionAccounts.indexOfFirst { it.id == selectedAccountId }.takeIf { it >= 0 } ?: 0
@@ -246,7 +240,7 @@ class TransactionEntryActivity : AppCompatActivity() {
                 position: Int,
                 id: Long
             ) {
-                selectedAccountId = transactionAccounts.getOrNull(position)?.id ?: DefaultAccounts.SAVINGS_ID
+                selectedAccountId = transactionAccounts.getOrNull(position)?.id.orEmpty()
             }
 
             override fun onNothingSelected(parent: android.widget.AdapterView<*>?) = Unit

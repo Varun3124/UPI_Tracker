@@ -11,22 +11,22 @@ import com.varun.upitracker.database.entity.Transaction
 interface TransactionDao {
 
     @Insert
-    suspend fun insert(transaction: com.varun.upitracker.database.entity.Transaction): Long
+    suspend fun insert(transaction: Transaction): Long
 
     @Update
-    suspend fun update(transaction: com.varun.upitracker.database.entity.Transaction)
+    suspend fun update(transaction: Transaction)
 
     @Query("SELECT * FROM transactions ORDER BY dateEpoch DESC, id DESC")
-    fun getAllTransactions(): LiveData<List<com.varun.upitracker.database.entity.Transaction>>
+    fun getAllTransactions(): LiveData<List<Transaction>>
 
     @Query("SELECT * FROM transactions WHERE dateEpoch >= :fromEpoch ORDER BY dateEpoch DESC, id DESC")
-    fun getTransactionsSince(fromEpoch: Long): LiveData<List<com.varun.upitracker.database.entity.Transaction>>
+    fun getTransactionsSince(fromEpoch: Long): LiveData<List<Transaction>>
 
     @Query("SELECT * FROM transactions WHERE isPending = 1 ORDER BY dateEpoch DESC, id DESC")
-    fun getPendingTransactions(): LiveData<List<com.varun.upitracker.database.entity.Transaction>>
+    fun getPendingTransactions(): LiveData<List<Transaction>>
 
     @Query("SELECT * FROM transactions WHERE upiRefId = :refId LIMIT 1")
-    suspend fun findByRefId(refId: String): com.varun.upitracker.database.entity.Transaction?
+    suspend fun findByRefId(refId: String): Transaction?
 
     @Query(
         """

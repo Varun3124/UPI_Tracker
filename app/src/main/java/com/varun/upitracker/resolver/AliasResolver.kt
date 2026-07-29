@@ -1,4 +1,4 @@
-package com.varun.upitracker.sms.resolver
+package com.varun.upitracker.resolver
 
 import com.varun.upitracker.database.AppDatabase
 

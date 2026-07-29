@@ -35,7 +35,6 @@ class TransactionEntryViewModel(context: Context) : ViewModel() {
     fun load(transactionId: Long?) {
         viewModelScope.launch {
             _referenceData.value = withContext(Dispatchers.IO) {
-                AccountRepository(db).ensureDefaultAccounts()
                 TransactionEntryReferenceData(
                     friends = db.friendDao().getAllFriendsByFrequency(),
                     merchants = db.merchantDao().getAllMerchantsSync(),

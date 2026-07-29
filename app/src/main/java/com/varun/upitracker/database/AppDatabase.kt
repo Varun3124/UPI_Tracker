@@ -111,23 +111,6 @@ abstract class AppDatabase : RoomDatabase() {
                                         )
                                     )
                                 }
-                                val now = System.currentTimeMillis()
-                                instance.accountDao().insertAll(
-                                    listOf(
-                                        _root_ide_package_.com.varun.upitracker.database.entity.Account(
-                                            id = DefaultAccounts.CASH_ID,
-                                            type = _root_ide_package_.com.varun.upitracker.database.entity.AccountType.CASH,
-                                            label = "Cash",
-                                            addedEpoch = now
-                                        ),
-                                        _root_ide_package_.com.varun.upitracker.database.entity.Account(
-                                            id = DefaultAccounts.SAVINGS_ID,
-                                            type = _root_ide_package_.com.varun.upitracker.database.entity.AccountType.SAVINGS,
-                                            label = "Savings",
-                                            addedEpoch = now
-                                        )
-                                    )
-                                )
                             }
                         }
                     })
