@@ -14,7 +14,6 @@ import android.text.TextWatcher
 import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
-import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.widget.AdapterView
@@ -23,6 +22,7 @@ import android.widget.AutoCompleteTextView
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
+import android.widget.ScrollView
 import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
@@ -31,8 +31,6 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.ViewModelProvider
-import androidx.recyclerview.widget.LinearLayoutManager
-import androidx.recyclerview.widget.RecyclerView
 import com.google.android.material.chip.Chip
 import com.varun.upitracker.R
 import com.varun.upitracker.database.AppDatabase
@@ -144,12 +142,13 @@ class TransactionEntryActivity : AppCompatActivity() {
     private lateinit var payeeSharesContainer: LinearLayout
     private lateinit var btnAddPayerPerson: Button
     private lateinit var btnAddPayeePerson: Button
-    private lateinit var categoryContainer: RecyclerView
-    private lateinit var categoryAdapter: CategoryAdapter
+    private lateinit var categoryContainer: LinearLayout
+    private lateinit var formScroll: ScrollView
 
     private var shouldAutoloadMerchantCategories = true
     private var smsPayerAliasFallback = ""
     private var smsPayeeAliasFallback = ""
+    private var isCategorySectionVisible = false
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
@@ -206,6 +205,7 @@ class TransactionEntryActivity : AppCompatActivity() {
     }
 
     private fun bindViews() {
+        formScroll = findViewById(R.id.formScroll)
         tvTopInfo = findViewById(R.id.tvTopInfo)
         tvPayerActorMe = findViewById(R.id.tvPayerActorMe)
         tvPayerActorFriend = findViewById(R.id.tvPayerActorFriend)
@@ -226,9 +226,6 @@ class TransactionEntryActivity : AppCompatActivity() {
         btnAddPayerPerson = findViewById(R.id.btnAddPayerPerson)
         btnAddPayeePerson = findViewById(R.id.btnAddPayeePerson)
         categoryContainer = findViewById(R.id.categoryContainer)
-        categoryContainer.layoutManager = LinearLayoutManager(this)
-        categoryAdapter = CategoryAdapter()
-        categoryContainer.adapter = categoryAdapter
     }
 
     private suspend fun setupUi(db: AppDatabase) {
@@ -263,6 +260,7 @@ class TransactionEntryActivity : AppCompatActivity() {
         buildShareSection(false)
         updateAccountSectionVisibility()
         updateLiveCalc()
+        renderCategories()
     }
 
     private fun setupDateSection() {
@@ -429,7 +427,6 @@ class TransactionEntryActivity : AppCompatActivity() {
         categoryEntries.addAll(allCategories.map { category ->
             CategoryEntry(category = category, isChecked = false, myAmountPaise = 0L)
         })
-        categoryAdapter.notifyDataSetChanged()
     }
 
     private suspend fun populateExistingTransaction(tx: Transaction, db: AppDatabase) {
@@ -459,7 +456,6 @@ class TransactionEntryActivity : AppCompatActivity() {
                     entry.myAmountPaise = split.myAmountPaise
                 }
             }
-            categoryAdapter.notifyDataSetChanged()
         }
     }
 
@@ -1051,14 +1047,22 @@ class TransactionEntryActivity : AppCompatActivity() {
             mySharePaise = myShare
         )
 
+        val wasVisible = isCategorySectionVisible
+        isCategorySectionVisible = visibilityDecision.showCategories
         categoryContainer.visibility = if (visibilityDecision.showCategories) View.VISIBLE else View.GONE
         if (visibilityDecision.shouldClearSelections) {
             categoryEntries.forEach {
                 it.isChecked = false
                 it.myAmountPaise = 0L
             }
-            categoryAdapter.notifyDataSetChanged()
+            renderCategories()
             return
+        }
+
+        if (!wasVisible && visibilityDecision.showCategories) {
+            formScroll.post {
+                formScroll.smoothScrollTo(0, categoryContainer.top)
+            }
         }
 
         val autoloadDecision = categorySplitManager.autoloadDecision(
@@ -1080,7 +1084,7 @@ class TransactionEntryActivity : AppCompatActivity() {
                         entry.myAmountPaise = myShare
                     }
                 }
-                categoryAdapter.notifyDataSetChanged()
+                renderCategories()
                 shouldAutoloadMerchantCategories = false
             }
         }
@@ -1387,66 +1391,54 @@ class TransactionEntryActivity : AppCompatActivity() {
         }
     }
 
-    private inner class CategoryAdapter : RecyclerView.Adapter<CategoryAdapter.CategoryViewHolder>() {
+    private fun renderCategories() {
+        categoryContainer.removeAllViews()
+        categoryEntries.forEachIndexed { index, entry ->
+            val rowView = LayoutInflater.from(this).inflate(R.layout.item_transaction_category_split, categoryContainer, false)
+            val chip = rowView.findViewById<Chip>(R.id.chipCategory)
+            val expansion = rowView.findViewById<LinearLayout>(R.id.categoryExpansion)
+            val etMyAmount = rowView.findViewById<EditText>(R.id.etCategoryMyAmount)
 
-        inner class CategoryViewHolder(view: View) : RecyclerView.ViewHolder(view) {
-            val chip: Chip = view.findViewById(R.id.chipCategory)
-            val expansion: LinearLayout = view.findViewById(R.id.categoryExpansion)
-            val etMyAmount: EditText = view.findViewById(R.id.etCategoryMyAmount)
-        }
+            chip.setOnCheckedChangeListener(null)
+            chip.text = entry.category.name
+            chip.isCheckable = true
+            chip.setTextColor(Color.WHITE)
+            chip.chipBackgroundColor = ColorStateList.valueOf(Color.parseColor("#2A2A2A"))
+            chip.isChecked = entry.isChecked
+            expansion.visibility = if (entry.isChecked) View.VISIBLE else View.GONE
 
-        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): CategoryViewHolder {
-            val view = LayoutInflater.from(parent.context)
-                .inflate(R.layout.item_transaction_category_split, parent, false)
-            return CategoryViewHolder(view)
-        }
-
-        override fun onBindViewHolder(holder: CategoryViewHolder, position: Int) {
-            val entry = categoryEntries[position]
-
-            holder.chip.setOnCheckedChangeListener(null)
-            holder.chip.text = entry.category.name
-            holder.chip.isCheckable = true
-            holder.chip.setTextColor(Color.WHITE)
-            holder.chip.chipBackgroundColor =
-                ColorStateList.valueOf(Color.parseColor("#2A2A2A"))
-            holder.chip.isChecked = entry.isChecked
-            holder.expansion.visibility = if (entry.isChecked) View.VISIBLE else View.GONE
-
-            (holder.etMyAmount.tag as? TextWatcher)?.let { holder.etMyAmount.removeTextChangedListener(it) }
-            holder.etMyAmount.inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
-            holder.etMyAmount.imeOptions = EditorInfo.IME_ACTION_DONE
-            holder.etMyAmount.setTextColor(Color.WHITE)
-            holder.etMyAmount.setHintTextColor(Color.parseColor("#555555"))
-            holder.etMyAmount.background = null
-            holder.etMyAmount.setText(if (entry.myAmountPaise > 0L) formatPlainAmount(entry.myAmountPaise) else "")
+            (etMyAmount.tag as? TextWatcher)?.let { etMyAmount.removeTextChangedListener(it) }
+            etMyAmount.inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
+            etMyAmount.imeOptions = EditorInfo.IME_ACTION_DONE
+            etMyAmount.setTextColor(Color.WHITE)
+            etMyAmount.setHintTextColor(Color.parseColor("#555555"))
+            etMyAmount.background = null
+            etMyAmount.setText(if (entry.myAmountPaise > 0L) formatPlainAmount(entry.myAmountPaise) else "")
 
             val watcher = simpleWatcher {
-                val row = categoryEntries.getOrNull(holder.bindingAdapterPosition) ?: return@simpleWatcher
-                row.myAmountPaise = ((holder.etMyAmount.text.toString().toDoubleOrNull() ?: 0.0) * 100).toLong()
+                entry.myAmountPaise = ((etMyAmount.text.toString().toDoubleOrNull() ?: 0.0) * 100).toLong()
                 viewModel.onAction(
                     TransactionEntryAction.CategoryAmountChanged(
-                        categoryId = row.category.id,
-                        rawAmount = holder.etMyAmount.text.toString()
+                        categoryId = entry.category.id,
+                        rawAmount = etMyAmount.text.toString()
                     )
                 )
             }
-            holder.etMyAmount.addTextChangedListener(watcher)
-            holder.etMyAmount.tag = watcher
-            wireImeDismiss(holder.etMyAmount)
+            etMyAmount.addTextChangedListener(watcher)
+            etMyAmount.tag = watcher
+            wireImeDismiss(etMyAmount)
 
-            holder.chip.setOnCheckedChangeListener { _, checked ->
-                val row = categoryEntries.getOrNull(holder.bindingAdapterPosition) ?: return@setOnCheckedChangeListener
-                row.isChecked = checked
-                if (checked && row.myAmountPaise <= 0L) {
-                    row.myAmountPaise = myShareForCategories()
+            chip.setOnCheckedChangeListener { _, checked ->
+                entry.isChecked = checked
+                if (checked && entry.myAmountPaise <= 0L) {
+                    entry.myAmountPaise = myShareForCategories()
                 }
-                notifyItemChanged(holder.bindingAdapterPosition)
-                viewModel.onAction(TransactionEntryAction.CategoryToggled(row.category.id, checked))
+                renderCategories()
+                viewModel.onAction(TransactionEntryAction.CategoryToggled(entry.category.id, checked))
             }
-        }
 
-        override fun getItemCount(): Int = categoryEntries.size
+            categoryContainer.addView(rowView)
+        }
     }
 
     private fun hideKeyboard(view: View? = currentFocus) {

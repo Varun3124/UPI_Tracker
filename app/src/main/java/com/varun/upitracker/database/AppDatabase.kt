@@ -9,7 +9,6 @@ import androidx.room.migration.Migration
 import androidx.sqlite.db.SupportSQLiteDatabase
 import com.varun.upitracker.database.dao.AccountDao
 import com.varun.upitracker.database.dao.AccountTransferDao
-import com.varun.upitracker.database.dao.AppSettingsDao
 import com.varun.upitracker.database.dao.BalanceSnapshotDao
 import com.varun.upitracker.database.dao.BudgetDao
 import com.varun.upitracker.database.dao.CategoryDao
@@ -22,7 +21,6 @@ import com.varun.upitracker.database.dao.TransactionDao
 import com.varun.upitracker.database.dao.TransactionShareDao
 import com.varun.upitracker.database.entity.Account
 import com.varun.upitracker.database.entity.AccountTransfer
-import com.varun.upitracker.database.entity.AppSettings
 import com.varun.upitracker.database.entity.BalanceSnapshot
 import com.varun.upitracker.database.entity.BudgetSettings
 import com.varun.upitracker.database.entity.Category
@@ -55,7 +53,6 @@ import kotlinx.coroutines.launch
         MerchantUpiId::class,
         Category::class,
         MerchantCategory::class,
-        AppSettings::class,
         BudgetSettings::class,
         TransactionCategorySplit::class,
         Account::class,
@@ -63,7 +60,7 @@ import kotlinx.coroutines.launch
         AccountTransfer::class,
         BalanceSnapshot::class
     ],
-    version = 9,
+    version = 11,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -72,16 +69,15 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun accountDao(): AccountDao
     abstract fun accountTransferDao(): AccountTransferDao
     abstract fun balanceSnapshotDao(): BalanceSnapshotDao
+    abstract fun budgetDao(): BudgetDao
+    abstract fun categoryDao(): CategoryDao
     abstract fun fixedDepositDao(): FixedDepositDao
-    abstract fun transactionDao(): TransactionDao
     abstract fun friendDao(): FriendDao
     abstract fun iouDao(): IouDao
-    abstract fun transactionShareDao(): TransactionShareDao
     abstract fun merchantDao(): MerchantDao
-    abstract fun categoryDao(): CategoryDao
-    abstract fun appSettingsDao(): AppSettingsDao
-    abstract fun budgetDao(): BudgetDao
     abstract fun categorySplitDao(): TransactionCategorySplitDao
+    abstract fun transactionDao(): TransactionDao
+    abstract fun transactionShareDao(): TransactionShareDao
 
     companion object {
         @Volatile
@@ -146,6 +142,126 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `account` ADD COLUMN `isDefault` INTEGER NOT NULL DEFAULT 0")
+
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `account_transfer_new` (
+                        `id` TEXT NOT NULL,
+                        `fromAccountId` TEXT,
+                        `toAccountId` TEXT,
+                        `amountFromPaise` INTEGER NOT NULL,
+                        `amountToPaise` INTEGER NOT NULL,
+                        `type` TEXT NOT NULL,
+                        `dateEpoch` INTEGER NOT NULL,
+                        `source` TEXT NOT NULL,
+                        `statementRefNo` TEXT,
+                        `notes` TEXT,
+                        PRIMARY KEY(`id`),
+                        FOREIGN KEY(`fromAccountId`) REFERENCES `account`(`id`) ON UPDATE NO ACTION ON DELETE RESTRICT,
+                        FOREIGN KEY(`toAccountId`) REFERENCES `account`(`id`) ON UPDATE NO ACTION ON DELETE RESTRICT
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    INSERT INTO `account_transfer_new` (
+                        `id`, `fromAccountId`, `toAccountId`, `amountFromPaise`, `amountToPaise`,
+                        `type`, `dateEpoch`, `source`, `statementRefNo`, `notes`
+                    )
+                    SELECT
+                        `id`, `fromAccountId`, `toAccountId`, `amountFromPaise`, `amountToPaise`,
+                        `type`, `dateEpoch`, `source`, `statementRefNo`, `notes`
+                    FROM `account_transfer`
+                    """.trimIndent()
+                )
+                db.execSQL("DROP TABLE `account_transfer`")
+                db.execSQL("ALTER TABLE `account_transfer_new` RENAME TO `account_transfer`")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_account_transfer_fromAccountId_dateEpoch` ON `account_transfer`(`fromAccountId`, `dateEpoch`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_account_transfer_toAccountId_dateEpoch` ON `account_transfer`(`toAccountId`, `dateEpoch`)")
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_account_transfer_statementRefNo` ON `account_transfer`(`statementRefNo`)")
+
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `balance_snapshot_new` (
+                        `id` TEXT NOT NULL,
+                        `accountId` TEXT NOT NULL,
+                        `snapshotEpoch` INTEGER NOT NULL,
+                        `balancePaise` INTEGER NOT NULL,
+                        `source` TEXT NOT NULL,
+                        `notes` TEXT,
+                        PRIMARY KEY(`id`),
+                        FOREIGN KEY(`accountId`) REFERENCES `account`(`id`) ON UPDATE NO ACTION ON DELETE RESTRICT
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    INSERT INTO `balance_snapshot_new` (
+                        `id`, `accountId`, `snapshotEpoch`, `balancePaise`, `source`, `notes`
+                    )
+                    SELECT `id`, `accountId`, `snapshotEpoch`, `balancePaise`, `source`, `notes`
+                    FROM `balance_snapshot`
+                    """.trimIndent()
+                )
+                db.execSQL("DROP TABLE `balance_snapshot`")
+                db.execSQL("ALTER TABLE `balance_snapshot_new` RENAME TO `balance_snapshot`")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_balance_snapshot_accountId_snapshotEpoch` ON `balance_snapshot`(`accountId`, `snapshotEpoch`)")
+
+                db.execSQL(
+                    """
+                    CREATE TABLE IF NOT EXISTS `fixed_deposit_detail_new` (
+                        `accountId` TEXT NOT NULL,
+                        `principalPaise` INTEGER NOT NULL,
+                        `sourceAccountId` TEXT NOT NULL,
+                        `bookedEpoch` INTEGER NOT NULL,
+                        `maturityEpoch` INTEGER NOT NULL,
+                        `status` TEXT NOT NULL,
+                        PRIMARY KEY(`accountId`),
+                        FOREIGN KEY(`accountId`) REFERENCES `account`(`id`) ON UPDATE NO ACTION ON DELETE RESTRICT,
+                        FOREIGN KEY(`sourceAccountId`) REFERENCES `account`(`id`) ON UPDATE NO ACTION ON DELETE RESTRICT
+                    )
+                    """.trimIndent()
+                )
+                db.execSQL(
+                    """
+                    INSERT INTO `fixed_deposit_detail_new` (
+                        `accountId`, `principalPaise`, `sourceAccountId`, `bookedEpoch`, `maturityEpoch`, `status`
+                    )
+                    SELECT `accountId`, `principalPaise`, `sourceAccountId`, `bookedEpoch`, `maturityEpoch`, `status`
+                    FROM `fixed_deposit_detail`
+                    """.trimIndent()
+                )
+                db.execSQL("DROP TABLE `fixed_deposit_detail`")
+                db.execSQL("ALTER TABLE `fixed_deposit_detail_new` RENAME TO `fixed_deposit_detail`")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_fixed_deposit_detail_sourceAccountId` ON `fixed_deposit_detail`(`sourceAccountId`)")
+            }
+        }
+
+        private val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                val cursor = db.query("PRAGMA table_info(`account`)")
+                var columnExists = false
+                while (cursor.moveToNext()) {
+                    val nameColumnIndex = cursor.getColumnIndex("name")
+                    if (nameColumnIndex != -1) {
+                        val name = cursor.getString(nameColumnIndex)
+                        if (name == "isArchived") {
+                            columnExists = true
+                            break
+                        }
+                    }
+                }
+                cursor.close()
+
+                if (!columnExists) {
+                    db.execSQL("ALTER TABLE `account` ADD COLUMN `isArchived` INTEGER NOT NULL DEFAULT 0")
+                }
+            }
+        }
+
         fun getInstance(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 Room.databaseBuilder(
@@ -153,7 +269,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "upi_tracker_db"
                 )
-                    .addMigrations(MIGRATION_8_9)
+                    .addMigrations(MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11)
                     .addCallback(object : Callback() {
                         override fun onCreate(db: SupportSQLiteDatabase) {
                             super.onCreate(db)

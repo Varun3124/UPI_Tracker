@@ -42,7 +42,10 @@ class SmsReceiver : BroadcastReceiver() {
     private suspend fun saveTransaction(context: Context, parsed: ParsedSms) {
         val db = AppDatabase.getInstance(context)
         val accountRepository = AccountRepository(db)
-        val defaultSavingsAccount = accountRepository.getDefaultAccountByType(AccountType.SAVINGS)
+        val defaultSavingsAccount = accountRepository.getDefaultAccountByType(AccountType.SAVINGS) ?: run {
+            Log.w(TAG, "No default savings account found, cannot save transaction")
+            return
+        }
         if (db.transactionDao().findByRefId(parsed.upiRefId) != null) {
             Log.d(TAG, "Duplicate ref ${parsed.upiRefId}, skipping")
             return

@@ -66,6 +66,19 @@ interface TransactionDao {
     @Query(
         """
         SELECT * FROM transactions
+        WHERE dateEpoch >= :fromEpoch
+          AND dateEpoch < :toEpoch
+        ORDER BY dateEpoch DESC, id DESC
+        """
+    )
+    suspend fun getTransactionsBetweenSync(fromEpoch: Long, toEpoch: Long): List<Transaction>
+
+    @Query("DELETE FROM transactions WHERE id = :id")
+    suspend fun deleteById(id: Long)
+
+    @Query(
+        """
+        SELECT * FROM transactions
         WHERE myAccountId = :accountId
           AND dateEpoch > :fromEpochExclusive
           AND dateEpoch <= :toEpochInclusive

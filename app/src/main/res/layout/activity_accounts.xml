@@ -15,40 +15,48 @@
         android:background="#FFFFFF">
 
         <TextView
-            android:id="@+id/btnBackAll"
+            android:id="@+id/btnBackAccounts"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="←"
+            android:text="&lt;"
             android:textSize="20sp"
-            android:layout_marginEnd="12dp"
-            android:textColor="#212121"/>
+            android:textColor="#212121"
+            android:layout_marginEnd="12dp" />
 
         <TextView
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="All Transactions"
+            android:text="Accounts"
             android:textSize="18sp"
             android:textStyle="bold"
-            android:textColor="#212121"/>
+            android:textColor="#212121" />
 
         <TextView
-            android:id="@+id/btnPickMonth"
-            android:layout_width="wrap_content"
-            android:layout_height="36dp"
+            android:id="@+id/btnAddAccount"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
             android:gravity="center"
-            android:paddingStart="12dp"
-            android:paddingEnd="12dp"
-            android:background="#EEEEEE"
-            android:textColor="#212121"
-            android:textSize="13sp"
-            android:textStyle="bold"/>
+            android:text="+"
+            android:textSize="24sp"
+            android:textStyle="bold"
+            android:textColor="#212121" />
     </LinearLayout>
 
+    <TextView
+        android:id="@+id/tvEmptyAccounts"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:padding="24dp"
+        android:text="No accounts yet"
+        android:textAlignment="center"
+        android:textColor="#757575"
+        android:visibility="gone" />
+
     <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/rvAllTransactions"
+        android:id="@+id/rvAccounts"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
         android:padding="12dp"
-        android:clipToPadding="false"/>
+        android:clipToPadding="false" />
 </LinearLayout>

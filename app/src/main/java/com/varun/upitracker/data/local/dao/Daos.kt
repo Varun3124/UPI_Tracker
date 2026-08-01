@@ -2,7 +2,6 @@ package com.varun.upitracker.data.local.dao
 
 typealias AccountDao = com.varun.upitracker.database.dao.AccountDao
 typealias AccountTransferDao = com.varun.upitracker.database.dao.AccountTransferDao
-typealias AppSettingsDao = com.varun.upitracker.database.dao.AppSettingsDao
 typealias BalanceSnapshotDao = com.varun.upitracker.database.dao.BalanceSnapshotDao
 typealias BudgetDao = com.varun.upitracker.database.dao.BudgetDao
 typealias CategoryDao = com.varun.upitracker.database.dao.CategoryDao

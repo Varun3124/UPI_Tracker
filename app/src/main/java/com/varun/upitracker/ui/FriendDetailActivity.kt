@@ -6,6 +6,7 @@ import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.ViewGroup
 import android.widget.TextView
+import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
@@ -58,8 +59,11 @@ class FriendDetailActivity : AppCompatActivity() {
             ScreenViewModelFactory(applicationContext)
         )[FriendDetailViewModel::class.java]
         viewModel.uiState.observe(this) { state ->
+            if (state.isLoading) return@observe
+
             val db = AppDatabase.getInstance(applicationContext)
             val friend = state.friend ?: run {
+                Toast.makeText(this, "Friend not found", Toast.LENGTH_SHORT).show()
                 finish()
                 return@observe
             }

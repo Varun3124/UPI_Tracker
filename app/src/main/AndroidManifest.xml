@@ -32,6 +32,7 @@
 
         <activity android:name=".ui.dashboard.DashboardActivity" android:exported="false" />
         <activity android:name=".ui.settings.SettingsActivity" android:exported="false" />
+        <activity android:name=".ui.settings.AccountsActivity" android:exported="false" />
         <activity android:name=".ui.CategorySettingsActivity" android:exported="false" />
         <activity android:name=".ui.AliasMappingsActivity" android:exported="false" />
         <activity android:name=".ui.FriendDetailActivity" android:exported="false" />

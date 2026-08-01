@@ -3,7 +3,6 @@
 import android.content.Context
 import androidx.room.withTransaction
 import com.varun.upitracker.database.AppDatabase
-import com.varun.upitracker.database.entity.AppSettings
 import com.varun.upitracker.database.entity.Category
 import com.varun.upitracker.database.entity.Friend
 import com.varun.upitracker.database.entity.FriendRawName
@@ -24,21 +23,6 @@ class SettingsRepository(private val context: Context) {
         context.getSharedPreferences(SmsBacklogScanner.PREF_NAME, Context.MODE_PRIVATE)
     }
 
-    suspend fun getTotalBalancePaise(): Long? {
-        ensureAppSettingsRow()
-        return db.appSettingsDao().get()?.totalBalancePaise
-    }
-
-    suspend fun updateTotalBalancePaise(totalBalancePaise: Long) {
-        ensureAppSettingsRow()
-        db.appSettingsDao().save(
-            AppSettings(
-                id = 1,
-                totalBalancePaise = totalBalancePaise,
-                updatedEpoch = System.currentTimeMillis()
-            )
-        )
-    }
 
     suspend fun getCategories(): List<Category> = db.categoryDao().getAllCategoriesSync()
 
@@ -236,25 +220,6 @@ class SettingsRepository(private val context: Context) {
         db.withTransaction {
             val target = getOrCreateMerchantAlias(destinationAlias)
             db.merchantDao().reassignUpiId(mappingId, target.id)
-        }
-    }
-
-    private suspend fun ensureAppSettingsRow() {
-        db.withTransaction {
-            val existing = db.appSettingsDao().get()
-            if (existing != null) return@withTransaction
-            val legacyBalance = prefs.getLong(LEGACY_BALANCE_KEY, Long.MIN_VALUE)
-                .takeIf { it != Long.MIN_VALUE }
-            db.appSettingsDao().save(
-                AppSettings(
-                    id = 1,
-                    totalBalancePaise = legacyBalance,
-                    updatedEpoch = System.currentTimeMillis()
-                )
-            )
-            if (legacyBalance != null) {
-                prefs.edit().remove(LEGACY_BALANCE_KEY).apply()
-            }
         }
     }
 

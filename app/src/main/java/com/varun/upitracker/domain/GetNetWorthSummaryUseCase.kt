@@ -10,7 +10,7 @@ class GetNetWorthSummaryUseCase(
     private val getAccountBalance: GetAccountBalanceUseCase = GetAccountBalanceUseCase(db)
 ) {
     suspend operator fun invoke(atEpoch: Long = System.currentTimeMillis()): NetWorthSummary {
-        val accounts = db.accountDao().getAll()
+        val accounts = db.accountDao().getAllSync()
         suspend fun totalFor(predicate: (Account) -> Boolean): Long {
             return accounts.filter(predicate).sumOf { getAccountBalance(it.id, atEpoch) }
         }

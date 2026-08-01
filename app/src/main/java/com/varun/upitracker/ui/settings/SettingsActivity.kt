@@ -19,7 +19,6 @@ import com.varun.upitracker.ui.CategorySettingsActivity
 
 class SettingsActivity : AppCompatActivity() {
 
-    private lateinit var viewModel: SettingsViewModel
     private lateinit var tvBalanceValue: TextView
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -27,23 +26,18 @@ class SettingsActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_settings)
 
-        viewModel = ViewModelProvider(
-            this,
-            AppViewModelFactory(applicationContext)
-        )[SettingsViewModel::class.java]
-
         ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main)) { view, insets ->
             val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
             view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
             insets
         }
 
-        tvBalanceValue = findViewById(R.id.tvBalanceValue)
-
         findViewById<TextView>(R.id.btnBackSettings).setOnClickListener { finish() }
-        findViewById<TextView>(R.id.btnEditBalance).setOnClickListener { showBalanceDialog() }
         findViewById<View>(R.id.cardCategories).setOnClickListener {
             startActivity(Intent(this, CategorySettingsActivity::class.java))
+        }
+        findViewById<View>(R.id.cardAccounts).setOnClickListener {
+            startActivity(Intent(this, AccountsActivity::class.java))
         }
         findViewById<View>(R.id.cardFriendAliases).setOnClickListener {
             startActivity(AliasMappingsActivity.Companion.createIntent(this, AliasMappingsActivity.Companion.MODE_FRIEND))
@@ -51,19 +45,6 @@ class SettingsActivity : AppCompatActivity() {
         findViewById<View>(R.id.cardMerchantAliases).setOnClickListener {
             startActivity(AliasMappingsActivity.Companion.createIntent(this, AliasMappingsActivity.Companion.MODE_MERCHANT))
         }
-
-        viewModel.balancePaise.observe(this) { balance ->
-            tvBalanceValue.text = if (balance == null) "Not set" else "Rs${"%.2f".format(balance / 100.0)}"
-        }
-    }
-
-    override fun onResume() {
-        super.onResume()
-        loadBalance()
-    }
-
-    private fun loadBalance() {
-        viewModel.loadBalance()
     }
 
     private fun showBalanceDialog() {
@@ -85,9 +66,6 @@ class SettingsActivity : AppCompatActivity() {
                 if (paise == null) {
                     Toast.makeText(this, "Enter a valid amount.", Toast.LENGTH_SHORT).show()
                     return@setPositiveButton
-                }
-                viewModel.saveBalance(paise) { message ->
-                    Toast.makeText(this@SettingsActivity, message, Toast.LENGTH_SHORT).show()
                 }
             }
             .setNegativeButton("Cancel", null)

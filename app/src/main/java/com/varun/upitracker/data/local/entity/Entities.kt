@@ -2,7 +2,6 @@ package com.varun.upitracker.data.local.entity
 
 typealias Account = com.varun.upitracker.database.entity.Account
 typealias AccountTransfer = com.varun.upitracker.database.entity.AccountTransfer
-typealias AppSettings = com.varun.upitracker.database.entity.AppSettings
 typealias BalanceSnapshot = com.varun.upitracker.database.entity.BalanceSnapshot
 typealias BudgetSettings = com.varun.upitracker.database.entity.BudgetSettings
 typealias Category = com.varun.upitracker.database.entity.Category

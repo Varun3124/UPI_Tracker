@@ -6,6 +6,7 @@ import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import androidx.room.withTransaction
 import com.varun.upitracker.data.repository.LedgerRepository
 import com.varun.upitracker.data.repository.SettingsRepository
 import com.varun.upitracker.database.AppDatabase
@@ -21,6 +22,7 @@ import com.varun.upitracker.ui.transactionentry.TransactionEntryUiState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.util.Calendar
 
 data class TransactionEntryReferenceData(
     val friends: List<Friend> = emptyList(),
@@ -75,30 +77,64 @@ class TransactionEntryViewModel(context: Context) : ViewModel() {
     }
 }
 
-data class AllTransactionsUiState(val transactions: List<Transaction> = emptyList())
+data class AllTransactionsUiState(
+    val transactions: List<Transaction> = emptyList(),
+    val selectedMonthStartEpoch: Long = 0L
+)
 
 class AllTransactionsViewModel(context: Context) : ViewModel() {
     private val db = AppDatabase.getInstance(context.applicationContext)
-    private val _uiState = MutableLiveData(AllTransactionsUiState())
+    private var selectedMonthStartEpoch: Long = startOfMonth(Calendar.getInstance())
+    private val _uiState = MutableLiveData(
+        AllTransactionsUiState(selectedMonthStartEpoch = selectedMonthStartEpoch)
+    )
     val uiState: LiveData<AllTransactionsUiState> = _uiState
 
     fun loadCurrentMonth() {
+        loadMonth(selectedMonthStartEpoch)
+    }
+
+    fun loadMonth(monthStartEpoch: Long) {
+        selectedMonthStartEpoch = monthStartEpoch
         viewModelScope.launch {
             _uiState.value = withContext(Dispatchers.IO) {
-                val startOfMonth = java.util.Calendar.getInstance().apply {
-                    set(java.util.Calendar.DAY_OF_MONTH, 1)
-                    set(java.util.Calendar.HOUR_OF_DAY, 0)
-                    set(java.util.Calendar.MINUTE, 0)
-                    set(java.util.Calendar.SECOND, 0)
-                    set(java.util.Calendar.MILLISECOND, 0)
+                val endOfMonth = Calendar.getInstance().apply {
+                    timeInMillis = monthStartEpoch
+                    add(Calendar.MONTH, 1)
                 }.timeInMillis
-                AllTransactionsUiState(db.transactionDao().getTransactionsSinceSync(startOfMonth))
+                AllTransactionsUiState(
+                    transactions = db.transactionDao().getTransactionsBetweenSync(monthStartEpoch, endOfMonth),
+                    selectedMonthStartEpoch = monthStartEpoch
+                )
             }
         }
+    }
+
+    fun deleteTransaction(transactionId: Long) {
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) {
+                db.withTransaction {
+                    db.transactionShareDao().deleteForTransaction(transactionId)
+                    db.transactionDao().deleteById(transactionId)
+                }
+            }
+            loadMonth(selectedMonthStartEpoch)
+        }
+    }
+
+    private fun startOfMonth(calendar: Calendar): Long {
+        return calendar.apply {
+            set(Calendar.DAY_OF_MONTH, 1)
+            set(Calendar.HOUR_OF_DAY, 0)
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }.timeInMillis
     }
 }
 
 data class FriendDetailUiState(
+    val isLoading: Boolean = true,
     val friend: Friend? = null,
     val summary: com.varun.upitracker.data.repository.FriendLedgerSummary? = null,
     val transactions: List<Transaction> = emptyList()
@@ -111,8 +147,10 @@ class FriendDetailViewModel(context: Context) : ViewModel() {
 
     fun load(friendId: Long) {
         viewModelScope.launch {
+            _uiState.value = FriendDetailUiState(isLoading = true)
             _uiState.value = withContext(Dispatchers.IO) {
                 FriendDetailUiState(
+                    isLoading = false,
                     friend = db.friendDao().getFriendById(friendId),
                     summary = LedgerRepository(db).getSummaryForFriend(friendId),
                     transactions = db.transactionDao().getTransactionsForFriendSync(friendId)

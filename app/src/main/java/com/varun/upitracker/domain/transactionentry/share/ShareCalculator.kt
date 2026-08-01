@@ -69,10 +69,9 @@ class ShareCalculator {
         payerMeSharePaise: Long,
         payeeMeSharePaise: Long
     ): Long {
-        return when {
-            payerActorType == ActorType.MERCHANT -> payeeMeSharePaise
-            payeeActorType == ActorType.MERCHANT -> payerMeSharePaise
-            else -> 0L
-        }
+        val merchantInvolved = payerActorType == ActorType.MERCHANT || payeeActorType == ActorType.MERCHANT
+        if (!merchantInvolved) return 0L
+
+        return payerMeSharePaise + payeeMeSharePaise
     }
 }

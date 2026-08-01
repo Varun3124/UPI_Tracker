@@ -9,5 +9,6 @@ data class Account(
     val type: AccountType,
     val label: String,
     val addedEpoch: Long,
+    val isDefault: Boolean = false,
     val isArchived: Boolean = false
 )

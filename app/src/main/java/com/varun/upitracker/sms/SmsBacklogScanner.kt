@@ -26,7 +26,10 @@ class SmsBacklogScanner(private val context: Context) {
     suspend fun scan() {
         val db = AppDatabase.getInstance(context)
         val accountRepository = AccountRepository(db)
-        val defaultSavingsAccount = accountRepository.getDefaultAccountByType(AccountType.SAVINGS)
+        val defaultSavingsAccount = accountRepository.getDefaultAccountByType(AccountType.SAVINGS) ?: run {
+            Log.w(TAG, "No default savings account found, aborting backlog scan")
+            return
+        }
         val windowStart = db.balanceSnapshotDao()
             .getEarliestForAccount(defaultSavingsAccount.id)
             ?.snapshotEpoch ?: defaultSavingsAccount.addedEpoch

@@ -17,7 +17,8 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:padding="16dp">
+                android:padding="16dp"
+                android:paddingBottom="220dp">
 
             <LinearLayout
                 android:layout_width="match_parent"
@@ -348,11 +349,12 @@
                 android:layout_marginBottom="12dp"
                 android:background="#2A2A2A" />
 
-            <androidx.recyclerview.widget.RecyclerView
+            <LinearLayout
                 android:id="@+id/categoryContainer"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:nestedScrollingEnabled="false" />
+                android:orientation="vertical"
+                android:paddingBottom="48dp" />
         </LinearLayout>
     </ScrollView>
 
