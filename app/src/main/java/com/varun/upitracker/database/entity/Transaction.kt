@@ -1,4 +1,4 @@
-package com.varun.upitracker.database.entity
+﻿package com.varun.upitracker.database.entity
 
 import androidx.room.Entity
 import androidx.room.ForeignKey
@@ -9,32 +9,31 @@ import androidx.room.PrimaryKey
     tableName = "transactions",
     foreignKeys = [
         ForeignKey(
-            entity = _root_ide_package_.com.varun.upitracker.database.entity.Friend::class,
+            entity = Friend::class,
             parentColumns = ["id"],
             childColumns = ["payerFriendId"],
             onDelete = ForeignKey.SET_NULL
         ),
         ForeignKey(
-            entity = _root_ide_package_.com.varun.upitracker.database.entity.Merchant::class,
+            entity = Merchant::class,
             parentColumns = ["id"],
             childColumns = ["payerMerchantId"],
             onDelete = ForeignKey.SET_NULL
         ),
         ForeignKey(
-            entity = _root_ide_package_.com.varun.upitracker.database.entity.Friend::class,
+            entity = Friend::class,
             parentColumns = ["id"],
             childColumns = ["payeeFriendId"],
             onDelete = ForeignKey.SET_NULL
         ),
         ForeignKey(
-
-            entity = _root_ide_package_.com.varun.upitracker.database.entity.Merchant::class,
+            entity = Merchant::class,
             parentColumns = ["id"],
             childColumns = ["payeeMerchantId"],
             onDelete = ForeignKey.SET_NULL
         ),
         ForeignKey(
-            entity = _root_ide_package_.com.varun.upitracker.database.entity.Account::class,
+            entity = Account::class,
             parentColumns = ["id"],
             childColumns = ["myAccountId"],
             onDelete = ForeignKey.RESTRICT
@@ -56,19 +55,19 @@ data class Transaction(
 
     val amountPaise: Long,
 
-    val payerActorType: String = "ME",      // "ME", "FRIEND", "MERCHANT", "UNKNOWN"
+    val payerActorType: String = "ME",
     val payerFriendId: Long? = null,
     val payerMerchantId: Long? = null,
     val payerRawLabel: String? = null,
 
-    val payeeActorType: String = "UNKNOWN", // "ME", "FRIEND", "MERCHANT", "UNKNOWN"
+    val payeeActorType: String = "UNKNOWN",
     val payeeFriendId: Long? = null,
     val payeeMerchantId: Long? = null,
     val payeeRawLabel: String? = null,
 
     val reason: String? = null,
     val upiRefId: String? = null,
-    val myAccountId: String,
+    val myAccountId: String? = null,
     val dateEpoch: Long,
     val source: String,
     val isPending: Boolean = false

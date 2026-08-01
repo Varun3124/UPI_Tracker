@@ -58,10 +58,10 @@ interface TransactionDao {
     suspend fun getTransactionById(id: Long): com.varun.upitracker.database.entity.Transaction?
 
     @Query("SELECT * FROM transactions ORDER BY dateEpoch DESC, id DESC LIMIT :limit")
-    suspend fun getRecentTransactions(limit: Int): List<com.varun.upitracker.database.entity.Transaction>
+    suspend fun getRecentTransactions(limit: Int): List<Transaction>
 
     @Query("SELECT * FROM transactions WHERE dateEpoch >= :fromEpoch ORDER BY dateEpoch DESC, id DESC")
-    suspend fun getTransactionsSinceSync(fromEpoch: Long): List<com.varun.upitracker.database.entity.Transaction>
+    suspend fun getTransactionsSinceSync(fromEpoch: Long): List<Transaction>
 
     @Query(
         """

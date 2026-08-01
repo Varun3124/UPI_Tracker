@@ -1,4 +1,4 @@
-package com.varun.upitracker.ui
+package com.varun.upitracker.ui.settings
 
 import android.content.Context
 import androidx.lifecycle.LiveData
@@ -7,6 +7,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.varun.upitracker.database.entity.Category
+import com.varun.upitracker.data.repository.SettingsRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext

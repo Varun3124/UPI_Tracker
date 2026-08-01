@@ -1,4 +1,4 @@
-﻿package com.varun.upitracker.ui
+﻿package com.varun.upitracker.data.repository
 
 import android.content.Context
 import androidx.room.withTransaction

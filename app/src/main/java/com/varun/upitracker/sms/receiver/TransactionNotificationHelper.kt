@@ -12,7 +12,7 @@ import androidx.core.app.ActivityCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.varun.upitracker.R
-import com.varun.upitracker.ui.TransactionEntryActivity
+import com.varun.upitracker.ui.transactionentry.TransactionEntryActivity
 
 object TransactionNotificationHelper {
 

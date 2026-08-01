@@ -7,7 +7,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.varun.upitracker.data.repository.LedgerRepository
-import com.varun.upitracker.data.repository.AccountRepository
+import com.varun.upitracker.data.repository.SettingsRepository
 import com.varun.upitracker.database.AppDatabase
 import com.varun.upitracker.database.entity.Account
 import com.varun.upitracker.database.entity.AccountType
@@ -15,6 +15,9 @@ import com.varun.upitracker.database.entity.Category
 import com.varun.upitracker.database.entity.Friend
 import com.varun.upitracker.database.entity.Merchant
 import com.varun.upitracker.database.entity.Transaction
+import com.varun.upitracker.ui.transactionentry.TransactionEntryAction
+import com.varun.upitracker.ui.transactionentry.TransactionEntryEffect
+import com.varun.upitracker.ui.transactionentry.TransactionEntryUiState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -31,6 +34,31 @@ class TransactionEntryViewModel(context: Context) : ViewModel() {
     private val db = AppDatabase.getInstance(context.applicationContext)
     private val _referenceData = MutableLiveData<TransactionEntryReferenceData>()
     val referenceData: LiveData<TransactionEntryReferenceData> = _referenceData
+    private val _uiState = MutableLiveData(TransactionEntryUiState())
+    val uiState: LiveData<TransactionEntryUiState> = _uiState
+    private val _effects = MutableLiveData<TransactionEntryEffect>()
+    val effects: LiveData<TransactionEntryEffect> = _effects
+
+    fun launchTask(task: suspend () -> Unit) {
+        viewModelScope.launch {
+            task()
+        }
+    }
+
+    fun onAction(action: TransactionEntryAction) {
+        when (action) {
+            is TransactionEntryAction.AmountChanged -> {
+                _uiState.value = (_uiState.value ?: TransactionEntryUiState()).copy(amountRaw = action.rawAmount)
+            }
+
+            is TransactionEntryAction.AccountSelected -> {
+                _uiState.value = (_uiState.value ?: TransactionEntryUiState()).copy(selectedAccountId = action.accountId)
+            }
+
+            else -> Unit
+        }
+        _effects.value = TransactionEntryEffect.RunLegacyAction(action)
+    }
 
     fun load(transactionId: Long?) {
         viewModelScope.launch {

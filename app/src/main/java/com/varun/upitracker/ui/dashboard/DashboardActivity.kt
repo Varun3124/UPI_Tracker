@@ -22,8 +22,8 @@ import com.varun.upitracker.ledger.FriendLedgerSummary
 import com.varun.upitracker.ui.AllTransactionsActivity
 import com.varun.upitracker.ui.AmountPerspective
 import com.varun.upitracker.ui.FriendDetailActivity
-import com.varun.upitracker.ui.SettingsActivity
-import com.varun.upitracker.ui.TransactionEntryActivity
+import com.varun.upitracker.ui.settings.SettingsActivity
+import com.varun.upitracker.ui.transactionentry.TransactionEntryActivity
 import com.varun.upitracker.ui.amountPerspective
 import com.varun.upitracker.ui.formatPerspectiveAmount
 import com.varun.upitracker.ui.resolvePrimaryDisplay

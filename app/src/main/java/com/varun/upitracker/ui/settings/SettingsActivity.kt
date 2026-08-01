@@ -1,7 +1,10 @@
-﻿package com.varun.upitracker.ui
+﻿package com.varun.upitracker.ui.settings
 
 import android.content.Intent
 import android.os.Bundle
+import android.text.InputType
+import android.view.View
+import android.widget.EditText
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
@@ -11,6 +14,8 @@ import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.ViewModelProvider
 import com.varun.upitracker.R
+import com.varun.upitracker.ui.AliasMappingsActivity
+import com.varun.upitracker.ui.CategorySettingsActivity
 
 class SettingsActivity : AppCompatActivity() {
 
@@ -37,14 +42,14 @@ class SettingsActivity : AppCompatActivity() {
 
         findViewById<TextView>(R.id.btnBackSettings).setOnClickListener { finish() }
         findViewById<TextView>(R.id.btnEditBalance).setOnClickListener { showBalanceDialog() }
-        findViewById<android.view.View>(R.id.cardCategories).setOnClickListener {
+        findViewById<View>(R.id.cardCategories).setOnClickListener {
             startActivity(Intent(this, CategorySettingsActivity::class.java))
         }
-        findViewById<android.view.View>(R.id.cardFriendAliases).setOnClickListener {
-            startActivity(AliasMappingsActivity.createIntent(this, AliasMappingsActivity.MODE_FRIEND))
+        findViewById<View>(R.id.cardFriendAliases).setOnClickListener {
+            startActivity(AliasMappingsActivity.Companion.createIntent(this, AliasMappingsActivity.Companion.MODE_FRIEND))
         }
-        findViewById<android.view.View>(R.id.cardMerchantAliases).setOnClickListener {
-            startActivity(AliasMappingsActivity.createIntent(this, AliasMappingsActivity.MODE_MERCHANT))
+        findViewById<View>(R.id.cardMerchantAliases).setOnClickListener {
+            startActivity(AliasMappingsActivity.Companion.createIntent(this, AliasMappingsActivity.Companion.MODE_MERCHANT))
         }
 
         viewModel.balancePaise.observe(this) { balance ->
@@ -62,10 +67,10 @@ class SettingsActivity : AppCompatActivity() {
     }
 
     private fun showBalanceDialog() {
-        val input = android.widget.EditText(this).apply {
+        val input = EditText(this).apply {
             hint = "0.00"
-            inputType = android.text.InputType.TYPE_CLASS_NUMBER or
-                android.text.InputType.TYPE_NUMBER_FLAG_DECIMAL
+            inputType = InputType.TYPE_CLASS_NUMBER or
+                InputType.TYPE_NUMBER_FLAG_DECIMAL
         }
         val existing = tvBalanceValue.text.toString()
         if (existing.startsWith("Rs")) {

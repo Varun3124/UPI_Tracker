@@ -14,6 +14,8 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.varun.upitracker.R
 import com.varun.upitracker.database.entity.Category
+import com.varun.upitracker.ui.settings.AppViewModelFactory
+import com.varun.upitracker.ui.settings.CategorySettingsViewModel
 
 class CategorySettingsActivity : AppCompatActivity() {
 

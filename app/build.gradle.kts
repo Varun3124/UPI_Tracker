@@ -9,7 +9,7 @@ android {
 
     defaultConfig {
         applicationId = "com.varun.upitracker"
-        minSdk = 26
+        minSdk = 29
         targetSdk = 36
         versionCode = 1
         versionName = "1.0"
@@ -45,6 +45,7 @@ dependencies {
     // Room
     implementation("androidx.room:room-runtime:2.7.1")
     implementation("androidx.room:room-ktx:2.7.1")
+    implementation(libs.androidx.remote.creation.compose)
     ksp("androidx.room:room-compiler:2.7.1")
 
     // Lifecycle
