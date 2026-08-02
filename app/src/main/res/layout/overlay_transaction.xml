@@ -152,97 +152,115 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginBottom="14dp"
-                android:gravity="center_vertical"
-                android:orientation="horizontal">
+                android:orientation="vertical">
 
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Rs"
-                    android:textColor="#FFFFFF"
-                    android:textSize="30sp"
-                    android:textStyle="bold" />
-
-                <EditText
-                    android:id="@+id/etAmount"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="8dp"
-                    android:layout_weight="1"
-                    android:background="@null"
-                    android:hint="0.00"
-                    android:imeOptions="actionDone"
-                    android:inputType="numberDecimal"
-                    android:textColor="#FFFFFF"
-                    android:textColorHint="#333333"
-                    android:textSize="32sp"
-                    android:textStyle="bold" />
-
-                <Button
-                    android:id="@+id/btnEqualize"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="12dp"
-                    android:backgroundTint="#262626"
-                    android:text="Equalize"
-                    android:textColor="#AAAAAA"
-                    android:textSize="12sp" />
-            </LinearLayout>
-
-            <LinearLayout
-                android:id="@+id/dateSection"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="14dp"
-                android:background="#1C1C1C"
-                android:gravity="center_vertical"
-                android:orientation="horizontal"
-                android:padding="14dp">
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="Date"
-                    android:textColor="#FFFFFF"
-                    android:textSize="14sp"
-                    android:textStyle="bold" />
-
-                <TextView
-                    android:id="@+id/tvDateValue"
-                    android:layout_width="0dp"
-                    android:layout_height="wrap_content"
-                    android:layout_marginStart="12dp"
-                    android:layout_weight="1"
-                    android:gravity="end"
-                    android:textColor="#D7D7D7"
-                    android:textSize="14sp" />
-            </LinearLayout>
-
-            <LinearLayout
-                android:id="@+id/accountSection"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="14dp"
-                android:background="#1C1C1C"
-                android:orientation="vertical"
-                android:padding="14dp">
-
-                <TextView
+                <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text="Account"
-                    android:textColor="#FFFFFF"
-                    android:textSize="14sp"
-                    android:textStyle="bold" />
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical">
 
-                <Spinner
-                    android:id="@+id/spMyAccount"
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Rs"
+                        android:textColor="#FFFFFF"
+                        android:textSize="30sp"
+                        android:textStyle="bold" />
+
+                    <EditText
+                        android:id="@+id/etAmount"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="8dp"
+                        android:layout_weight="1"
+                        android:background="@null"
+                        android:hint="0.00"
+                        android:imeOptions="actionDone"
+                        android:inputType="numberDecimal"
+                        android:textColor="#FFFFFF"
+                        android:textColorHint="#333333"
+                        android:textSize="32sp"
+                        android:textStyle="bold" />
+
+                    <Button
+                        android:id="@+id/btnEqualize"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="12dp"
+                        android:backgroundTint="#262626"
+                        android:text="Equalize"
+                        android:textColor="#AAAAAA"
+                        android:textSize="12sp" />
+                </LinearLayout>
+
+                <LinearLayout
                     android:layout_width="match_parent"
-                    android:layout_height="44dp"
+                    android:layout_height="wrap_content"
                     android:layout_marginTop="8dp"
-                    android:backgroundTint="#262626"
-                    android:popupBackground="#1C1C1C" />
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical">
+
+                    <LinearLayout
+                        android:id="@+id/dateSection"
+                        android:layout_width="222dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:background="#1C1C1C"
+                        android:orientation="vertical"
+                        android:padding="10dp">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Date"
+                            android:textColor="#FFFFFF"
+                            android:textSize="14sp"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:id="@+id/tvDateValue"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="4dp"
+                            android:textColor="#D7D7D7"
+                            android:textSize="14sp" />
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:id="@+id/accountSection"
+                        android:layout_width="127dp"
+                        android:layout_height="match_parent"
+                        android:layout_marginStart="8dp"
+                        android:background="#1C1C1C"
+                        android:orientation="vertical"
+                        android:padding="10dp">
+
+                        <Spinner
+                            android:id="@+id/spMyAccount"
+                            android:layout_width="wrap_content"
+                            android:layout_height="39dp"
+                            android:layout_marginTop="8dp"
+                            android:backgroundTint="#262626"
+                            android:popupBackground="#1C1C1C" />
+                    </LinearLayout>
+                </LinearLayout>
             </LinearLayout>
+
+            <EditText
+                android:id="@+id/etDescription"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="14dp"
+                android:background="#1C1C1C"
+                android:hint="Description"
+                android:imeOptions="actionDone"
+                android:inputType="textMultiLine"
+                android:minLines="2"
+                android:padding="14dp"
+                android:textColor="#FFFFFF"
+                android:textColorHint="#AAAAAA"
+                android:textSize="14sp" />
 
             <LinearLayout
                 android:layout_width="match_parent"
