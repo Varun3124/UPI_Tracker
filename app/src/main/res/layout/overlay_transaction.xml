@@ -149,7 +149,7 @@
             </LinearLayout>
 
             <LinearLayout
-                android:layout_width="wrap_content"
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginBottom="14dp"
                 android:gravity="center_vertical"
@@ -165,7 +165,7 @@
 
                 <EditText
                     android:id="@+id/etAmount"
-                    android:layout_width="wrap_content"
+                    android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_marginStart="8dp"
                     android:layout_weight="1"
@@ -177,6 +177,16 @@
                     android:textColorHint="#333333"
                     android:textSize="32sp"
                     android:textStyle="bold" />
+
+                <Button
+                    android:id="@+id/btnEqualize"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="12dp"
+                    android:backgroundTint="#262626"
+                    android:text="Equalize"
+                    android:textColor="#AAAAAA"
+                    android:textSize="12sp" />
             </LinearLayout>
 
             <LinearLayout

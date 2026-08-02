@@ -23,7 +23,7 @@
 
     <AutoCompleteTextView
         android:id="@+id/etShareName"
-        android:layout_width="0dp"
+        android:layout_width="230dp"
         android:layout_height="wrap_content"
         android:layout_marginStart="8dp"
         android:layout_weight="1"
@@ -38,7 +38,7 @@
 
     <EditText
         android:id="@+id/etShareAmount"
-        android:layout_width="80dp"
+        android:layout_width="91dp"
         android:layout_height="wrap_content"
         android:layout_marginStart="8dp"
         android:background="@null"

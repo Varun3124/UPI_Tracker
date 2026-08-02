@@ -142,6 +142,7 @@ class TransactionEntryActivity : AppCompatActivity() {
     private lateinit var payeeSharesContainer: LinearLayout
     private lateinit var btnAddPayerPerson: Button
     private lateinit var btnAddPayeePerson: Button
+    private lateinit var btnEqualize: Button
     private lateinit var categoryContainer: LinearLayout
     private lateinit var formScroll: ScrollView
 
@@ -225,6 +226,7 @@ class TransactionEntryActivity : AppCompatActivity() {
         payeeSharesContainer = findViewById(R.id.payeeSharesContainer)
         btnAddPayerPerson = findViewById(R.id.btnAddPayerPerson)
         btnAddPayeePerson = findViewById(R.id.btnAddPayeePerson)
+        btnEqualize = findViewById(R.id.btnEqualize)
         categoryContainer = findViewById(R.id.categoryContainer)
     }
 
@@ -420,6 +422,39 @@ class TransactionEntryActivity : AppCompatActivity() {
             viewModel.onAction(TransactionEntryAction.AmountChanged(etAmount.text.toString()))
         })
         wireImeDismiss(etAmount)
+        btnEqualize.setOnClickListener { equalizeShares() }
+    }
+
+    private fun equalizeShares() {
+        val amount = getCurrentAmountPaise()
+        if (amount <= 0L) {
+            toast("Enter an amount first")
+            return
+        }
+
+        val allPayerShares = mutableListOf<ShareRow>()
+        allPayerShares.addAll(payerShareRows)
+
+        val amountPerPayerShare = amount / allPayerShares.size
+        val payerRemainder = amount % allPayerShares.size
+
+        allPayerShares.forEachIndexed { index, row ->
+            row.amountPaise = amountPerPayerShare + (if (index < payerRemainder) 1 else 0)
+        }
+
+        val allPayeeShares = mutableListOf<ShareRow>()
+        allPayeeShares.addAll(payeeShareRows)
+
+        val amountPerPayeeShare = amount / allPayeeShares.size
+        val PayeeRemainder = amount % allPayeeShares.size
+
+        allPayeeShares.forEachIndexed { index, row ->
+            row.amountPaise = amountPerPayeeShare + (if (index < PayeeRemainder) 1 else 0)
+        }
+
+        buildShareSection(true)
+        buildShareSection(false)
+        updateLiveCalc()
     }
 
     private fun setupCategories() {
