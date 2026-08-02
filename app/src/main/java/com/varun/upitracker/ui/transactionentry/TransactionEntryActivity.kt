@@ -145,6 +145,7 @@ class TransactionEntryActivity : AppCompatActivity() {
     private lateinit var btnEqualize: Button
     private lateinit var categoryContainer: LinearLayout
     private lateinit var formScroll: ScrollView
+    private lateinit var etDescription: EditText
 
     private var shouldAutoloadMerchantCategories = true
     private var smsPayerAliasFallback = ""
@@ -228,6 +229,7 @@ class TransactionEntryActivity : AppCompatActivity() {
         btnAddPayeePerson = findViewById(R.id.btnAddPayeePerson)
         btnEqualize = findViewById(R.id.btnEqualize)
         categoryContainer = findViewById(R.id.categoryContainer)
+        etDescription = findViewById(R.id.etDescription)
     }
 
     private suspend fun setupUi(db: AppDatabase) {
@@ -244,6 +246,7 @@ class TransactionEntryActivity : AppCompatActivity() {
         }
         setupEndpointControls()
         setupAmountField()
+        etDescription.addTextChangedListener(simpleWatcher { viewModel.onAction(TransactionEntryAction.DescriptionChanged(it.toString())) })
         setupDateSection()
         setupAccountPicker(tx)
         setupCategories()
@@ -477,6 +480,8 @@ class TransactionEntryActivity : AppCompatActivity() {
         smsPayerAliasFallback = resolveInitialEndpointLabel(db, true, tx)
         smsPayeeAliasFallback = resolveInitialEndpointLabel(db, false, tx)
 
+        etDescription.setText(tx.reason ?: "")
+
         val shares =
             withContext(Dispatchers.IO) { db.transactionShareDao().getSharesForTransaction(tx.id) }
         seedShareRows(shares)
@@ -503,6 +508,7 @@ class TransactionEntryActivity : AppCompatActivity() {
         payeeShareRows.clear()
         payerShareRows.add(buildMeShareRow())
         payeeShareRows.add(buildMerchantShareRow(false))
+        etDescription.setText("")
     }
 
     private fun actorTypeFor(isPayer: Boolean) = if (isPayer) payerActorType else payeeActorType
@@ -918,6 +924,11 @@ class TransactionEntryActivity : AppCompatActivity() {
                 }
             }
 
+            is TransactionEntryAction.DescriptionChanged -> {
+                // No-op here; UI element (`etDescription`) is the source of truth and
+                // ViewModel already receives changes. Keep branch to exhaust the when expression.
+            }
+
             is TransactionEntryAction.CategoryToggled -> updateCategoryVisibility()
             is TransactionEntryAction.CategoryAmountChanged -> updateCategoryVisibility()
             TransactionEntryAction.SaveClicked -> {
@@ -1176,7 +1187,8 @@ class TransactionEntryActivity : AppCompatActivity() {
                 existingTransaction = currentTransaction,
                 amountPaise = amountPaise,
                 selectedAccountId = accountIdForPersistence(),
-                dateEpoch = selectedDateEpoch
+                dateEpoch = selectedDateEpoch,
+                description = etDescription.text.toString().trim().ifEmpty { null }
             ),
             resolveActors = {
                 val payer = resolveActor(db, true, payerActorType, payerLabel)

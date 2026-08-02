@@ -10,7 +10,8 @@ data class PersistTransactionRequest(
     val existingTransaction: Transaction?,
     val amountPaise: Long,
     val selectedAccountId: String?,
-    val dateEpoch: Long
+    val dateEpoch: Long,
+    val description: String? = null
 )
 
 class TransactionPersistenceService(
@@ -90,6 +91,7 @@ class TransactionPersistenceService(
             payeeFriendId = payee.friendId,
             payeeMerchantId = payee.merchantId,
             payeeRawLabel = payee.rawLabel,
+            reason = request.description,
             myAccountId = request.selectedAccountId,
             dateEpoch = request.dateEpoch,
             isPending = false

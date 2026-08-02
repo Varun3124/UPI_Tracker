@@ -57,6 +57,10 @@ class TransactionEntryViewModel(context: Context) : ViewModel() {
                 _uiState.value = (_uiState.value ?: TransactionEntryUiState()).copy(selectedAccountId = action.accountId)
             }
 
+            is TransactionEntryAction.DescriptionChanged -> {
+                _uiState.value = (_uiState.value ?: TransactionEntryUiState()).copy(description = action.text)
+            }
+
             else -> Unit
         }
         _effects.value = TransactionEntryEffect.RunLegacyAction(action)

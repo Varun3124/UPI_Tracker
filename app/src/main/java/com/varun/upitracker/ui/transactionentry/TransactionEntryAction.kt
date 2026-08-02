@@ -14,6 +14,7 @@ sealed interface TransactionEntryAction {
     data class ShareNameChanged(val side: EntrySide, val rowIndex: Int, val text: String) : TransactionEntryAction
     data class ShareNameCommitted(val side: EntrySide, val rowIndex: Int) : TransactionEntryAction
     data class ShareAmountChanged(val side: EntrySide, val rowIndex: Int, val rawAmount: String) : TransactionEntryAction
+    data class DescriptionChanged(val text: String) : TransactionEntryAction
     data class CategoryToggled(val categoryId: Long, val selected: Boolean) : TransactionEntryAction
     data class CategoryAmountChanged(val categoryId: Long, val rawAmount: String) : TransactionEntryAction
     data object SaveClicked : TransactionEntryAction

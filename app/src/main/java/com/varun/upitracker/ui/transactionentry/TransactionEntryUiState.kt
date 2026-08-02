@@ -14,6 +14,7 @@ data class TransactionEntryUiState(
     val smsPayerAliasFallback: String = "",
     val smsPayeeAliasFallback: String = "",
     val amountRaw: String = "",
+    val description: String = "",
     val selectedAccountId: String = "",
     val payer: EndpointUiState = EndpointUiState(),
     val payee: EndpointUiState = EndpointUiState(),
