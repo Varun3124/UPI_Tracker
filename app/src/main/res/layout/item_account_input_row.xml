@@ -1,0 +1,55 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:layout_marginBottom="12dp">
+
+    <LinearLayout
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:layout_marginEnd="8dp">
+
+        <EditText
+            android:id="@+id/etAccountLabel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Account label *"
+            android:inputType="textCapWords"
+            android:layout_marginBottom="4dp"/>
+
+        <Spinner
+            android:id="@+id/spAccountType"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="4dp"/>
+
+        <EditText
+            android:id="@+id/etInitialBalance"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Initial balance (e.g. 1234.56)"
+            android:inputType="numberDecimal"
+            android:layout_marginBottom="4dp"/>
+
+        <EditText
+            android:id="@+id/etSnapshotEpoch"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Snapshot date &amp; time"
+            android:focusable="false"
+            android:clickable="true"/>
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/btnRemoveRow"
+        android:layout_width="32dp"
+        android:layout_height="32dp"
+        android:text="✕"
+        android:gravity="center"
+        android:textSize="16sp"
+        android:textColor="#C62828"/>
+</LinearLayout>

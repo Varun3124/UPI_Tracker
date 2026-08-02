@@ -2,4 +2,7 @@
 <resources>
     <color name="black">#FF000000</color>
     <color name="white">#FFFFFFFF</color>
+    <color name="accent_black">#000000</color>
+    <color name="compliment_cyan">#006064</color>
+    <color name="compliment_cyan_dark">#004D40</color>
 </resources>

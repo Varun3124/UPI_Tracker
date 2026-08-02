@@ -6,7 +6,7 @@ import androidx.room.Index
 import androidx.room.PrimaryKey
 
 @Entity(
-    tableName = "transaction_parties",
+    tableName = "transaction_shares",
     foreignKeys = [
         ForeignKey(
             entity = Transaction::class,
@@ -21,13 +21,18 @@ import androidx.room.PrimaryKey
             onDelete = ForeignKey.CASCADE
         )
     ],
-    indices = [Index("transactionId"), Index("friendId")]
+    indices = [
+        Index("transactionId"),
+        Index("friendId")
+    ]
 )
-data class TransactionParty(
+data class TransactionShare(
     @PrimaryKey(autoGenerate = true)
     val id: Long = 0,
 
     val transactionId: Long,
-    val friendId: Long,
-    val spentOnThemPaise: Long   // Their share of the bill — for spend tracking only, no debt implied
+    val side: String? = null, // "PAYER" or "PAYEE"; null = legacy
+    val participantType: String, // "ME" or "FRIEND"
+    val friendId: Long? = null,
+    val amountPaise: Long
 )

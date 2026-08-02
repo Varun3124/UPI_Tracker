@@ -1,8 +1,15 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
     <!-- Base application theme. -->
     <style name="Base.Theme.UPITracker" parent="Theme.Material3.DayNight.NoActionBar">
-        <!-- Customize your light theme here. -->
-        <!-- <item name="colorPrimary">@color/my_light_primary</item> -->
+        <!-- Main colors -->
+        <item name="colorPrimary">@color/accent_black</item>
+        <item name="colorOnPrimary">@color/white</item>
+        <item name="colorSecondary">@color/compliment_cyan</item>
+        <item name="colorOnSecondary">@color/white</item>
+        <item name="colorTertiary">@color/compliment_cyan_dark</item>
+
+        <!-- Status bar and navigation bar -->
+        <item name="android:statusBarColor">@color/accent_black</item>
     </style>
 
     <style name="Theme.UPITracker" parent="Base.Theme.UPITracker" />
