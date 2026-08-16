@@ -1211,7 +1211,7 @@ class TransactionEntryActivity : AppCompatActivity() {
     private fun buildSharesForPersistence(txId: Long): List<TransactionShare> {
         val result = mutableListOf<TransactionShare>()
         payerShareRows.forEach { row ->
-            if (row.participantType != ActorType.MERCHANT && row.key.isNotBlank() && row.amountPaise > 0) {
+            if (row.participantType != ActorType.MERCHANT && row.key.isNotBlank()) {
                 result.add(
                     TransactionShare(
                         transactionId = txId,
@@ -1224,7 +1224,7 @@ class TransactionEntryActivity : AppCompatActivity() {
             }
         }
         payeeShareRows.forEach { row ->
-            if (row.participantType != ActorType.MERCHANT && row.key.isNotBlank() && row.amountPaise > 0) {
+            if (row.participantType != ActorType.MERCHANT && row.key.isNotBlank()) {
                 result.add(
                     TransactionShare(
                         transactionId = txId,
