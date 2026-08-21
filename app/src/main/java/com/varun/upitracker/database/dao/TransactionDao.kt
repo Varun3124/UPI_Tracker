@@ -30,7 +30,10 @@ interface TransactionDao {
 
     @Query(
         """
-        SELECT SUM(s.amountPaise) FROM transaction_shares s
+        SELECT 
+            SUM(CASE WHEN t.payerActorType = 'MERCHANT' THEN -s.amountPaise ELSE 0 END) +
+            SUM(CASE WHEN t.payeeActorType = 'MERCHANT' THEN s.amountPaise ELSE 0 END)
+        FROM transaction_shares s
         INNER JOIN transactions t
             ON s.transactionId = t.id
         WHERE t.dateEpoch >= :fromEpoch
