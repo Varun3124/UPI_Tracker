@@ -1,5 +1,6 @@
 package com.varun.upitracker.ui
 
+import android.graphics.Color
 import com.varun.upitracker.database.AppDatabase
 import com.varun.upitracker.database.entity.Transaction
 import com.varun.upitracker.database.entity.TransactionShare
@@ -87,6 +88,14 @@ fun Transaction.amountPerspective(): AmountPerspective {
         else -> AmountPerspective.NEUTRAL
     }
 }
+
+fun AmountPerspective.color(): Int = when (this) {
+    AmountPerspective.OUTGOING -> Color.parseColor("#C62828")
+    AmountPerspective.INCOMING -> Color.parseColor("#2E7D32")
+    AmountPerspective.NEUTRAL -> Color.parseColor("#AAAAAA")
+}
+
+fun Transaction.perspectiveColor(): Int = amountPerspective().color()
 
 fun Transaction.formatPerspectiveAmount(): String {
     val amount = "Rs${"%.0f".format(amountPaise / 100.0)}"

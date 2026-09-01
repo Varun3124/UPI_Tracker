@@ -13,7 +13,6 @@ import com.varun.upitracker.database.entity.EntrySource
 import com.varun.upitracker.database.entity.FixedDepositDetail
 import com.varun.upitracker.database.entity.FixedDepositStatus
 import com.varun.upitracker.domain.BalanceDeltaCalculator
-import com.varun.upitracker.domain.TransactionDeltaInput
 import com.varun.upitracker.domain.TransferDeltaInput
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -250,6 +249,11 @@ class AccountRepository private constructor(
         database.balanceSnapshotDao().delete(snapshot)
     }
 
+    /**
+     * Raw insert. Performs no validation beyond the [AccountTransfer.statementRefNo] dedupe, so
+     * one-sided imports (a null `fromAccountId`/`toAccountId`) can use it. Manually entered
+     * transfers should go through [upsertTransfer], which validates first.
+     */
     suspend fun recordTransfer(transfer: AccountTransfer): Boolean {
         transfer.statementRefNo?.let { ref ->
             if (database.accountTransferDao().findByStatementRefNo(ref) != null) return false
@@ -262,6 +266,78 @@ class AccountRepository private constructor(
         }
         return true
     }
+
+    suspend fun getTransfer(id: String): AccountTransfer? =
+        database.accountTransferDao().getById(id)
+
+    suspend fun getRecentTransfers(limit: Int): List<AccountTransfer> =
+        database.accountTransferDao().getRecentTransfers(limit)
+
+    suspend fun getTransfersBetween(fromEpoch: Long, toEpoch: Long): List<AccountTransfer> =
+        database.accountTransferDao().getTransfersBetween(fromEpoch, toEpoch)
+
+    /**
+     * Inserts a new transfer or updates an existing one with the same id.
+     *
+     * @return false only when a duplicate `statementRefNo` caused the insert to be skipped.
+     * @throws AccountMutationException if the transfer is invalid, or if it is an existing
+     *   [AccountTransferType.FD_RETURN] — see [deleteTransfer] for why those are frozen.
+     */
+    suspend fun upsertTransfer(transfer: AccountTransfer): Boolean {
+        validateTransfer(transfer)
+        val existing = database.accountTransferDao().getById(transfer.id)
+            ?: return recordTransfer(transfer)
+        if (existing.type == AccountTransferType.FD_RETURN) {
+            throw AccountMutationException("Edit FD returns from the Accounts screen.")
+        }
+        database.accountTransferDao().update(transfer)
+        return true
+    }
+
+    /**
+     * Deletes a transfer. Balances are derived, so removing the row is the entire reversal.
+     *
+     * An [AccountTransferType.FD_RETURN] cannot be deleted here: [recordTransfer] archived the FD
+     * account and marked its detail matured/withdrawn on the way in, and neither is reversible
+     * without knowing the deposit's prior status.
+     */
+    suspend fun deleteTransfer(id: String) {
+        val existing = database.accountTransferDao().getById(id)
+            ?: throw AccountMutationException("Transfer not found.")
+        if (existing.type == AccountTransferType.FD_RETURN) {
+            throw AccountMutationException("Delete FD returns from the Accounts screen.")
+        }
+        database.accountTransferDao().deleteById(id)
+    }
+
+    /** Stricter than the entity, whose nullable account ids exist for one-sided imports. */
+    private suspend fun validateTransfer(transfer: AccountTransfer) {
+        val from = transfer.fromAccountId
+            ?: throw AccountMutationException("Source account is required.")
+        val to = transfer.toAccountId
+            ?: throw AccountMutationException("Destination account is required.")
+        if (from == to) {
+            throw AccountMutationException("Source and destination must be different.")
+        }
+        if (transfer.amountFromPaise <= 0L || transfer.amountToPaise <= 0L) {
+            throw AccountMutationException("Transfer amounts must be greater than zero.")
+        }
+        if (database.accountDao().getById(from) == null) {
+            throw AccountMutationException("Source account not found.")
+        }
+        if (database.accountDao().getById(to) == null) {
+            throw AccountMutationException("Destination account not found.")
+        }
+    }
+
+    /**
+     * Total spend since [fromEpoch], as the negated sum of every account's balance delta. Transfers
+     * contribute automatically via [sumDeltas]: equal legs net to zero, a fee shows up as spend.
+     */
+    suspend fun getSpendSince(fromEpoch: Long): Long =
+        -database.accountDao().getAllSync().sumOf { account ->
+            sumDeltas(account.id, fromEpoch, Long.MAX_VALUE)
+        }
 
     suspend fun bookFixedDeposit(
         accountId: String,
@@ -315,8 +391,7 @@ class AccountRepository private constructor(
         toEpochInclusive: Long
     ): Long {
         val transactionDelta = balanceDataSource
-            .getTransactionDeltasBetween(accountId, fromEpochExclusive, toEpochInclusive)
-            .sumOf(BalanceDeltaCalculator::transactionDelta)
+            .getTransactionDeltaSum(accountId, fromEpochExclusive, toEpochInclusive)
 
         val transferDelta = balanceDataSource
             .getTransferDeltasBetween(accountId, fromEpochExclusive, toEpochInclusive)
@@ -329,11 +404,12 @@ class AccountRepository private constructor(
 internal interface AccountBalanceDataSource {
     suspend fun getLatestAtOrBefore(accountId: String, atEpoch: Long): BalanceSnapshot?
     suspend fun getEarliestAfter(accountId: String, atEpoch: Long): BalanceSnapshot?
-    suspend fun getTransactionDeltasBetween(
+
+    suspend fun getTransactionDeltaSum(
         accountId: String,
         fromEpochExclusive: Long,
         toEpochInclusive: Long
-    ): List<TransactionDeltaInput>
+    ): Long
 
     suspend fun getTransferDeltasBetween(
         accountId: String,
@@ -349,20 +425,13 @@ private class RoomAccountBalanceDataSource(private val db: AppDatabase) : Accoun
     override suspend fun getEarliestAfter(accountId: String, atEpoch: Long): BalanceSnapshot? =
         db.balanceSnapshotDao().getEarliestAfter(accountId, atEpoch)
 
-    override suspend fun getTransactionDeltasBetween(
+    override suspend fun getTransactionDeltaSum(
         accountId: String,
         fromEpochExclusive: Long,
         toEpochInclusive: Long
-    ): List<TransactionDeltaInput> {
+    ): Long {
         return db.transactionDao()
-            .getAccountTransactionsBetween(accountId, fromEpochExclusive, toEpochInclusive)
-            .map { transaction ->
-                TransactionDeltaInput(
-                    amountPaise = transaction.amountPaise,
-                    payerActorType = transaction.payerActorType,
-                    payeeActorType = transaction.payeeActorType
-                )
-            }
+            .getTotalDeltaBetweenForAccount(accountId, fromEpochExclusive, toEpochInclusive) ?: 0L
     }
 
     override suspend fun getTransferDeltasBetween(

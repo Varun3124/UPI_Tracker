@@ -1,13 +1,5 @@
 package com.varun.upitracker.domain
 
-import com.varun.upitracker.ui.ActorType
-
-data class TransactionDeltaInput(
-    val amountPaise: Long,
-    val payerActorType: String,
-    val payeeActorType: String
-)
-
 data class TransferDeltaInput(
     val fromAccountId: String?,
     val toAccountId: String?,
@@ -16,18 +8,24 @@ data class TransferDeltaInput(
 )
 
 object BalanceDeltaCalculator {
-    fun transactionDelta(transaction: TransactionDeltaInput): Long {
-        return when {
-            transaction.payeeActorType == ActorType.ME -> transaction.amountPaise
-            transaction.payerActorType == ActorType.ME -> -transaction.amountPaise
-            else -> 0L
-        }
-    }
 
     fun transferDelta(accountId: String, transfer: TransferDeltaInput): Long {
         var delta = 0L
         if (transfer.fromAccountId == accountId) delta -= transfer.amountFromPaise
         if (transfer.toAccountId == accountId) delta += transfer.amountToPaise
         return delta
+    }
+
+    /**
+     * How much a transfer contributes to spend, i.e. the negation of [transferDelta] summed over
+     * every tracked account. Moving money between two of your own accounts costs nothing, so equal
+     * legs contribute 0; an ATM fee contributes the fee; an investment gain contributes a negative
+     * amount. An untracked endpoint (null account id) means the money genuinely left or entered
+     * your world, so the whole leg counts.
+     */
+    fun expenseDelta(transfer: TransferDeltaInput): Long {
+        val out = if (transfer.fromAccountId != null) transfer.amountFromPaise else 0L
+        val into = if (transfer.toAccountId != null) transfer.amountToPaise else 0L
+        return out - into
     }
 }

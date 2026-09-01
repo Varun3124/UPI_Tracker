@@ -34,10 +34,9 @@ class TransactionValidator {
             return ValidationResult.invalid("Enter a payee")
         }
         if (payerActorType == payeeActorType) {
-            val sameActor = when (payerActorType) {
-                ActorType.ME -> true
-                else -> payerLabel.equals(payeeLabel, ignoreCase = true)
-            }
+            // ME -> ME is an account transfer, validated by AccountTransferValidator instead.
+            val sameActor = payerActorType != ActorType.ME &&
+                payerLabel.equals(payeeLabel, ignoreCase = true)
             if (sameActor) {
                 return ValidationResult.invalid("Payer and payee must be different")
             }

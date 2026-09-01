@@ -6,10 +6,11 @@ import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.varun.upitracker.data.repository.AccountRepository
 import com.varun.upitracker.data.repository.LedgerRepository
 import com.varun.upitracker.database.AppDatabase
-import com.varun.upitracker.database.entity.Transaction
 import com.varun.upitracker.sms.SmsBacklogScanner
+import com.varun.upitracker.ui.LedgerEntry
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -18,7 +19,8 @@ import java.util.Calendar
 data class DashboardUiState(
     val dailySpendPaise: Long = 0L,
     val monthlySpendPaise: Long = 0L,
-    val recentTransactions: List<Transaction> = emptyList(),
+    val recentEntries: List<LedgerEntry> = emptyList(),
+    val accountLabels: Map<String, String> = emptyMap(),
     val iouSummaries: List<com.varun.upitracker.data.repository.FriendLedgerSummary> = emptyList()
 )
 
@@ -31,10 +33,17 @@ class DashboardViewModel(private val context: Context) : ViewModel() {
         viewModelScope.launch {
             val now = System.currentTimeMillis()
             val state = withContext(Dispatchers.IO) {
+                val accountRepository = AccountRepository(db)
+                // Taking 5 of each is exact: the overall newest 5 can only come from these.
+                val transactions = db.transactionDao().getRecentTransactions(5).map(LedgerEntry::Tx)
+                val transfers = db.accountTransferDao().getRecentTransfers(5).map(LedgerEntry::Transfer)
                 DashboardUiState(
-                    dailySpendPaise = db.transactionDao().getTotalDebitSince(startOfDay(now)) ?: 0L,
-                    monthlySpendPaise = db.transactionDao().getTotalDebitSince(startOfMonth(now)) ?: 0L,
-                    recentTransactions = db.transactionDao().getRecentTransactions(5),
+                    dailySpendPaise = accountRepository.getSpendSince(startOfDay(now)),
+                    monthlySpendPaise = accountRepository.getSpendSince(startOfMonth(now)),
+                    recentEntries = (transactions + transfers)
+                        .sortedByDescending { it.dateEpoch }
+                        .take(5),
+                    accountLabels = db.accountDao().getAllSync().associate { it.id to it.label },
                     iouSummaries = LedgerRepository(db).getAllSummaries()
                 )
             }

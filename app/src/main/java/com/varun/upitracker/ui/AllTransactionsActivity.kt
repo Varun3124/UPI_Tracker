@@ -1,13 +1,13 @@
 package com.varun.upitracker.ui
 
 import android.content.Intent
-import android.graphics.Color
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.ViewGroup
 import android.widget.LinearLayout
 import android.widget.NumberPicker
 import android.widget.TextView
+import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
@@ -18,7 +18,6 @@ import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.varun.upitracker.R
 import com.varun.upitracker.database.AppDatabase
-import com.varun.upitracker.database.entity.Transaction
 import com.varun.upitracker.ui.transactionentry.TransactionEntryActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -63,15 +62,12 @@ class AllTransactionsActivity : AppCompatActivity() {
             findViewById<RecyclerView>(R.id.rvAllTransactions).apply {
                 layoutManager = LinearLayoutManager(this@AllTransactionsActivity)
                 adapter = AllTransactionsAdapter(
-                    transactions = state.transactions,
+                    entries = state.entries,
+                    accountLabels = state.accountLabels,
                     db = db,
                     dateFmt = dateFmt,
-                    onTap = { txId ->
-                        startActivity(Intent(this@AllTransactionsActivity, TransactionEntryActivity::class.java).apply {
-                            putExtra(TransactionEntryActivity.EXTRA_TRANSACTION_ID, txId)
-                        })
-                    },
-                    onLongPress = ::showTransactionActions
+                    onTap = ::openEntry,
+                    onLongPress = ::showEntryActions
                 )
             }
             btnPickMonth.text = monthFmt.format(Date(state.selectedMonthStartEpoch))
@@ -131,17 +127,42 @@ class AllTransactionsActivity : AppCompatActivity() {
             .show()
     }
 
-    private fun showTransactionActions(transaction: Transaction) {
+    private fun openEntry(entry: LedgerEntry) {
+        val intent = Intent(this, TransactionEntryActivity::class.java).apply {
+            when (entry) {
+                is LedgerEntry.Tx ->
+                    putExtra(TransactionEntryActivity.EXTRA_TRANSACTION_ID, entry.transaction.id)
+                is LedgerEntry.Transfer ->
+                    putExtra(TransactionEntryActivity.EXTRA_TRANSFER_ID, entry.transfer.id)
+            }
+        }
+        startActivity(intent)
+    }
+
+    private fun showEntryActions(entry: LedgerEntry) {
         AlertDialog.Builder(this)
-            .setItems(arrayOf("Delete")) { _, _ -> showDeleteDialog(transaction) }
+            .setItems(arrayOf("Delete")) { _, _ -> showDeleteDialog(entry) }
             .show()
     }
 
-    private fun showDeleteDialog(transaction: Transaction) {
+    private fun showDeleteDialog(entry: LedgerEntry) {
+        val (title, message) = when (entry) {
+            is LedgerEntry.Tx ->
+                "Delete transaction?" to "This will delete the transaction and its shares."
+            is LedgerEntry.Transfer ->
+                "Delete transfer?" to "This will delete the account transfer."
+        }
         AlertDialog.Builder(this)
-            .setTitle("Delete transaction?")
-            .setMessage("This will delete the transaction and its shares.")
-            .setPositiveButton("Delete") { _, _ -> viewModel.deleteTransaction(transaction.id) }
+            .setTitle(title)
+            .setMessage(message)
+            .setPositiveButton("Delete") { _, _ ->
+                when (entry) {
+                    is LedgerEntry.Tx -> viewModel.deleteTransaction(entry.transaction.id)
+                    is LedgerEntry.Transfer -> viewModel.deleteTransfer(entry.transfer.id) { error ->
+                        Toast.makeText(this, error, Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
             .setNegativeButton("Cancel", null)
             .show()
     }
@@ -158,11 +179,12 @@ class AllTransactionsActivity : AppCompatActivity() {
 }
 
 class AllTransactionsAdapter(
-    private val transactions: List<Transaction>,
+    private val entries: List<LedgerEntry>,
+    private val accountLabels: Map<String, String>,
     private val db: AppDatabase,
     private val dateFmt: SimpleDateFormat,
-    private val onTap: (Long) -> Unit,
-    private val onLongPress: (Transaction) -> Unit
+    private val onTap: (LedgerEntry) -> Unit,
+    private val onLongPress: (LedgerEntry) -> Unit
 ) : RecyclerView.Adapter<AllTransactionsAdapter.VH>() {
 
     inner class VH(view: android.view.View) : RecyclerView.ViewHolder(view) {
@@ -177,28 +199,37 @@ class AllTransactionsAdapter(
         LayoutInflater.from(parent.context).inflate(R.layout.item_friend_transaction, parent, false)
     )
 
-    override fun getItemCount() = transactions.size
+    override fun getItemCount() = entries.size
 
     override fun onBindViewHolder(holder: VH, position: Int) {
-        val tx = transactions[position]
-        CoroutineScope(Dispatchers.Main).launch {
-            holder.tvPayee.text = withContext(Dispatchers.IO) { tx.resolvePrimaryDisplay(db) }
-        }
-        holder.tvDate.text = dateFmt.format(Date(tx.dateEpoch))
-        holder.tvAmount.text = tx.formatPerspectiveAmount()
-        holder.tvAmount.setTextColor(tx.perspectiveColor())
-        holder.tvNote.text = tx.resolveTypeLabel()
+        val entry = entries[position]
+        holder.tvDate.text = dateFmt.format(Date(entry.dateEpoch))
         holder.tvIou.text = ""
-        holder.itemView.setOnClickListener { onTap(tx.id) }
+
+        when (entry) {
+            is LedgerEntry.Tx -> {
+                val tx = entry.transaction
+                CoroutineScope(Dispatchers.Main).launch {
+                    holder.tvPayee.text = withContext(Dispatchers.IO) { tx.resolvePrimaryDisplay(db) }
+                }
+                holder.tvAmount.text = tx.formatPerspectiveAmount()
+                holder.tvAmount.setTextColor(tx.perspectiveColor())
+                holder.tvNote.text = tx.resolveTypeLabel()
+            }
+
+            is LedgerEntry.Transfer -> {
+                val transfer = entry.transfer
+                holder.tvPayee.text = transfer.resolvePrimaryDisplay()
+                holder.tvAmount.text = transfer.formatTransferAmount()
+                holder.tvAmount.setTextColor(AmountPerspective.NEUTRAL.color())
+                holder.tvNote.text = transfer.resolveRouteLabel(accountLabels)
+            }
+        }
+
+        holder.itemView.setOnClickListener { onTap(entry) }
         holder.itemView.setOnLongClickListener {
-            onLongPress(tx)
+            onLongPress(entry)
             true
         }
     }
-}
-
-private fun Transaction.perspectiveColor(): Int = when (amountPerspective()) {
-    AmountPerspective.OUTGOING -> Color.parseColor("#C62828")
-    AmountPerspective.INCOMING -> Color.parseColor("#2E7D32")
-    AmountPerspective.NEUTRAL -> Color.parseColor("#AAAAAA")
 }

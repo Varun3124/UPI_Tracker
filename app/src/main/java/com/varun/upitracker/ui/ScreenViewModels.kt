@@ -7,15 +7,19 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import androidx.room.withTransaction
+import com.varun.upitracker.data.repository.AccountMutationException
+import com.varun.upitracker.data.repository.AccountRepository
 import com.varun.upitracker.data.repository.LedgerRepository
 import com.varun.upitracker.data.repository.SettingsRepository
 import com.varun.upitracker.database.AppDatabase
 import com.varun.upitracker.database.entity.Account
+import com.varun.upitracker.database.entity.AccountTransfer
 import com.varun.upitracker.database.entity.AccountType
 import com.varun.upitracker.database.entity.Category
 import com.varun.upitracker.database.entity.Friend
 import com.varun.upitracker.database.entity.Merchant
 import com.varun.upitracker.database.entity.Transaction
+import com.varun.upitracker.ui.transactionentry.EntrySide
 import com.varun.upitracker.ui.transactionentry.TransactionEntryAction
 import com.varun.upitracker.ui.transactionentry.TransactionEntryEffect
 import com.varun.upitracker.ui.transactionentry.TransactionEntryUiState
@@ -28,8 +32,12 @@ data class TransactionEntryReferenceData(
     val friends: List<Friend> = emptyList(),
     val merchants: List<Merchant> = emptyList(),
     val categories: List<Category> = emptyList(),
+    /** Accounts a normal transaction may be attributed to. */
     val accounts: List<Account> = emptyList(),
-    val transaction: Transaction? = null
+    /** Wider list used in transfer mode, where any active account is a valid endpoint. */
+    val transferAccounts: List<Account> = emptyList(),
+    val transaction: Transaction? = null,
+    val transfer: AccountTransfer? = null
 )
 
 class TransactionEntryViewModel(context: Context) : ViewModel() {
@@ -54,7 +62,12 @@ class TransactionEntryViewModel(context: Context) : ViewModel() {
             }
 
             is TransactionEntryAction.AccountSelected -> {
-                _uiState.value = (_uiState.value ?: TransactionEntryUiState()).copy(selectedAccountId = action.accountId)
+                val state = _uiState.value ?: TransactionEntryUiState()
+                _uiState.value = if (action.side == EntrySide.PAYER) {
+                    state.copy(payerAccountId = action.accountId)
+                } else {
+                    state.copy(payeeAccountId = action.accountId)
+                }
             }
 
             is TransactionEntryAction.DescriptionChanged -> {
@@ -66,7 +79,7 @@ class TransactionEntryViewModel(context: Context) : ViewModel() {
         _effects.value = TransactionEntryEffect.RunLegacyAction(action)
     }
 
-    fun load(transactionId: Long?) {
+    fun load(transactionId: Long?, transferId: String? = null) {
         viewModelScope.launch {
             _referenceData.value = withContext(Dispatchers.IO) {
                 TransactionEntryReferenceData(
@@ -74,7 +87,9 @@ class TransactionEntryViewModel(context: Context) : ViewModel() {
                     merchants = db.merchantDao().getAllMerchantsSync(),
                     categories = db.categoryDao().getAllCategoriesSync(),
                     accounts = db.accountDao().getActiveByTypes(listOf(AccountType.CASH, AccountType.SAVINGS)),
-                    transaction = transactionId?.let { db.transactionDao().getTransactionById(it) }
+                    transferAccounts = db.accountDao().getActiveSync(),
+                    transaction = transactionId?.let { db.transactionDao().getTransactionById(it) },
+                    transfer = transferId?.let { db.accountTransferDao().getById(it) }
                 )
             }
         }
@@ -82,7 +97,8 @@ class TransactionEntryViewModel(context: Context) : ViewModel() {
 }
 
 data class AllTransactionsUiState(
-    val transactions: List<Transaction> = emptyList(),
+    val entries: List<LedgerEntry> = emptyList(),
+    val accountLabels: Map<String, String> = emptyMap(),
     val selectedMonthStartEpoch: Long = 0L
 )
 
@@ -106,8 +122,15 @@ class AllTransactionsViewModel(context: Context) : ViewModel() {
                     timeInMillis = monthStartEpoch
                     add(Calendar.MONTH, 1)
                 }.timeInMillis
+                val transactions = db.transactionDao()
+                    .getTransactionsBetweenSync(monthStartEpoch, endOfMonth)
+                    .map(LedgerEntry::Tx)
+                val transfers = db.accountTransferDao()
+                    .getTransfersBetween(monthStartEpoch, endOfMonth)
+                    .map(LedgerEntry::Transfer)
                 AllTransactionsUiState(
-                    transactions = db.transactionDao().getTransactionsBetweenSync(monthStartEpoch, endOfMonth),
+                    entries = (transactions + transfers).sortedByDescending { it.dateEpoch },
+                    accountLabels = db.accountDao().getAllSync().associate { it.id to it.label },
                     selectedMonthStartEpoch = monthStartEpoch
                 )
             }
@@ -121,6 +144,18 @@ class AllTransactionsViewModel(context: Context) : ViewModel() {
                     db.transactionShareDao().deleteForTransaction(transactionId)
                     db.transactionDao().deleteById(transactionId)
                 }
+            }
+            loadMonth(selectedMonthStartEpoch)
+        }
+    }
+
+    fun deleteTransfer(transferId: String, onError: (String) -> Unit = {}) {
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) { AccountRepository(db).deleteTransfer(transferId) }
+            } catch (e: AccountMutationException) {
+                onError(e.message ?: "Could not delete transfer")
+                return@launch
             }
             loadMonth(selectedMonthStartEpoch)
         }

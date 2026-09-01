@@ -2,9 +2,7 @@ package com.varun.upitracker.data.repository
 
 import com.varun.upitracker.database.entity.BalanceSnapshot
 import com.varun.upitracker.database.entity.BalanceSnapshotSource
-import com.varun.upitracker.domain.TransactionDeltaInput
 import com.varun.upitracker.domain.TransferDeltaInput
-import com.varun.upitracker.ui.ActorType
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -76,17 +74,11 @@ class AccountRepositoryBalanceTest {
         source = BalanceSnapshotSource.MANUAL
     )
 
-    private fun incoming(amountPaise: Long) = TransactionDeltaInput(
-        amountPaise = amountPaise,
-        payerActorType = ActorType.FRIEND,
-        payeeActorType = ActorType.ME
-    )
+    /** Money in: the account is the payee, so the delta is positive. */
+    private fun incoming(amountPaise: Long): Long = amountPaise
 
-    private fun outgoing(amountPaise: Long) = TransactionDeltaInput(
-        amountPaise = amountPaise,
-        payerActorType = ActorType.ME,
-        payeeActorType = ActorType.MERCHANT
-    )
+    /** Money out: the account is the payer, so the delta is negative. */
+    private fun outgoing(amountPaise: Long): Long = -amountPaise
 
     private fun transferIn(amountPaise: Long) = TransferDeltaInput(
         fromAccountId = "other",
@@ -102,7 +94,7 @@ class AccountRepositoryBalanceTest {
         amountToPaise = amountPaise
     )
 
-    private data class TimedTransaction(val epoch: Long, val input: TransactionDeltaInput)
+    private data class TimedTransaction(val epoch: Long, val deltaPaise: Long)
     private data class TimedTransfer(val epoch: Long, val input: TransferDeltaInput)
 
     private class FakeBalanceDataSource(
@@ -122,14 +114,14 @@ class AccountRepositoryBalanceTest {
                 .minByOrNull { it.snapshotEpoch }
         }
 
-        override suspend fun getTransactionDeltasBetween(
+        override suspend fun getTransactionDeltaSum(
             accountId: String,
             fromEpochExclusive: Long,
             toEpochInclusive: Long
-        ): List<TransactionDeltaInput> {
+        ): Long {
             return transactions
                 .filter { it.epoch > fromEpochExclusive && it.epoch <= toEpochInclusive }
-                .map { it.input }
+                .sumOf { it.deltaPaise }
         }
 
         override suspend fun getTransferDeltasBetween(

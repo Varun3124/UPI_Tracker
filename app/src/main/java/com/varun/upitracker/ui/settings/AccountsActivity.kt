@@ -28,6 +28,7 @@ import com.varun.upitracker.data.repository.AccountDeleteResult
 import com.varun.upitracker.data.repository.FixedDepositCreateRequest
 import com.varun.upitracker.database.entity.Account
 import com.varun.upitracker.database.entity.AccountType
+import com.varun.upitracker.ui.enumDisplayName
 import com.varun.upitracker.database.entity.BalanceSnapshot
 import com.varun.upitracker.database.entity.BalanceSnapshotSource
 import com.varun.upitracker.database.entity.EntrySource
@@ -502,9 +503,7 @@ private class AccountsAdapter(
     }
 }
 
-private fun AccountType.displayName(): String = name.lowercase()
-    .split("_")
-    .joinToString(" ") { part -> part.replaceFirstChar { it.uppercase() } }
+private fun AccountType.displayName(): String = enumDisplayName(name)
 
 private fun Long.formatPaise(): String = "Rs${"%.2f".format(this / 100.0)}"
 

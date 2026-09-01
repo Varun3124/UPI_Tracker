@@ -17,14 +17,16 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import com.varun.upitracker.R
 import com.varun.upitracker.database.AppDatabase
-import com.varun.upitracker.database.entity.Transaction
 import com.varun.upitracker.ledger.FriendLedgerSummary
 import com.varun.upitracker.ui.AllTransactionsActivity
 import com.varun.upitracker.ui.AmountPerspective
 import com.varun.upitracker.ui.FriendDetailActivity
+import com.varun.upitracker.ui.LedgerEntry
+import com.varun.upitracker.ui.color
+import com.varun.upitracker.ui.formatTransferAmount
+import com.varun.upitracker.ui.perspectiveColor
 import com.varun.upitracker.ui.settings.SettingsActivity
 import com.varun.upitracker.ui.transactionentry.TransactionEntryActivity
-import com.varun.upitracker.ui.amountPerspective
 import com.varun.upitracker.ui.formatPerspectiveAmount
 import com.varun.upitracker.ui.resolvePrimaryDisplay
 import kotlinx.coroutines.Dispatchers
@@ -71,7 +73,7 @@ class DashboardActivity : AppCompatActivity() {
         viewModel.uiState.observe(this) { state ->
             tvDailySpend.text = "Rs${"%.0f".format(state.dailySpendPaise / 100.0)}"
             tvMonthlySpend.text = "Rs${"%.0f".format(state.monthlySpendPaise / 100.0)}"
-            buildRecentRow(state.recentTransactions)
+            buildRecentRow(state.recentEntries)
             buildIouSection(state.iouSummaries)
         }
         loadData()
@@ -87,22 +89,37 @@ class DashboardActivity : AppCompatActivity() {
         viewModel.loadData()
     }
 
-    private fun buildRecentRow(transactions: List<Transaction>) {
+    private fun buildRecentRow(entries: List<LedgerEntry>) {
         val db = AppDatabase.getInstance(applicationContext)
         recentRow.removeAllViews()
-        transactions.forEach { tx ->
+        entries.forEach { entry ->
             val card = LayoutInflater.from(this).inflate(R.layout.item_transaction_card, recentRow, false)
-            lifecycleScope.launch {
-                card.findViewById<TextView>(R.id.tvCardPayee).text = withContext(Dispatchers.IO) {
-                    tx.resolvePrimaryDisplay(db)
+            val payeeTv = card.findViewById<TextView>(R.id.tvCardPayee)
+            val amountTv = card.findViewById<TextView>(R.id.tvCardAmount)
+            val badge = card.findViewById<TextView>(R.id.tvPendingBadge)
+            card.findViewById<TextView>(R.id.tvCardDate).text = dateFmt.format(Date(entry.dateEpoch))
+
+            when (entry) {
+                is LedgerEntry.Tx -> {
+                    val tx = entry.transaction
+                    lifecycleScope.launch {
+                        payeeTv.text = withContext(Dispatchers.IO) { tx.resolvePrimaryDisplay(db) }
+                    }
+                    amountTv.text = tx.formatPerspectiveAmount()
+                    amountTv.setTextColor(tx.perspectiveColor())
+                    badge.visibility = if (tx.isPending) View.VISIBLE else View.GONE
+                    card.setOnClickListener { openTransactionEntry(tx.id) }
+                }
+
+                is LedgerEntry.Transfer -> {
+                    val transfer = entry.transfer
+                    payeeTv.text = transfer.resolvePrimaryDisplay()
+                    amountTv.text = transfer.formatTransferAmount()
+                    amountTv.setTextColor(AmountPerspective.NEUTRAL.color())
+                    badge.visibility = View.GONE
+                    card.setOnClickListener { openTransferEntry(transfer.id) }
                 }
             }
-            card.findViewById<TextView>(R.id.tvCardDate).text = dateFmt.format(Date(tx.dateEpoch))
-            val amountTv = card.findViewById<TextView>(R.id.tvCardAmount)
-            amountTv.text = tx.formatPerspectiveAmount()
-            amountTv.setTextColor(tx.perspectiveColor())
-            card.findViewById<TextView>(R.id.tvPendingBadge).visibility = if (tx.isPending) View.VISIBLE else View.GONE
-            card.setOnClickListener { openTransactionEntry(tx.id) }
             recentRow.addView(card)
         }
 
@@ -173,10 +190,10 @@ class DashboardActivity : AppCompatActivity() {
             putExtra(TransactionEntryActivity.Companion.EXTRA_TRANSACTION_ID, transactionId)
         })
     }
-}
 
-private fun Transaction.perspectiveColor(): Int = when (amountPerspective()) {
-    AmountPerspective.OUTGOING -> Color.parseColor("#C62828")
-    AmountPerspective.INCOMING -> Color.parseColor("#2E7D32")
-    AmountPerspective.NEUTRAL -> Color.parseColor("#AAAAAA")
+    private fun openTransferEntry(transferId: String) {
+        startActivity(Intent(this, TransactionEntryActivity::class.java).apply {
+            putExtra(TransactionEntryActivity.Companion.EXTRA_TRANSFER_ID, transferId)
+        })
+    }
 }

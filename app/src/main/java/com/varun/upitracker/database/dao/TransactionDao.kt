@@ -31,17 +31,22 @@ interface TransactionDao {
     @Query(
         """
         SELECT 
-            SUM(CASE WHEN t.payerActorType = 'MERCHANT' THEN -s.amountPaise ELSE 0 END) +
-            SUM(CASE WHEN t.payeeActorType = 'MERCHANT' THEN s.amountPaise ELSE 0 END)
+            SUM(CASE WHEN t.payerActorType = 'MERCHANT' THEN s.amountPaise ELSE 0 END) +
+            SUM(CASE WHEN t.payeeActorType = 'MERCHANT' THEN -s.amountPaise ELSE 0 END)
         FROM transaction_shares s
         INNER JOIN transactions t
             ON s.transactionId = t.id
-        WHERE t.dateEpoch >= :fromEpoch
+        WHERE t.dateEpoch > :fromEpochExclusive AND t.dateEpoch <= :toEpochInclusive
+          AND t.myAccountId = :accountId
           AND s.participantType = 'ME'
           AND (t.payerActorType = 'MERCHANT' OR t.payeeActorType = 'MERCHANT')
         """
     )
-    suspend fun getTotalDebitSince(fromEpoch: Long): Long?
+    suspend fun getTotalDeltaBetweenForAccount(
+        accountId: String,
+        fromEpochExclusive: Long,
+        toEpochInclusive: Long
+    ): Long?
 
     @Query(
         """
