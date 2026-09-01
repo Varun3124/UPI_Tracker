@@ -149,6 +149,7 @@ class TransactionEntryActivity : AppCompatActivity() {
     private lateinit var tvPayeeActorFriend: TextView
     private lateinit var tvPayeeActorMerchant: TextView
     private lateinit var etAmount: EditText
+    private lateinit var amountRow: View
     private lateinit var dateSection: View
     private lateinit var tvDateValue: TextView
     private lateinit var tvBalance: TextView
@@ -235,6 +236,7 @@ class TransactionEntryActivity : AppCompatActivity() {
         tvPayeeActorFriend = findViewById(R.id.tvPayeeActorFriend)
         tvPayeeActorMerchant = findViewById(R.id.tvPayeeActorMerchant)
         etAmount = findViewById(R.id.etAmount)
+        amountRow = findViewById(R.id.amountRow)
         dateSection = findViewById(R.id.dateSection)
         tvDateValue = findViewById(R.id.tvDateValue)
         tvBalance = findViewById(R.id.tvBalance)
@@ -504,21 +506,18 @@ class TransactionEntryActivity : AppCompatActivity() {
     private fun applyTransferModeUi() {
         val transfer = isTransferMode()
 
-        btnAddPayerPerson.isEnabled = !transfer
-        btnAddPayeePerson.isEnabled = !transfer
-        btnEqualize.isEnabled = !transfer
-        listOf(btnAddPayerPerson, btnAddPayeePerson, btnEqualize).forEach {
-            it.alpha = if (transfer) 0.4f else 1f
-        }
+        btnAddPayerPerson.visibility = if (transfer) View.GONE else View.VISIBLE
+        btnAddPayeePerson.visibility = if (transfer) View.GONE else View.VISIBLE
+        // The whole amount row (Rs field + Equalize) is irrelevant in transfer mode: the
+        // from/to amounts live on the share rows instead, previewed via tvBalance.
+        amountRow.visibility = if (transfer) View.GONE else View.VISIBLE
 
         if (transfer) {
             // Guarded: etAmount has a watcher that would re-enter updateLiveCalc.
             if (etAmount.text.isNotEmpty()) etAmount.setText("")
             etAmount.isEnabled = false
-            etAmount.alpha = 0.5f
         } else {
             etAmount.isEnabled = !isSmsSource || currentTransaction?.amountPaise == 0L
-            etAmount.alpha = 1f
         }
     }
 
