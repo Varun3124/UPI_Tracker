@@ -42,8 +42,13 @@ class DashboardActivity : AppCompatActivity() {
     private lateinit var tvMonthlySpend: TextView
     private lateinit var recentRow: LinearLayout
     private lateinit var iouContainer: LinearLayout
+    private lateinit var btnToggleInsignificantIou: TextView
     private val dateFmt = SimpleDateFormat("dd MMM", Locale.getDefault())
     private lateinit var viewModel: DashboardViewModel
+
+    /** IOUs this small are noise (loose change, rounding) - hidden by default. */
+    private var showInsignificantIou = false
+    private var latestIouSummaries: List<FriendLedgerSummary> = emptyList()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
@@ -60,6 +65,11 @@ class DashboardActivity : AppCompatActivity() {
         tvMonthlySpend = findViewById(R.id.tvMonthlySpend)
         recentRow = findViewById(R.id.recentTransactionsRow)
         iouContainer = findViewById(R.id.iouContainer)
+        btnToggleInsignificantIou = findViewById(R.id.btnToggleInsignificantIou)
+        btnToggleInsignificantIou.setOnClickListener {
+            showInsignificantIou = !showInsignificantIou
+            buildIouSection(latestIouSummaries)
+        }
         viewModel = ViewModelProvider(
             this,
             DashboardViewModelFactory(applicationContext)
@@ -74,7 +84,8 @@ class DashboardActivity : AppCompatActivity() {
             tvDailySpend.text = "Rs${"%.0f".format(state.dailySpendPaise / 100.0)}"
             tvMonthlySpend.text = "Rs${"%.0f".format(state.monthlySpendPaise / 100.0)}"
             buildRecentRow(state.recentEntries)
-            buildIouSection(state.iouSummaries)
+            latestIouSummaries = state.iouSummaries
+            buildIouSection(latestIouSummaries)
         }
         loadData()
     }
@@ -140,10 +151,35 @@ class DashboardActivity : AppCompatActivity() {
                 setTextColor(Color.GRAY)
                 setPadding(0, 8, 0, 8)
             })
+            btnToggleInsignificantIou.visibility = View.GONE
             return
         }
 
-        summaries.forEach { summary ->
+        val insignificantCount = summaries.count { isInsignificantIou(it) }
+        val visibleSummaries = if (showInsignificantIou) {
+            summaries
+        } else {
+            summaries.filterNot { isInsignificantIou(it) }
+        }
+
+        btnToggleInsignificantIou.visibility = if (insignificantCount > 0) View.VISIBLE else View.GONE
+        btnToggleInsignificantIou.text = if (showInsignificantIou) {
+            "Hide insignificant"
+        } else {
+            "Show insignificant ($insignificantCount)"
+        }
+
+        if (visibleSummaries.isEmpty()) {
+            iouContainer.addView(TextView(this).apply {
+                text = "No significant IOUs"
+                textSize = 13f
+                setTextColor(Color.GRAY)
+                setPadding(0, 8, 0, 8)
+            })
+            return
+        }
+
+        visibleSummaries.forEach { summary ->
             val card = LayoutInflater.from(this).inflate(R.layout.item_friend_iou, iouContainer, false)
             val initials = card.findViewById<TextView>(R.id.tvFriendInitials)
             val name = card.findViewById<TextView>(R.id.tvFriendName)
@@ -181,6 +217,9 @@ class DashboardActivity : AppCompatActivity() {
         }
     }
 
+    private fun isInsignificantIou(summary: FriendLedgerSummary): Boolean =
+        kotlin.math.abs(summary.netBalancePaise) < INSIGNIFICANT_IOU_THRESHOLD_PAISE
+
     private fun launchManualEntry() {
         startActivity(Intent(this, TransactionEntryActivity::class.java))
     }
@@ -195,5 +234,10 @@ class DashboardActivity : AppCompatActivity() {
         startActivity(Intent(this, TransactionEntryActivity::class.java).apply {
             putExtra(TransactionEntryActivity.Companion.EXTRA_TRANSFER_ID, transferId)
         })
+    }
+
+    private companion object {
+        /** Rs100, below which an IOU balance is treated as noise and hidden by default. */
+        const val INSIGNIFICANT_IOU_THRESHOLD_PAISE = 10_000L
     }
 }
