@@ -97,6 +97,20 @@ fun AmountPerspective.color(): Int = when (this) {
 
 fun Transaction.perspectiveColor(): Int = amountPerspective().color()
 
+/**
+ * Rupees with thousands separators, e.g. `Rs1,23,456`. Signed, so a negative balance reads
+ * `-Rs500` rather than `Rs-500`.
+ *
+ * The project otherwise hand-inlines `"Rs" + paise / 100.0` at around twenty sites across three
+ * precisions; new code should come here instead of adding a fourth.
+ */
+fun formatRupees(paise: Long): String {
+    val sign = if (paise < 0) "-" else ""
+    val whole = kotlin.math.abs(paise) / 100.0
+    return sign + "Rs" + java.text.NumberFormat.getIntegerInstance(java.util.Locale("en", "IN"))
+        .format(whole.toLong())
+}
+
 fun Transaction.formatPerspectiveAmount(): String {
     val amount = "Rs${"%.0f".format(amountPaise / 100.0)}"
     return when (amountPerspective()) {

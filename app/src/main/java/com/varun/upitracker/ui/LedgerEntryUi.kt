@@ -4,6 +4,7 @@ import com.varun.upitracker.database.entity.AccountTransfer
 import com.varun.upitracker.database.entity.AccountTransferType
 import com.varun.upitracker.database.entity.Transaction
 import com.varun.upitracker.domain.BalanceDeltaCalculator
+import com.varun.upitracker.domain.TransactionDeltaInput
 import com.varun.upitracker.domain.TransferDeltaInput
 
 /**
@@ -20,6 +21,60 @@ sealed interface LedgerEntry {
     data class Transfer(val transfer: AccountTransfer) : LedgerEntry {
         override val dateEpoch: Long get() = transfer.dateEpoch
     }
+}
+
+/** Identifies an entry across the two tables, whose ids are a Long and a UUID string. */
+fun LedgerEntry.stableId(): String = when (this) {
+    is LedgerEntry.Tx -> "T:${transaction.id}"
+    is LedgerEntry.Transfer -> "X:${transfer.id}"
+}
+
+/**
+ * How much this entry moved the combined balance of [accountIds]. A transfer between two accounts
+ * that are both in scope nets to zero, which is what makes a combined CASH + SAVINGS balance behave.
+ */
+fun LedgerEntry.balanceDelta(accountIds: Set<String>): Long = when (this) {
+    is LedgerEntry.Tx -> {
+        val input = TransactionDeltaInput(
+            myAccountId = transaction.myAccountId,
+            payerActorType = transaction.payerActorType,
+            payeeActorType = transaction.payeeActorType,
+            amountPaise = transaction.amountPaise
+        )
+        accountIds.sumOf { BalanceDeltaCalculator.transactionDelta(it, input) }
+    }
+    is LedgerEntry.Transfer -> {
+        val input = TransferDeltaInput(
+            fromAccountId = transfer.fromAccountId,
+            toAccountId = transfer.toAccountId,
+            amountFromPaise = transfer.amountFromPaise,
+            amountToPaise = transfer.amountToPaise
+        )
+        accountIds.sumOf { BalanceDeltaCalculator.transferDelta(it, input) }
+    }
+}
+
+/**
+ * The balance standing after each entry, keyed by [stableId].
+ *
+ * @param entriesNewestFirst display order; accumulation runs oldest-first over the reverse.
+ * @param openingPaise the balance immediately before the oldest entry.
+ *
+ * Pass the **unfiltered** list. Accumulating over a filtered one would silently drop the movements
+ * of hidden entries and make every figure wrong.
+ */
+fun runningBalances(
+    entriesNewestFirst: List<LedgerEntry>,
+    accountIds: Set<String>,
+    openingPaise: Long
+): Map<String, Long> {
+    val balances = HashMap<String, Long>(entriesNewestFirst.size)
+    var running = openingPaise
+    for (entry in entriesNewestFirst.asReversed()) {
+        running += entry.balanceDelta(accountIds)
+        balances[entry.stableId()] = running
+    }
+    return balances
 }
 
 /** `"CASH_WITHDRAWAL"` -> `"Cash Withdrawal"`. */

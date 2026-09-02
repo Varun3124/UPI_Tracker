@@ -98,4 +98,56 @@ class BalanceDeltaCalculatorTest {
 
         assertEquals(-holdingsChange, BalanceDeltaCalculator.expenseDelta(transfer))
     }
+
+    @Test
+    fun transactionDelta_payerIsMeDebitsTheAccount() {
+        val transaction = TransactionDeltaInput("savings", "ME", "MERCHANT", 15_000)
+
+        assertEquals(-15_000, BalanceDeltaCalculator.transactionDelta("savings", transaction))
+    }
+
+    @Test
+    fun transactionDelta_payeeIsMeCreditsTheAccount() {
+        val transaction = TransactionDeltaInput("savings", "MERCHANT", "ME", 15_000)
+
+        assertEquals(15_000, BalanceDeltaCalculator.transactionDelta("savings", transaction))
+    }
+
+    /** The gate the spend query applies. Money paid to a friend does leave the bank. */
+    @Test
+    fun transactionDelta_countsFriendTransactionsToo() {
+        val transaction = TransactionDeltaInput("savings", "ME", "FRIEND", 50_000)
+
+        assertEquals(-50_000, BalanceDeltaCalculator.transactionDelta("savings", transaction))
+    }
+
+    /** Statement and SMS rows arrive unresolved and shareless; they still moved the balance. */
+    @Test
+    fun transactionDelta_countsUnresolvedCounterparties() {
+        val transaction = TransactionDeltaInput("savings", "ME", "UNKNOWN", 23_990)
+
+        assertEquals(-23_990, BalanceDeltaCalculator.transactionDelta("savings", transaction))
+    }
+
+    @Test
+    fun transactionDelta_ignoresAnotherAccountsTransaction() {
+        val transaction = TransactionDeltaInput("cash", "ME", "MERCHANT", 15_000)
+
+        assertEquals(0, BalanceDeltaCalculator.transactionDelta("savings", transaction))
+    }
+
+    @Test
+    fun transactionDelta_ignoresATransactionWithNoAccount() {
+        val transaction = TransactionDeltaInput(null, "ME", "MERCHANT", 15_000)
+
+        assertEquals(0, BalanceDeltaCalculator.transactionDelta("savings", transaction))
+    }
+
+    /** A ME -> ME row is an unconverted transfer; the transfer carries the delta. */
+    @Test
+    fun transactionDelta_ignoresMeToMe() {
+        val transaction = TransactionDeltaInput("savings", "ME", "ME", 15_000)
+
+        assertEquals(0, BalanceDeltaCalculator.transactionDelta("savings", transaction))
+    }
 }

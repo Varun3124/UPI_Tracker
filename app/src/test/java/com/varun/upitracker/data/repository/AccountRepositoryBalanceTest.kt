@@ -66,6 +66,24 @@ class AccountRepositoryBalanceTest {
         assertEquals(8_000, repository.getBalance(ACCOUNT_ID, 100))
     }
 
+    /**
+     * A friend payment moves the bank balance but is not spend — the IOU ledger tracks what comes
+     * back. This is the split that lets the dashboard keep its numbers while balances gain pending
+     * and friend transactions.
+     */
+    @Test
+    fun balanceCountsAFriendPaymentThatSpendIgnores() = runBlocking {
+        val repository = AccountRepository(
+            FakeBalanceDataSource(
+                snapshots = listOf(snapshot(epoch = 100, balance = 10_000)),
+                transactions = listOf(TimedTransaction(150, outgoing(2_000))),
+                spend = emptyList()
+            )
+        )
+
+        assertEquals(8_000, repository.getBalance(ACCOUNT_ID, 200))
+    }
+
     private fun snapshot(epoch: Long, balance: Long) = BalanceSnapshot(
         id = "snapshot-$epoch",
         accountId = ACCOUNT_ID,
@@ -100,7 +118,9 @@ class AccountRepositoryBalanceTest {
     private class FakeBalanceDataSource(
         private val snapshots: List<BalanceSnapshot>,
         private val transactions: List<TimedTransaction> = emptyList(),
-        private val transfers: List<TimedTransfer> = emptyList()
+        private val transfers: List<TimedTransfer> = emptyList(),
+        /** Spend is a narrower question than balance, so it gets its own list. */
+        private val spend: List<TimedTransaction> = transactions
     ) : AccountBalanceDataSource {
         override suspend fun getLatestAtOrBefore(accountId: String, atEpoch: Long): BalanceSnapshot? {
             return snapshots
@@ -120,6 +140,16 @@ class AccountRepositoryBalanceTest {
             toEpochInclusive: Long
         ): Long {
             return transactions
+                .filter { it.epoch > fromEpochExclusive && it.epoch <= toEpochInclusive }
+                .sumOf { it.deltaPaise }
+        }
+
+        override suspend fun getSpendDeltaSum(
+            accountId: String,
+            fromEpochExclusive: Long,
+            toEpochInclusive: Long
+        ): Long {
+            return spend
                 .filter { it.epoch > fromEpochExclusive && it.epoch <= toEpochInclusive }
                 .sumOf { it.deltaPaise }
         }

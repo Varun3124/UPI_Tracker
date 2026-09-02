@@ -65,7 +65,7 @@ interface TransactionDao {
         FROM transaction_shares s
         INNER JOIN transactions t
             ON s.transactionId = t.id
-        WHERE t.dateEpoch >= :fromEpochInclusive AND t.dateEpoch <= :toEpochInclusive
+        WHERE t.dateEpoch > :fromEpochExclusive AND t.dateEpoch <= :toEpochInclusive
           AND t.myAccountId = :accountId
           AND s.participantType = 'ME'
           AND (t.payerActorType = 'MERCHANT' OR t.payeeActorType = 'MERCHANT')
@@ -73,7 +73,39 @@ interface TransactionDao {
     )
     suspend fun getTotalDeltaBetweenForAccount(
         accountId: String,
-        fromEpochInclusive: Long,
+        fromEpochExclusive: Long,
+        toEpochInclusive: Long
+    ): Long?
+
+    /**
+     * How much [accountId]'s balance moved over `(fromEpochExclusive, toEpochInclusive]`.
+     *
+     * Unlike [getTotalDeltaBetweenForAccount], which measures spend, this counts the whole amount
+     * of every transaction on the account whatever the counterparty, and does not join
+     * `transaction_shares` — so pending rows from SMS and statement import count too.
+     *
+     * Mirrors [com.varun.upitracker.domain.BalanceDeltaCalculator.transactionDelta]; keep the two
+     * in step. Covered by `Index(["myAccountId", "dateEpoch"])`.
+     */
+    @Query(
+        """
+        SELECT SUM(
+            CASE
+                WHEN payerActorType = 'ME' AND payeeActorType = 'ME' THEN 0
+                WHEN payerActorType = 'ME' THEN -amountPaise
+                WHEN payeeActorType = 'ME' THEN amountPaise
+                ELSE 0
+            END
+        )
+        FROM transactions
+        WHERE myAccountId = :accountId
+          AND dateEpoch > :fromEpochExclusive
+          AND dateEpoch <= :toEpochInclusive
+        """
+    )
+    suspend fun getAccountBalanceDeltaBetween(
+        accountId: String,
+        fromEpochExclusive: Long,
         toEpochInclusive: Long
     ): Long?
 
