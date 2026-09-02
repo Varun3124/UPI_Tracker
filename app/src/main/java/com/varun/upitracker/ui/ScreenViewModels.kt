@@ -7,15 +7,19 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import androidx.room.withTransaction
+import com.varun.upitracker.data.repository.AccountMutationException
+import com.varun.upitracker.data.repository.AccountRepository
 import com.varun.upitracker.data.repository.LedgerRepository
 import com.varun.upitracker.data.repository.SettingsRepository
 import com.varun.upitracker.database.AppDatabase
 import com.varun.upitracker.database.entity.Account
+import com.varun.upitracker.database.entity.AccountTransfer
 import com.varun.upitracker.database.entity.AccountType
 import com.varun.upitracker.database.entity.Category
 import com.varun.upitracker.database.entity.Friend
 import com.varun.upitracker.database.entity.Merchant
 import com.varun.upitracker.database.entity.Transaction
+import com.varun.upitracker.ui.transactionentry.EntrySide
 import com.varun.upitracker.ui.transactionentry.TransactionEntryAction
 import com.varun.upitracker.ui.transactionentry.TransactionEntryEffect
 import com.varun.upitracker.ui.transactionentry.TransactionEntryUiState
@@ -28,8 +32,12 @@ data class TransactionEntryReferenceData(
     val friends: List<Friend> = emptyList(),
     val merchants: List<Merchant> = emptyList(),
     val categories: List<Category> = emptyList(),
+    /** Accounts a normal transaction may be attributed to. */
     val accounts: List<Account> = emptyList(),
-    val transaction: Transaction? = null
+    /** Wider list used in transfer mode, where any active account is a valid endpoint. */
+    val transferAccounts: List<Account> = emptyList(),
+    val transaction: Transaction? = null,
+    val transfer: AccountTransfer? = null
 )
 
 class TransactionEntryViewModel(context: Context) : ViewModel() {
@@ -54,7 +62,12 @@ class TransactionEntryViewModel(context: Context) : ViewModel() {
             }
 
             is TransactionEntryAction.AccountSelected -> {
-                _uiState.value = (_uiState.value ?: TransactionEntryUiState()).copy(selectedAccountId = action.accountId)
+                val state = _uiState.value ?: TransactionEntryUiState()
+                _uiState.value = if (action.side == EntrySide.PAYER) {
+                    state.copy(payerAccountId = action.accountId)
+                } else {
+                    state.copy(payeeAccountId = action.accountId)
+                }
             }
 
             is TransactionEntryAction.DescriptionChanged -> {
@@ -66,7 +79,7 @@ class TransactionEntryViewModel(context: Context) : ViewModel() {
         _effects.value = TransactionEntryEffect.RunLegacyAction(action)
     }
 
-    fun load(transactionId: Long?) {
+    fun load(transactionId: Long?, transferId: String? = null) {
         viewModelScope.launch {
             _referenceData.value = withContext(Dispatchers.IO) {
                 TransactionEntryReferenceData(
@@ -74,7 +87,9 @@ class TransactionEntryViewModel(context: Context) : ViewModel() {
                     merchants = db.merchantDao().getAllMerchantsSync(),
                     categories = db.categoryDao().getAllCategoriesSync(),
                     accounts = db.accountDao().getActiveByTypes(listOf(AccountType.CASH, AccountType.SAVINGS)),
-                    transaction = transactionId?.let { db.transactionDao().getTransactionById(it) }
+                    transferAccounts = db.accountDao().getActiveSync(),
+                    transaction = transactionId?.let { db.transactionDao().getTransactionById(it) },
+                    transfer = transferId?.let { db.accountTransferDao().getById(it) }
                 )
             }
         }
@@ -82,36 +97,178 @@ class TransactionEntryViewModel(context: Context) : ViewModel() {
 }
 
 data class AllTransactionsUiState(
-    val transactions: List<Transaction> = emptyList(),
-    val selectedMonthStartEpoch: Long = 0L
-)
+    val entries: List<LedgerEntry> = emptyList(),
+    val accountLabels: Map<String, String> = emptyMap(),
+    val rangeStartEpoch: Long = 0L,
+    /** Exclusive, matching the `[from, to)` convention of the two range DAOs. */
+    val rangeEndExclusiveEpoch: Long = 0L,
+    /** True when the range came from the long-press picker rather than being a whole month. */
+    val isCustomRange: Boolean = false,
+    val pendingOnly: Boolean = false,
+    /** Accounts offered by the filter dropdown. */
+    val accounts: List<Account> = emptyList(),
+    /** null means "All accounts". */
+    val selectedAccountId: String? = null,
+    /** Entries in the range before either filter, so the bar can show what it hides. */
+    val totalEntryCount: Int = 0,
+    val showBalance: Boolean = false,
+    /** Combined balance of the in-scope accounts immediately before [rangeStartEpoch]. */
+    val openingBalancePaise: Long = 0L,
+    /** Opening plus every in-scope movement in the range. */
+    val closingBalancePaise: Long = 0L,
+    /** True when at least one account is in scope, so the figures mean something. */
+    val hasBalance: Boolean = false,
+    /** Balance standing after each entry, keyed by [stableId]. */
+    val runningBalances: Map<String, Long> = emptyMap()
+) {
+    val isFiltered: Boolean get() = pendingOnly || selectedAccountId != null
+}
 
 class AllTransactionsViewModel(context: Context) : ViewModel() {
     private val db = AppDatabase.getInstance(context.applicationContext)
-    private var selectedMonthStartEpoch: Long = startOfMonth(Calendar.getInstance())
+    private val accountRepository = AccountRepository(db)
+    private var rangeStartEpoch: Long = startOfMonth(Calendar.getInstance())
+    private var rangeEndExclusiveEpoch: Long = nextMonth(rangeStartEpoch)
+    private var isCustomRange: Boolean = false
+    private var pendingOnly: Boolean = false
+    private var selectedAccountId: String? = null
+    private var showBalance: Boolean = false
+    private var loadedEntries: List<LedgerEntry> = emptyList()
+    private var loadedAccountLabels: Map<String, String> = emptyMap()
+    private var loadedAccounts: List<Account> = emptyList()
+    private var openingBalancePaise: Long = 0L
+    private var hasBalance: Boolean = false
     private val _uiState = MutableLiveData(
-        AllTransactionsUiState(selectedMonthStartEpoch = selectedMonthStartEpoch)
+        AllTransactionsUiState(
+            rangeStartEpoch = rangeStartEpoch,
+            rangeEndExclusiveEpoch = rangeEndExclusiveEpoch
+        )
     )
     val uiState: LiveData<AllTransactionsUiState> = _uiState
 
+    /** Reloads whatever range is showing, so a custom range survives returning to the screen. */
     fun loadCurrentMonth() {
-        loadMonth(selectedMonthStartEpoch)
+        loadRange(rangeStartEpoch, rangeEndExclusiveEpoch, isCustomRange)
     }
 
     fun loadMonth(monthStartEpoch: Long) {
-        selectedMonthStartEpoch = monthStartEpoch
+        loadRange(monthStartEpoch, nextMonth(monthStartEpoch), isCustom = false)
+    }
+
+    /**
+     * @param endExclusiveEpoch matches the `[from, to)` convention of the two range DAOs. For an
+     *   inclusive To date the caller passes the start of the following day.
+     */
+    fun loadRange(startEpoch: Long, endExclusiveEpoch: Long, isCustom: Boolean) {
+        rangeStartEpoch = startEpoch
+        rangeEndExclusiveEpoch = endExclusiveEpoch
+        isCustomRange = isCustom
         viewModelScope.launch {
-            _uiState.value = withContext(Dispatchers.IO) {
-                val endOfMonth = Calendar.getInstance().apply {
-                    timeInMillis = monthStartEpoch
-                    add(Calendar.MONTH, 1)
-                }.timeInMillis
-                AllTransactionsUiState(
-                    transactions = db.transactionDao().getTransactionsBetweenSync(monthStartEpoch, endOfMonth),
-                    selectedMonthStartEpoch = monthStartEpoch
-                )
+            withContext(Dispatchers.IO) {
+                val transactions = db.transactionDao()
+                    .getTransactionsBetweenSync(startEpoch, endExclusiveEpoch)
+                    .map(LedgerEntry::Tx)
+                val transfers = db.accountTransferDao()
+                    .getTransfersBetween(startEpoch, endExclusiveEpoch)
+                    .map(LedgerEntry::Transfer)
+                loadedEntries = (transactions + transfers).sortedByDescending { it.dateEpoch }
+                loadedAccountLabels = db.accountDao().getAllSync().associate { it.id to it.label }
+                loadedAccounts = db.accountDao().getActiveSync()
+                loadOpeningBalance()
             }
+            emitState()
         }
+    }
+
+    /** Filters what is already loaded, so toggling costs no database round trip. */
+    fun setPendingOnly(enabled: Boolean) {
+        if (enabled == pendingOnly) return
+        pendingOnly = enabled
+        emitState()
+    }
+
+    fun setShowBalance(enabled: Boolean) {
+        if (enabled == showBalance) return
+        showBalance = enabled
+        emitState()
+    }
+
+    /**
+     * @param accountId null to clear the filter and show every account again.
+     *
+     * Unlike the other filters this needs a database round trip, because changing the scope changes
+     * which accounts the opening balance covers.
+     */
+    fun setAccountFilter(accountId: String?) {
+        if (accountId == selectedAccountId) return
+        selectedAccountId = accountId
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { loadOpeningBalance() }
+            emitState()
+        }
+    }
+
+    /**
+     * The accounts a balance covers: the filtered one, or every active CASH and SAVINGS account
+     * when the filter is on "All accounts". Investment and FD accounts are deliberately excluded
+     * from the combined figure — this row is about spendable money.
+     */
+    private fun balanceScopeIds(): Set<String> {
+        val accountId = selectedAccountId
+        if (accountId != null) return setOf(accountId)
+        return loadedAccounts
+            .filter { it.type == AccountType.CASH || it.type == AccountType.SAVINGS }
+            .map { it.id }
+            .toSet()
+    }
+
+    private suspend fun loadOpeningBalance() {
+        val scope = balanceScopeIds()
+        hasBalance = scope.isNotEmpty()
+        // One millisecond before the range: getBalance's upper bound is inclusive, and an entry
+        // dated exactly at the range start belongs inside the range, not before it.
+        openingBalancePaise = scope.sumOf { accountRepository.getBalance(it, rangeStartEpoch - 1) }
+    }
+
+    private fun emitState() {
+        val accountId = selectedAccountId
+        val filtered = loadedEntries
+            // Account transfers have no pending state, so that filter excludes them entirely.
+            .filter { !pendingOnly || (it is LedgerEntry.Tx && it.transaction.isPending) }
+            .filter { accountId == null || it.involvesAccount(accountId) }
+
+        val scope = balanceScopeIds()
+        // Accumulated over the unfiltered list: hidden entries still moved the balance.
+        val balances = runningBalances(loadedEntries, scope, openingBalancePaise)
+
+        _uiState.value = AllTransactionsUiState(
+            entries = filtered,
+            accountLabels = loadedAccountLabels,
+            rangeStartEpoch = rangeStartEpoch,
+            rangeEndExclusiveEpoch = rangeEndExclusiveEpoch,
+            isCustomRange = isCustomRange,
+            accounts = loadedAccounts,
+            selectedAccountId = accountId,
+            pendingOnly = pendingOnly,
+            totalEntryCount = loadedEntries.size,
+            showBalance = showBalance,
+            openingBalancePaise = openingBalancePaise,
+            closingBalancePaise = loadedEntries.firstOrNull()
+                ?.let { balances[it.stableId()] }
+                ?: openingBalancePaise,
+            hasBalance = hasBalance,
+            runningBalances = balances
+        )
+    }
+
+    /**
+     * A transaction sits on one account; a transfer touches two, and either endpoint counts as
+     * involvement. A transaction with no account recorded matches no filter.
+     */
+    private fun LedgerEntry.involvesAccount(accountId: String): Boolean = when (this) {
+        is LedgerEntry.Tx -> transaction.myAccountId == accountId
+        is LedgerEntry.Transfer ->
+            transfer.fromAccountId == accountId || transfer.toAccountId == accountId
     }
 
     fun deleteTransaction(transactionId: Long) {
@@ -122,9 +279,26 @@ class AllTransactionsViewModel(context: Context) : ViewModel() {
                     db.transactionDao().deleteById(transactionId)
                 }
             }
-            loadMonth(selectedMonthStartEpoch)
+            loadCurrentMonth()
         }
     }
+
+    fun deleteTransfer(transferId: String, onError: (String) -> Unit = {}) {
+        viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) { AccountRepository(db).deleteTransfer(transferId) }
+            } catch (e: AccountMutationException) {
+                onError(e.message ?: "Could not delete transfer")
+                return@launch
+            }
+            loadCurrentMonth()
+        }
+    }
+
+    private fun nextMonth(monthStartEpoch: Long): Long = Calendar.getInstance().apply {
+        timeInMillis = monthStartEpoch
+        add(Calendar.MONTH, 1)
+    }.timeInMillis
 
     private fun startOfMonth(calendar: Calendar): Long {
         return calendar.apply {

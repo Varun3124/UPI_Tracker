@@ -163,9 +163,3 @@ class FriendTransactionAdapter(
         holder.itemView.setOnClickListener { onTap(tx.id) }
     }
 }
-
-private fun Transaction.perspectiveColor(): Int = when (amountPerspective()) {
-    AmountPerspective.OUTGOING -> Color.parseColor("#C62828")
-    AmountPerspective.INCOMING -> Color.parseColor("#2E7D32")
-    AmountPerspective.NEUTRAL -> Color.parseColor("#AAAAAA")
-}

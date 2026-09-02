@@ -38,6 +38,9 @@ abstract class AccountDao {
     @Query("SELECT * FROM account WHERE isArchived = 0 ORDER BY label ASC")
     abstract fun observeActiveAccounts(): LiveData<List<Account>>
 
+    @Query("SELECT * FROM account WHERE isArchived = 0 ORDER BY label ASC")
+    abstract suspend fun getActiveSync(): List<Account>
+
     @Query("SELECT * FROM account WHERE isArchived = 0 AND type IN (:types) ORDER BY label ASC")
     abstract suspend fun getActiveByTypes(types: List<AccountType>): List<Account>
 

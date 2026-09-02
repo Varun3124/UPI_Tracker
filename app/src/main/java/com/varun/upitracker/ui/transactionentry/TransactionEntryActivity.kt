@@ -16,14 +16,12 @@ import android.view.MotionEvent
 import android.view.View
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
-import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.AutoCompleteTextView
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.ScrollView
-import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
@@ -34,7 +32,12 @@ import androidx.lifecycle.ViewModelProvider
 import com.google.android.material.chip.Chip
 import com.varun.upitracker.R
 import com.varun.upitracker.database.AppDatabase
+import com.varun.upitracker.data.repository.AccountMutationException
+import com.varun.upitracker.data.repository.AccountRepository
+import com.varun.upitracker.data.repository.StatementImportRepository
 import com.varun.upitracker.database.entity.Account
+import com.varun.upitracker.database.entity.AccountTransfer
+import com.varun.upitracker.database.entity.AccountType
 import com.varun.upitracker.database.entity.Category
 import com.varun.upitracker.database.entity.Friend
 import com.varun.upitracker.database.entity.FriendRawName
@@ -46,6 +49,11 @@ import com.varun.upitracker.database.entity.MerchantUpiId
 import com.varun.upitracker.database.entity.Transaction
 import com.varun.upitracker.database.entity.TransactionCategorySplit
 import com.varun.upitracker.database.entity.TransactionShare
+import com.varun.upitracker.database.entity.EntrySource
+import com.varun.upitracker.domain.AccountTransferTypeResolver
+import com.varun.upitracker.domain.BalanceDeltaCalculator
+import com.varun.upitracker.domain.TransferDeltaInput
+import com.varun.upitracker.domain.TransferTypeResolution
 import com.varun.upitracker.domain.transactionentry.actor.ActorSelectionService
 import com.varun.upitracker.domain.transactionentry.category.CategorySplitManager
 import com.varun.upitracker.domain.transactionentry.persistence.PersistTransactionRequest
@@ -55,11 +63,14 @@ import com.varun.upitracker.domain.transactionentry.share.SectionBalanceState
 import com.varun.upitracker.domain.transactionentry.share.ShareCalculator
 import com.varun.upitracker.domain.transactionentry.share.ShareManager
 import com.varun.upitracker.domain.transactionentry.share.ShareRowModel
+import com.varun.upitracker.domain.transactionentry.validation.AccountTransferValidator
 import com.varun.upitracker.domain.transactionentry.validation.ShareValidationRow
 import com.varun.upitracker.domain.transactionentry.validation.TransactionValidator
+import com.varun.upitracker.domain.transactionentry.validation.TransferValidationInput
 import com.varun.upitracker.sms.receiver.TransactionNotificationHelper
 import com.varun.upitracker.ui.ActorRef
 import com.varun.upitracker.ui.ActorType
+import com.varun.upitracker.ui.displayName
 import com.varun.upitracker.ui.ScreenViewModelFactory
 import com.varun.upitracker.ui.TransactionEntryViewModel
 import com.varun.upitracker.ui.meShareOnSide
@@ -73,11 +84,15 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
+import java.util.UUID
 
 class TransactionEntryActivity : AppCompatActivity() {
 
     companion object {
         const val EXTRA_TRANSACTION_ID = "transaction_id"
+
+        /** Separate from [EXTRA_TRANSACTION_ID] because `AccountTransfer.id` is a UUID string. */
+        const val EXTRA_TRANSFER_ID = "transfer_id"
     }
 
     private data class CategoryEntry(
@@ -101,15 +116,19 @@ class TransactionEntryActivity : AppCompatActivity() {
     private val categorySplitManager = CategorySplitManager()
     private val transactionPersistenceService = TransactionPersistenceService()
     private val transactionValidator = TransactionValidator()
+    private val accountTransferValidator = AccountTransferValidator()
     private lateinit var viewModel: TransactionEntryViewModel
 
     private var currentTransaction: Transaction? = null
+    private var currentTransfer: AccountTransfer? = null
     private var isSmsSource = false
     private var allFriends = listOf<Friend>()
     private var allMerchants = listOf<Merchant>()
     private var allCategories = listOf<Category>()
     private var transactionAccounts = listOf<Account>()
-    private var selectedAccountId: String? = null
+    private var transferAccounts = listOf<Account>()
+    private var payerAccountId: String? = null
+    private var payeeAccountId: String? = null
     private var selectedDateEpoch = System.currentTimeMillis()
 
     private var payerActorType = ActorType.ME
@@ -131,10 +150,9 @@ class TransactionEntryActivity : AppCompatActivity() {
     private lateinit var tvPayeeActorFriend: TextView
     private lateinit var tvPayeeActorMerchant: TextView
     private lateinit var etAmount: EditText
+    private lateinit var amountRow: View
     private lateinit var dateSection: View
     private lateinit var tvDateValue: TextView
-    private lateinit var accountSection: View
-    private lateinit var spMyAccount: Spinner
     private lateinit var tvBalance: TextView
     private lateinit var tvPayerBalance: TextView
     private lateinit var tvPayeeBalance: TextView
@@ -165,6 +183,7 @@ class TransactionEntryActivity : AppCompatActivity() {
 
         bindViews()
         val transactionId = intent.getLongExtra(EXTRA_TRANSACTION_ID, -1L).takeIf { it != -1L }
+        val transferId = intent.getStringExtra(EXTRA_TRANSFER_ID)?.takeIf { it.isNotBlank() }
         viewModel = ViewModelProvider(
             this,
             ScreenViewModelFactory(applicationContext)
@@ -175,7 +194,9 @@ class TransactionEntryActivity : AppCompatActivity() {
             allMerchants = referenceData.merchants
             allCategories = referenceData.categories
             transactionAccounts = referenceData.accounts
+            transferAccounts = referenceData.transferAccounts
             currentTransaction = referenceData.transaction
+            currentTransfer = referenceData.transfer
             viewModel.launchTask {
                 setupUi(db)
             }
@@ -188,7 +209,7 @@ class TransactionEntryActivity : AppCompatActivity() {
                 is TransactionEntryEffect.RunLegacyAction -> handleLegacyAction(effect.action)
             }
         }
-        viewModel.load(transactionId)
+        viewModel.load(transactionId, transferId)
     }
 
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
@@ -216,10 +237,9 @@ class TransactionEntryActivity : AppCompatActivity() {
         tvPayeeActorFriend = findViewById(R.id.tvPayeeActorFriend)
         tvPayeeActorMerchant = findViewById(R.id.tvPayeeActorMerchant)
         etAmount = findViewById(R.id.etAmount)
+        amountRow = findViewById(R.id.amountRow)
         dateSection = findViewById(R.id.dateSection)
         tvDateValue = findViewById(R.id.tvDateValue)
-        accountSection = findViewById(R.id.accountSection)
-        spMyAccount = findViewById(R.id.spMyAccount)
         tvBalance = findViewById(R.id.tvBalance)
         tvPayerBalance = findViewById(R.id.tvPayerBalance)
         tvPayeeBalance = findViewById(R.id.tvPayeeBalance)
@@ -234,9 +254,11 @@ class TransactionEntryActivity : AppCompatActivity() {
 
     private suspend fun setupUi(db: AppDatabase) {
         val tx = currentTransaction
-        isSmsSource = tx?.source == "SMS"
-        selectedDateEpoch = tx?.dateEpoch ?: System.currentTimeMillis()
+        val transfer = currentTransfer
+        isSmsSource = transfer == null && tx?.source == "SMS"
+        selectedDateEpoch = tx?.dateEpoch ?: transfer?.dateEpoch ?: System.currentTimeMillis()
         tvTopInfo.text = when {
+            transfer != null -> "${transfer.type.displayName()} - ${fmtDateTime(selectedDateEpoch)}"
             tx != null -> "${resolveHeaderLabel(db, tx)} - ${fmtDateTime(selectedDateEpoch)}"
             else -> "Manual Entry - ${fmtDateTime(selectedDateEpoch)}"
         }
@@ -248,11 +270,16 @@ class TransactionEntryActivity : AppCompatActivity() {
         setupAmountField()
         etDescription.addTextChangedListener(simpleWatcher { viewModel.onAction(TransactionEntryAction.DescriptionChanged(it.toString())) })
         setupDateSection()
-        setupAccountPicker(tx)
+        initializeSelectedAccounts(tx)
         setupCategories()
 
-        if (tx != null) populateExistingTransaction(tx, db) else seedDefaultState()
+        when {
+            transfer != null -> populateExistingTransfer(transfer)
+            tx != null -> populateExistingTransaction(tx, db)
+            else -> seedDefaultState()
+        }
         ensureBaseShareRows()
+        enforceTransferModeRows()
         updatePrimaryRowLabel(true)
         updatePrimaryRowLabel(false)
 
@@ -261,9 +288,9 @@ class TransactionEntryActivity : AppCompatActivity() {
         }
 
         updateActorTileStyles()
+        applyTransferModeUi()
         buildShareSection(true)
         buildShareSection(false)
-        updateAccountSectionVisibility()
         updateLiveCalc()
         renderCategories()
     }
@@ -309,48 +336,85 @@ class TransactionEntryActivity : AppCompatActivity() {
         ).show()
     }
 
-    private fun setupAccountPicker(tx: Transaction?) {
-        if (transactionAccounts.isEmpty()) {
-            selectedAccountId = tx?.myAccountId
-            spMyAccount.adapter = ArrayAdapter(
+    private fun initializeSelectedAccounts(tx: Transaction?) {
+        val primary = tx?.myAccountId ?: defaultAccountId()
+        // Seed the other side with a different account so transfer mode starts in a valid state.
+        val other = availableAccounts().firstOrNull { it.id != primary }?.id ?: primary
+        // `myAccountId` belongs to whichever side is ME, which is the side
+        // [accountIdForPersistence] reads back. On a credit that is the payee.
+        val meIsPayee = tx != null &&
+            tx.payeeActorType == ActorType.ME &&
+            tx.payerActorType != ActorType.ME
+        payerAccountId = if (meIsPayee) other else primary
+        payeeAccountId = if (meIsPayee) primary else other
+    }
+
+    private fun defaultAccountId(): String? {
+        val cashAccount = transactionAccounts.firstOrNull { it.type == AccountType.CASH && it.isDefault }
+            ?: transactionAccounts.firstOrNull { it.type == AccountType.CASH }
+        return cashAccount?.id ?: transactionAccounts.firstOrNull()?.id
+    }
+
+    /** Any active account is a valid transfer endpoint; a normal transaction sticks to cash/bank. */
+    private fun availableAccounts(): List<Account> =
+        if (isTransferMode()) transferAccounts else transactionAccounts
+
+    private fun accountIdFor(isPayer: Boolean): String? = if (isPayer) payerAccountId else payeeAccountId
+
+    private fun setAccountId(isPayer: Boolean, id: String?) {
+        if (isPayer) payerAccountId = id else payeeAccountId = id
+    }
+
+    private fun accountLabelForDisplay(isPayer: Boolean): String {
+        val accounts = availableAccounts()
+        if (accounts.isEmpty()) return "Me"
+        // Falling back also rewrites the id, so we never display one account and persist another.
+        val account = accounts.firstOrNull { it.id == accountIdFor(isPayer) }
+            ?: accounts.first().also { setAccountId(isPayer, it.id) }
+        return account.label
+    }
+
+    private fun setupPrimaryAccountField(etName: AutoCompleteTextView, isPayer: Boolean) {
+        val accounts = availableAccounts()
+        val hasAccounts = accounts.isNotEmpty()
+        etName.setText(accountLabelForDisplay(isPayer), false)
+        etName.inputType = InputType.TYPE_NULL
+        etName.keyListener = null
+        etName.isCursorVisible = false
+        etName.isEnabled = hasAccounts
+        etName.alpha = if (hasAccounts) 1f else 0.7f
+        etName.setOnClickListener(null)
+        etName.setOnItemClickListener(null)
+        if (!hasAccounts) return
+
+        etName.threshold = 0
+        etName.setAdapter(
+            ArrayAdapter(
                 this,
-                android.R.layout.simple_spinner_dropdown_item,
-                emptyList<String>()
+                android.R.layout.simple_dropdown_item_1line,
+                accounts.map { it.label }
             )
-            return
-        }
-        selectedAccountId = tx?.myAccountId ?: transactionAccounts.firstOrNull()?.id
-        val labels = transactionAccounts.map { it.label }
-        spMyAccount.adapter =
-            ArrayAdapter(this, android.R.layout.simple_spinner_dropdown_item, labels)
-        val selectedIndex = transactionAccounts.indexOfFirst { it.id == selectedAccountId }.takeIf { it >= 0 } ?: 0
-        spMyAccount.setSelection(selectedIndex)
-        spMyAccount.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-            override fun onItemSelected(
-                parent: AdapterView<*>?,
-                view: View?,
-                position: Int,
-                id: Long
-            ) {
-                selectedAccountId = transactionAccounts.getOrNull(position)?.id
-                viewModel.onAction(TransactionEntryAction.AccountSelected(selectedAccountId.orEmpty()))
-            }
-
-            override fun onNothingSelected(parent: AdapterView<*>?) = Unit
+        )
+        etName.setOnClickListener { etName.showDropDown() }
+        etName.setOnItemClickListener { _, _, position, _ ->
+            val account = accounts.getOrNull(position) ?: return@setOnItemClickListener
+            etName.setText(account.label, false)
+            viewModel.onAction(
+                TransactionEntryAction.AccountSelected(
+                    side = if (isPayer) EntrySide.PAYER else EntrySide.PAYEE,
+                    accountId = account.id
+                )
+            )
+            hideKeyboard()
+            etName.clearFocus()
         }
     }
 
-    private fun updateAccountSectionVisibility() {
-        accountSection.visibility = if (isMePrimaryActor()) View.VISIBLE else View.GONE
-    }
-
-    private fun isMePrimaryActor(): Boolean =
-        payerActorType == ActorType.ME || payeeActorType == ActorType.ME
-
-    private fun accountIdForPersistence(): String? {
-        if (!isMePrimaryActor()) return null
-        return selectedAccountId?.takeIf { it.isNotBlank() }
-    }
+    private fun accountIdForPersistence(): String? = when {
+        payerActorType == ActorType.ME -> payerAccountId
+        payeeActorType == ActorType.ME -> payeeAccountId
+        else -> null
+    }?.takeIf { it.isNotBlank() }
 
     private suspend fun resolveHeaderLabel(db: AppDatabase, tx: Transaction): String {
         return tx.resolvePrimaryDisplay(db).ifBlank { "Transaction" }
@@ -381,11 +445,8 @@ class TransactionEntryActivity : AppCompatActivity() {
     }
 
     private fun onActorTypeSelected(isPayer: Boolean, selectedType: String) {
-        if (selectedType == ActorType.ME && otherSideActorType(isPayer) == ActorType.ME) {
-            toast("Payer and payee cannot both be Me")
-            return
-        }
         if (isSmsLockedMeEndpoint(isPayer) && selectedType != ActorType.ME) return
+        if (!canSwitchTransferMode(isPayer, selectedType)) return
 
         val transition = actorSelectionService.onActorTypeSelected(
             selectedType = selectedType,
@@ -412,11 +473,70 @@ class TransactionEntryActivity : AppCompatActivity() {
         }
 
         shouldAutoloadMerchantCategories = true
+        enforceTransferModeRows()
         updateActorTileStyles()
-        buildShareSection(isPayer)
-        updateAccountSectionVisibility()
+        applyTransferModeUi()
+        buildShareSection(true)
+        buildShareSection(false)
         updateCategoryVisibility()
         updateLiveCalc()
+    }
+
+    private fun isTransferMode(): Boolean =
+        payerActorType == ActorType.ME && payeeActorType == ActorType.ME
+
+    /**
+     * A settled record cannot change kind: it would insert an `AccountTransfer` and leave the
+     * original `Transaction` row orphaned, and vice versa.
+     *
+     * A *pending* transaction is the exception. SMS and bank-statement rows arrive with no shares,
+     * splits or IOU entries, and some of them are genuinely transfers (interest credits, self-UPI,
+     * ATM withdrawals), so classifying one as a transfer is the whole point of reviewing it.
+     * [handleDoneTransfer] deletes the source row as it writes the transfer.
+     */
+    private fun canSwitchTransferMode(isPayer: Boolean, selectedType: String): Boolean {
+        val wouldBeTransfer = selectedType == ActorType.ME && otherSideActorType(isPayer) == ActorType.ME
+        if (wouldBeTransfer && currentTransaction?.isPending == false) {
+            toast("Can't convert a saved transaction into a transfer")
+            return false
+        }
+        if (!wouldBeTransfer && currentTransfer != null) {
+            toast("Can't convert a saved transfer into a transaction")
+            return false
+        }
+        return true
+    }
+
+    /** A transfer has exactly one endpoint per side: the source account and the destination. */
+    private fun enforceTransferModeRows() {
+        if (!isTransferMode()) return
+        // A pending transaction carries no shares, so seed both legs from the amount the bank
+        // already told us rather than making the reviewer retype it.
+        val seed = currentTransaction?.takeIf { it.isPending }?.amountPaise ?: 0L
+        listOf(payerShareRows, payeeShareRows).forEach { rows ->
+            while (rows.size > 1) rows.removeAt(rows.lastIndex)
+            rows.firstOrNull()?.let { row ->
+                if (row.amountPaise == 0L && seed > 0L) row.amountPaise = seed
+            }
+        }
+    }
+
+    private fun applyTransferModeUi() {
+        val transfer = isTransferMode()
+
+        btnAddPayerPerson.visibility = if (transfer) View.GONE else View.VISIBLE
+        btnAddPayeePerson.visibility = if (transfer) View.GONE else View.VISIBLE
+        // The whole amount row (Rs field + Equalize) is irrelevant in transfer mode: the
+        // from/to amounts live on the share rows instead, previewed via tvBalance.
+        amountRow.visibility = if (transfer) View.GONE else View.VISIBLE
+
+        if (transfer) {
+            // Guarded: etAmount has a watcher that would re-enter updateLiveCalc.
+            if (etAmount.text.isNotEmpty()) etAmount.setText("")
+            etAmount.isEnabled = false
+        } else {
+            etAmount.isEnabled = !isSmsSource || currentTransaction?.amountPaise == 0L
+        }
     }
 
     private fun setupAmountField() {
@@ -497,6 +617,22 @@ class TransactionEntryActivity : AppCompatActivity() {
                 }
             }
         }
+    }
+
+    private fun populateExistingTransfer(transfer: AccountTransfer) {
+        payerActorType = ActorType.ME
+        payeeActorType = ActorType.ME
+        payerFriendId = null
+        payerMerchantId = null
+        payeeFriendId = null
+        payeeMerchantId = null
+        payerAccountId = transfer.fromAccountId
+        payeeAccountId = transfer.toAccountId
+        etDescription.setText(transfer.notes ?: "")
+        payerShareRows.clear()
+        payeeShareRows.clear()
+        payerShareRows.add(buildMeShareRow().copy(amountPaise = transfer.amountFromPaise))
+        payeeShareRows.add(buildMeShareRow().copy(amountPaise = transfer.amountToPaise))
     }
 
     private fun seedDefaultState() {
@@ -751,9 +887,7 @@ class TransactionEntryActivity : AppCompatActivity() {
             val isLockedPrimaryMe = isPrimary && isSmsLockedMeEndpoint(isPayer) && actorTypeFor(isPayer) == ActorType.ME
 
             if (isPrimary && actorTypeFor(isPayer) == ActorType.ME) {
-                etName.setText("Me", false)
-                etName.isEnabled = false
-                etName.alpha = 0.7f
+                setupPrimaryAccountField(etName, isPayer)
             } else {
                 val suggestions = if (isPrimary) {
                     primarySuggestions(isPayer)
@@ -862,7 +996,8 @@ class TransactionEntryActivity : AppCompatActivity() {
         when (action) {
             is TransactionEntryAction.AmountChanged -> updateLiveCalc()
             is TransactionEntryAction.AccountSelected -> {
-                selectedAccountId = action.accountId.takeIf { it.isNotBlank() }
+                setAccountId(action.side == EntrySide.PAYER, action.accountId.takeIf { it.isNotBlank() })
+                if (isTransferMode()) updateLiveCalc()
             }
 
             is TransactionEntryAction.ActorTypeSelected -> {
@@ -966,17 +1101,19 @@ class TransactionEntryActivity : AppCompatActivity() {
             }
             else -> {
                 if (selected == "Me") {
-                    if (otherSideActorType(isPayer) == ActorType.ME) {
-                        toast("Payer and payee cannot both be Me")
-                        return
-                    }
+                    if (!canSwitchTransferMode(isPayer, ActorType.ME)) return
                     setActorType(isPayer, ActorType.ME)
                     if (isPayer) payerFriendId = null else payeeFriendId = null
                 } else {
+                    if (!canSwitchTransferMode(isPayer, ActorType.FRIEND)) return
                     val friend = allFriends.find { it.name == selected }
                     setActorType(isPayer, ActorType.FRIEND)
                     if (isPayer) payerFriendId = friend?.id else payeeFriendId = friend?.id
                 }
+                enforceTransferModeRows()
+                applyTransferModeUi()
+                buildShareSection(true)
+                buildShareSection(false)
                 updateCategoryVisibility()
                 updateLiveCalc()
             }
@@ -1048,10 +1185,14 @@ class TransactionEntryActivity : AppCompatActivity() {
     }
 
     private fun updateSectionBalance(isPayer: Boolean) {
+        val tv = if (isPayer) tvPayerBalance else tvPayeeBalance
+        if (isTransferMode()) {
+            tv.text = if (isPayer) "From account" else "To account"
+            return
+        }
         val rows = rowsFor(isPayer)
         val total = getCurrentAmountPaise()
         val summed = rows.sumOf { it.amountPaise }
-        val tv = if (isPayer) tvPayerBalance else tvPayeeBalance
         val result = shareCalculator.computeSectionBalance(total, summed)
         tv.text = when (result.state) {
             SectionBalanceState.BALANCED -> "✓ Balanced"
@@ -1063,6 +1204,12 @@ class TransactionEntryActivity : AppCompatActivity() {
     private fun updateLiveCalc() {
         updateSectionBalance(true)
         updateSectionBalance(false)
+
+        if (isTransferMode()) {
+            tvBalance.text = transferSummaryText()
+            updateCategoryVisibility()
+            return
+        }
 
         val amount = getCurrentAmountPaise()
         val payerSummed = if (payerActorType != ActorType.MERCHANT) payerShareRows.sumOf { it.amountPaise } else 0L
@@ -1083,6 +1230,25 @@ class TransactionEntryActivity : AppCompatActivity() {
             OverallAllocationState.BALANCED -> ""
         }
         updateCategoryVisibility()
+    }
+
+    /** Previews the exact figure the dashboard will count, via the same pure function. */
+    private fun transferSummaryText(): String {
+        val from = payerShareRows.firstOrNull()?.amountPaise ?: 0L
+        val to = payeeShareRows.firstOrNull()?.amountPaise ?: 0L
+        if (from <= 0L && to <= 0L) return "Enter a transfer amount"
+        // A single populated leg is a credit or charge against the account, not a movement.
+        if (from <= 0L) return "Credit Rs${formatPlainAmount(to)}"
+        if (to <= 0L) return "Charge Rs${formatPlainAmount(from)}"
+
+        val delta = BalanceDeltaCalculator.expenseDelta(
+            TransferDeltaInput(payerAccountId, payeeAccountId, from, to)
+        )
+        return when {
+            delta > 0L -> "Transfer Rs${formatPlainAmount(from)} - fee Rs${formatPlainAmount(delta)}"
+            delta < 0L -> "Transfer Rs${formatPlainAmount(from)} + gain Rs${formatPlainAmount(-delta)}"
+            else -> "Transfer Rs${formatPlainAmount(from)}"
+        }
     }
 
     private fun updateCategoryVisibility() {
@@ -1144,6 +1310,9 @@ class TransactionEntryActivity : AppCompatActivity() {
     )
 
     private suspend fun handleDone() {
+        // Must precede the amount check: in transfer mode etAmount is disabled and empty.
+        if (isTransferMode()) return handleDoneTransfer()
+
         val amountPaise = getCurrentAmountPaise()
         if (amountPaise <= 0) return toast("Enter an amount")
         val payerLabel = primaryLabel(true)
@@ -1178,6 +1347,76 @@ class TransactionEntryActivity : AppCompatActivity() {
         withContext(Dispatchers.IO) { persistTransaction(db, amountPaise, payerLabel, payeeLabel) }
         currentTransaction?.let { TransactionNotificationHelper.cancel(applicationContext, it.id.toInt()) }
         finish()
+    }
+
+    /**
+     * Saves a ME -> ME entry as an [AccountTransfer] and nothing else: this path never touches
+     * [transactionPersistenceService], so no `Transaction` row is written.
+     */
+    private suspend fun handleDoneTransfer() {
+        val fromId = payerAccountId
+        val toId = payeeAccountId
+        val amountFrom = payerShareRows.firstOrNull()?.amountPaise ?: 0L
+        val amountTo = payeeShareRows.firstOrNull()?.amountPaise ?: 0L
+
+        val validation = accountTransferValidator.validate(
+            TransferValidationInput(fromId, toId, amountFrom, amountTo)
+        )
+        if (!validation.isValid) return toast(validation.message ?: "Invalid transfer")
+
+        val accounts = availableAccounts()
+        val fromType = accounts.firstOrNull { it.id == fromId }?.type
+            ?: return toast("Source account not found")
+        val toType = accounts.firstOrNull { it.id == toId }?.type
+            ?: return toast("Destination account not found")
+
+        val type = when (
+            val resolution =
+                AccountTransferTypeResolver.resolve(fromType, toType, amountFrom, amountTo)
+        ) {
+            is TransferTypeResolution.Unsupported -> return toast(resolution.message)
+            is TransferTypeResolution.Resolved -> resolution.type
+        }
+
+        val existing = currentTransfer
+        // Non-null only when a pending transaction is being reclassified; canSwitchTransferMode
+        // rejects the flip for anything already settled.
+        val convertedFrom = currentTransaction
+        val entity = AccountTransfer(
+            id = existing?.id ?: UUID.randomUUID().toString(),
+            fromAccountId = fromId,
+            toAccountId = toId,
+            amountFromPaise = amountFrom,
+            amountToPaise = amountTo,
+            type = type,
+            dateEpoch = selectedDateEpoch,
+            // Preserved so editing an imported transfer, or converting an imported transaction,
+            // keeps its dedupe key and provenance.
+            source = existing?.source ?: convertedFrom?.entrySource() ?: EntrySource.MANUAL,
+            statementRefNo = existing?.statementRefNo ?: convertedFrom?.statementRefNo,
+            notes = etDescription.text.toString().trim().ifEmpty { null }
+        )
+
+        val repository = AccountRepository(AppDatabase.Companion.getInstance(applicationContext))
+        try {
+            withContext(Dispatchers.IO) {
+                if (convertedFrom != null) {
+                    repository.convertTransactionToTransfer(convertedFrom.id, entity)
+                } else {
+                    repository.upsertTransfer(entity)
+                }
+            }
+        } catch (e: AccountMutationException) {
+            return toast(e.message ?: "Could not save transfer")
+        }
+        finish()
+    }
+
+    /** `Transaction.source` is a free string; `AccountTransfer.source` is the typed enum. */
+    private fun Transaction.entrySource(): EntrySource = when (source) {
+        "SMS" -> EntrySource.SMS
+        StatementImportRepository.SOURCE_BANK_STATEMENT -> EntrySource.BANK_STATEMENT
+        else -> EntrySource.MANUAL
     }
 
     private suspend fun persistTransaction(db: AppDatabase, amountPaise: Long, payerLabel: String, payeeLabel: String) {
@@ -1534,7 +1773,13 @@ class TransactionEntryActivity : AppCompatActivity() {
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
-    private fun formatPlainAmount(paise: Long): String = "%.0f".format(paise / 100.0)
+    private fun formatPlainAmount(paise: Long): String {
+        return if (paise % 100 > 0) {
+            "%.2f".format(paise / 100.0)
+        } else {
+            "%.0f".format(paise / 100.0)
+        }
+    }
 
     private fun toast(message: String) {
         Toast.makeText(this, message, Toast.LENGTH_SHORT).show()

@@ -27,8 +27,27 @@ android {
     }
 
     compileOptions {
+        // Apache POI targets desktop Java and reaches for java.time / java.nio APIs that
+        // are not in the minSdk 29 baseline.
+        isCoreLibraryDesugaringEnabled = true
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+    }
+
+    packaging {
+        resources {
+            // POI and its commons-* transitives each ship their own copy of these.
+            excludes += listOf(
+                "META-INF/DEPENDENCIES",
+                "META-INF/LICENSE",
+                "META-INF/LICENSE.txt",
+                "META-INF/LICENSE*",
+                "META-INF/NOTICE",
+                "META-INF/NOTICE.txt",
+                "META-INF/NOTICE*",
+                "META-INF/*.kotlin_module"
+            )
+        }
     }
 }
 
@@ -59,6 +78,11 @@ dependencies {
     // Navigation
     implementation("androidx.navigation:navigation-fragment-ktx:2.7.7")
     implementation("androidx.navigation:navigation-ui-ktx:2.7.7")
+
+    // Bank statement (.xls) import. HSSF/BIFF8 only - poi-ooxml would drag in xmlbeans
+    // for a .xlsx path this app never takes.
+    implementation(libs.poi)
+    coreLibraryDesugaring(libs.desugar.jdk.libs)
 
     // Tests
     testImplementation(libs.junit)

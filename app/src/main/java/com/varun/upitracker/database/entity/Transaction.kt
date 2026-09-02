@@ -46,7 +46,10 @@ import androidx.room.PrimaryKey
         Index("payeeMerchantId"),
         Index("myAccountId"),
         Index(value = ["myAccountId", "dateEpoch"]),
-        Index("upiRefId", unique = true)
+        Index("upiRefId", unique = true),
+        // Deliberately NOT unique: HDFC reuses filler ref numbers such as "000000000000000"
+        // across unrelated rows, so a unique index would reject valid imports.
+        Index("statementRefNo")
     ]
 )
 data class Transaction(
@@ -67,6 +70,8 @@ data class Transaction(
 
     val reason: String? = null,
     val upiRefId: String? = null,
+    /** `Chq./Ref.No.` of the bank-statement row this came from, or was matched to. */
+    val statementRefNo: String? = null,
     val myAccountId: String? = null,
     val dateEpoch: Long,
     val source: String,

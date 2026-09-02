@@ -3,7 +3,7 @@ package com.varun.upitracker.ui.transactionentry
 sealed interface TransactionEntryAction {
     data class ScreenLoaded(val transactionId: Long?) : TransactionEntryAction
     data class AmountChanged(val rawAmount: String) : TransactionEntryAction
-    data class AccountSelected(val accountId: String) : TransactionEntryAction
+    data class AccountSelected(val side: EntrySide, val accountId: String) : TransactionEntryAction
     data class ActorTypeSelected(val side: EntrySide, val actorType: String) : TransactionEntryAction
     data class DateChanged(val dateEpoch: Long) : TransactionEntryAction
     data class ToggleMerchant(val side: EntrySide, val isMerchant: Boolean) : TransactionEntryAction
