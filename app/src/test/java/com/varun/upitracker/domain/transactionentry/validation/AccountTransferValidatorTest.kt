@@ -28,21 +28,31 @@ class AccountTransferValidatorTest {
     }
 
     @Test
-    fun validate_rejectsSameAccountOnBothSides() {
-        assertInvalid(
-            "Source and destination must be different",
-            input(from = "savings", to = "savings")
+    fun validate_allowsSelfTransferCreditForMonthlyInterest() {
+        // savings 0 -> savings 200: interest arriving with nothing leaving.
+        val result = validator.validate(
+            input(from = "savings", to = "savings", amountFrom = 0, amountTo = 20_000)
         )
+
+        assertTrue(result.isValid)
     }
 
     @Test
-    fun validate_rejectsNonPositiveSourceAmount() {
-        assertInvalid("Enter the amount leaving the source", input(amountFrom = 0))
+    fun validate_allowsZeroDestinationForAccountCharge() {
+        val result = validator.validate(input(amountFrom = 5_000, amountTo = 0))
+
+        assertTrue(result.isValid)
     }
 
     @Test
-    fun validate_rejectsNonPositiveDestinationAmount() {
-        assertInvalid("Enter the amount reaching the destination", input(amountTo = 0))
+    fun validate_rejectsBothLegsZero() {
+        assertInvalid("Enter a transfer amount", input(amountFrom = 0, amountTo = 0))
+    }
+
+    @Test
+    fun validate_rejectsNegativeAmounts() {
+        assertInvalid("Amounts can't be negative", input(amountFrom = -1))
+        assertInvalid("Amounts can't be negative", input(amountTo = -1))
     }
 
     private fun assertInvalid(message: String, input: TransferValidationInput) {

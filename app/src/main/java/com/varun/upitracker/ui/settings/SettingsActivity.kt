@@ -15,6 +15,7 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.ViewModelProvider
 import com.varun.upitracker.R
 import com.varun.upitracker.ui.AliasMappingsActivity
+import com.varun.upitracker.ui.statement.StatementImportActivity
 import com.varun.upitracker.ui.CategorySettingsActivity
 
 class SettingsActivity : AppCompatActivity() {
@@ -35,6 +36,9 @@ class SettingsActivity : AppCompatActivity() {
         findViewById<TextView>(R.id.btnBackSettings).setOnClickListener { finish() }
         findViewById<View>(R.id.cardCategories).setOnClickListener {
             startActivity(Intent(this, CategorySettingsActivity::class.java))
+        }
+        findViewById<View>(R.id.cardImportStatement).setOnClickListener {
+            startActivity(Intent(this, StatementImportActivity::class.java))
         }
         findViewById<View>(R.id.cardAccounts).setOnClickListener {
             startActivity(Intent(this, AccountsActivity::class.java))

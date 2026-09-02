@@ -60,7 +60,7 @@ import kotlinx.coroutines.launch
         AccountTransfer::class,
         BalanceSnapshot::class
     ],
-    version = 11,
+    version = 12,
     exportSchema = false
 )
 @TypeConverters(Converters::class)
@@ -262,6 +262,29 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_11_12 = object : Migration(11, 12) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                if (!hasColumn(db, "transactions", "statementRefNo")) {
+                    db.execSQL("ALTER TABLE `transactions` ADD COLUMN `statementRefNo` TEXT")
+                }
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_transactions_statementRefNo` " +
+                        "ON `transactions`(`statementRefNo`)"
+                )
+            }
+        }
+
+        private fun hasColumn(db: SupportSQLiteDatabase, table: String, column: String): Boolean {
+            db.query("PRAGMA table_info(`$table`)").use { cursor ->
+                val nameColumnIndex = cursor.getColumnIndex("name")
+                if (nameColumnIndex == -1) return false
+                while (cursor.moveToNext()) {
+                    if (cursor.getString(nameColumnIndex) == column) return true
+                }
+            }
+            return false
+        }
+
         fun getInstance(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 Room.databaseBuilder(
@@ -269,7 +292,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "upi_tracker_db"
                 )
-                    .addMigrations(MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11)
+                    .addMigrations(MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12)
                     .addCallback(object : Callback() {
                         override fun onCreate(db: SupportSQLiteDatabase) {
                             super.onCreate(db)

@@ -67,6 +67,29 @@ class BalanceDeltaCalculatorTest {
     }
 
     @Test
+    fun transferDelta_selfTransferCreditsInterestOnce() {
+        // savings 0 -> savings 200. Both branches fire on the same id, and the row is returned
+        // once by getAccountTransfersBetween's OR, so the balance rises by exactly the credit.
+        val transfer = TransferDeltaInput("savings", "savings", 0, 20_000)
+
+        assertEquals(20_000, BalanceDeltaCalculator.transferDelta("savings", transfer))
+    }
+
+    @Test
+    fun expenseDelta_countsInterestCreditAsIncome() {
+        val transfer = TransferDeltaInput("savings", "savings", 0, 20_000)
+
+        assertEquals(-20_000, BalanceDeltaCalculator.expenseDelta(transfer))
+    }
+
+    @Test
+    fun expenseDelta_countsSelfChargeAsSpend() {
+        val transfer = TransferDeltaInput("savings", "savings", 5_000, 0)
+
+        assertEquals(5_000, BalanceDeltaCalculator.expenseDelta(transfer))
+    }
+
+    @Test
     fun expenseDelta_isNegatedSumOfTransferDeltasOverBothAccounts() {
         val transfer = TransferDeltaInput("savings", "cash", 50_000, 49_500)
 

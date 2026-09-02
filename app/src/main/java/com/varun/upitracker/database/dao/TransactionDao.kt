@@ -28,6 +28,35 @@ interface TransactionDao {
     @Query("SELECT * FROM transactions WHERE upiRefId = :refId LIMIT 1")
     suspend fun findByRefId(refId: String): Transaction?
 
+    /**
+     * Re-import guard for bank-statement rows that carry no UPI ref id. Scoped to the account
+     * because [Transaction.statementRefNo] is intentionally not globally unique.
+     */
+    @Query("SELECT * FROM transactions WHERE statementRefNo = :refNo AND myAccountId = :accountId LIMIT 1")
+    suspend fun findByStatementRefNo(refNo: String, accountId: String): Transaction?
+
+    /**
+     * Existing transactions a bank-statement row could plausibly already be recorded as: I am on
+     * one side of it, it sits on one of my savings accounts (or none yet), the amount is exact and
+     * the date is within the caller's tolerance window.
+     */
+    @Query(
+        """
+        SELECT * FROM transactions
+        WHERE amountPaise = :amountPaise
+          AND dateEpoch BETWEEN :fromEpoch AND :toEpoch
+          AND (payerActorType = 'ME' OR payeeActorType = 'ME')
+          AND (myAccountId IS NULL OR myAccountId IN (:savingsAccountIds))
+        ORDER BY dateEpoch ASC, id ASC
+        """
+    )
+    suspend fun findMatchCandidates(
+        amountPaise: Long,
+        fromEpoch: Long,
+        toEpoch: Long,
+        savingsAccountIds: List<String>
+    ): List<Transaction>
+
     @Query(
         """
         SELECT 
@@ -36,7 +65,7 @@ interface TransactionDao {
         FROM transaction_shares s
         INNER JOIN transactions t
             ON s.transactionId = t.id
-        WHERE t.dateEpoch > :fromEpochExclusive AND t.dateEpoch <= :toEpochInclusive
+        WHERE t.dateEpoch >= :fromEpochInclusive AND t.dateEpoch <= :toEpochInclusive
           AND t.myAccountId = :accountId
           AND s.participantType = 'ME'
           AND (t.payerActorType = 'MERCHANT' OR t.payeeActorType = 'MERCHANT')
@@ -44,7 +73,7 @@ interface TransactionDao {
     )
     suspend fun getTotalDeltaBetweenForAccount(
         accountId: String,
-        fromEpochExclusive: Long,
+        fromEpochInclusive: Long,
         toEpochInclusive: Long
     ): Long?
 

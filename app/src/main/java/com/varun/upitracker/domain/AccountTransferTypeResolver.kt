@@ -9,12 +9,26 @@ sealed interface TransferTypeResolution {
 }
 
 /**
- * Derives the [AccountTransferType] for a transfer from the two accounts' [AccountType]s, so the
- * transaction entry screen needs no type picker.
+ * Derives the [AccountTransferType] for a transfer from the two accounts' [AccountType]s and the
+ * two leg amounts, so the transaction entry screen needs no type picker.
  */
 object AccountTransferTypeResolver {
 
-    fun resolve(from: AccountType, to: AccountType): TransferTypeResolution = when {
+    fun resolve(
+        from: AccountType,
+        to: AccountType,
+        amountFromPaise: Long,
+        amountToPaise: Long
+    ): TransferTypeResolution = when {
+        // Money arriving with nothing leaving is a credit to the account, not a movement between
+        // two of them - this is how monthly interest is recorded (e.g. savings 0 -> savings 200).
+        // Checked before the FD guard below, since an FD interest credit is not a booking.
+        amountFromPaise == 0L && amountToPaise > 0L -> when (to) {
+            AccountType.SAVINGS -> TransferTypeResolution.Resolved(AccountTransferType.SAVINGS_INTEREST_CREDIT)
+            AccountType.FD -> TransferTypeResolution.Resolved(AccountTransferType.FD_INTEREST_CREDIT)
+            else -> TransferTypeResolution.Resolved(AccountTransferType.GENERIC_TRANSFER)
+        }
+
         // Booking an FD also needs a principal and a maturity date, and creates the FD account plus
         // its FixedDepositDetail row. AccountRepository.createFixedDeposit already emits its own
         // FD_BOOKING transfer as part of that; deriving a second one here would leave a transfer

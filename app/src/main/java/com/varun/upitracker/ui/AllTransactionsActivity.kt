@@ -1,8 +1,12 @@
 package com.varun.upitracker.ui
 
 import android.content.Intent
+import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
+import android.util.TypedValue
 import android.view.LayoutInflater
+import android.view.View
 import android.view.ViewGroup
 import android.widget.LinearLayout
 import android.widget.NumberPicker
@@ -35,6 +39,7 @@ class AllTransactionsActivity : AppCompatActivity() {
     private val monthFmt = SimpleDateFormat("MMMM yyyy", Locale.getDefault())
     private lateinit var viewModel: AllTransactionsViewModel
     private lateinit var btnPickMonth: TextView
+    private lateinit var btnPendingOnly: TextView
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
@@ -57,6 +62,12 @@ class AllTransactionsActivity : AppCompatActivity() {
             this,
             ScreenViewModelFactory(applicationContext)
         )[AllTransactionsViewModel::class.java]
+
+        btnPendingOnly = findViewById(R.id.btnPendingOnly)
+        btnPendingOnly.setOnClickListener {
+            viewModel.setPendingOnly(viewModel.uiState.value?.pendingOnly != true)
+        }
+
         viewModel.uiState.observe(this) { state ->
             val db = AppDatabase.getInstance(applicationContext)
             findViewById<RecyclerView>(R.id.rvAllTransactions).apply {
@@ -71,6 +82,7 @@ class AllTransactionsActivity : AppCompatActivity() {
                 )
             }
             btnPickMonth.text = monthFmt.format(Date(state.selectedMonthStartEpoch))
+            renderPendingToggle(state)
         }
         viewModel.loadCurrentMonth()
     }
@@ -81,6 +93,44 @@ class AllTransactionsActivity : AppCompatActivity() {
             viewModel.loadCurrentMonth()
         }
     }
+
+    /**
+     * The app has no selector drawables, so the checked look is built the same way
+     * TransactionEntryActivity styles its actor tiles.
+     */
+    private fun renderPendingToggle(state: AllTransactionsUiState) {
+        val active = state.pendingOnly
+        btnPendingOnly.background = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = dp(16).toFloat()
+            setColor(if (active) Color.parseColor("#006064") else Color.parseColor("#EEEEEE"))
+            setStroke(dp(1), if (active) Color.parseColor("#006064") else Color.parseColor("#DDDDDD"))
+        }
+        btnPendingOnly.setTextColor(
+            if (active) Color.parseColor("#FFFFFF") else Color.parseColor("#212121")
+        )
+
+        val hint = findViewById<TextView>(R.id.tvPendingOnlyHint)
+        hint.text = if (active) {
+            "${state.entries.size} of ${state.totalEntryCount} entries"
+        } else {
+            ""
+        }
+
+        val empty = findViewById<TextView>(R.id.tvAllTransactionsEmpty)
+        empty.visibility = if (state.entries.isEmpty()) View.VISIBLE else View.GONE
+        empty.text = if (active) {
+            "Nothing pending review this month."
+        } else {
+            "No transactions this month."
+        }
+    }
+
+    private fun dp(value: Int): Int = TypedValue.applyDimension(
+        TypedValue.COMPLEX_UNIT_DIP,
+        value.toFloat(),
+        resources.displayMetrics
+    ).toInt()
 
     private fun showMonthPicker(monthStartEpoch: Long) {
         val selected = Calendar.getInstance().apply { timeInMillis = monthStartEpoch }

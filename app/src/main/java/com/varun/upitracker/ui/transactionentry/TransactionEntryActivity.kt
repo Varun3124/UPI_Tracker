@@ -34,6 +34,7 @@ import com.varun.upitracker.R
 import com.varun.upitracker.database.AppDatabase
 import com.varun.upitracker.data.repository.AccountMutationException
 import com.varun.upitracker.data.repository.AccountRepository
+import com.varun.upitracker.data.repository.StatementImportRepository
 import com.varun.upitracker.database.entity.Account
 import com.varun.upitracker.database.entity.AccountTransfer
 import com.varun.upitracker.database.entity.AccountType
@@ -337,9 +338,15 @@ class TransactionEntryActivity : AppCompatActivity() {
 
     private fun initializeSelectedAccounts(tx: Transaction?) {
         val primary = tx?.myAccountId ?: defaultAccountId()
-        payerAccountId = primary
-        // Seed the payee with a different account so transfer mode starts in a valid state.
-        payeeAccountId = availableAccounts().firstOrNull { it.id != primary }?.id ?: primary
+        // Seed the other side with a different account so transfer mode starts in a valid state.
+        val other = availableAccounts().firstOrNull { it.id != primary }?.id ?: primary
+        // `myAccountId` belongs to whichever side is ME, which is the side
+        // [accountIdForPersistence] reads back. On a credit that is the payee.
+        val meIsPayee = tx != null &&
+            tx.payeeActorType == ActorType.ME &&
+            tx.payerActorType != ActorType.ME
+        payerAccountId = if (meIsPayee) other else primary
+        payeeAccountId = if (meIsPayee) primary else other
     }
 
     private fun defaultAccountId(): String? {
@@ -479,12 +486,17 @@ class TransactionEntryActivity : AppCompatActivity() {
         payerActorType == ActorType.ME && payeeActorType == ActorType.ME
 
     /**
-     * A saved record cannot change kind: a transaction turned into a transfer would insert an
-     * `AccountTransfer` and leave the original `Transaction` row orphaned, and vice versa.
+     * A settled record cannot change kind: it would insert an `AccountTransfer` and leave the
+     * original `Transaction` row orphaned, and vice versa.
+     *
+     * A *pending* transaction is the exception. SMS and bank-statement rows arrive with no shares,
+     * splits or IOU entries, and some of them are genuinely transfers (interest credits, self-UPI,
+     * ATM withdrawals), so classifying one as a transfer is the whole point of reviewing it.
+     * [handleDoneTransfer] deletes the source row as it writes the transfer.
      */
     private fun canSwitchTransferMode(isPayer: Boolean, selectedType: String): Boolean {
         val wouldBeTransfer = selectedType == ActorType.ME && otherSideActorType(isPayer) == ActorType.ME
-        if (wouldBeTransfer && currentTransaction != null) {
+        if (wouldBeTransfer && currentTransaction?.isPending == false) {
             toast("Can't convert a saved transaction into a transfer")
             return false
         }
@@ -498,8 +510,14 @@ class TransactionEntryActivity : AppCompatActivity() {
     /** A transfer has exactly one endpoint per side: the source account and the destination. */
     private fun enforceTransferModeRows() {
         if (!isTransferMode()) return
+        // A pending transaction carries no shares, so seed both legs from the amount the bank
+        // already told us rather than making the reviewer retype it.
+        val seed = currentTransaction?.takeIf { it.isPending }?.amountPaise ?: 0L
         listOf(payerShareRows, payeeShareRows).forEach { rows ->
             while (rows.size > 1) rows.removeAt(rows.lastIndex)
+            rows.firstOrNull()?.let { row ->
+                if (row.amountPaise == 0L && seed > 0L) row.amountPaise = seed
+            }
         }
     }
 
@@ -1218,7 +1236,11 @@ class TransactionEntryActivity : AppCompatActivity() {
     private fun transferSummaryText(): String {
         val from = payerShareRows.firstOrNull()?.amountPaise ?: 0L
         val to = payeeShareRows.firstOrNull()?.amountPaise ?: 0L
-        if (from <= 0L || to <= 0L) return "Enter both transfer amounts"
+        if (from <= 0L && to <= 0L) return "Enter a transfer amount"
+        // A single populated leg is a credit or charge against the account, not a movement.
+        if (from <= 0L) return "Credit Rs${formatPlainAmount(to)}"
+        if (to <= 0L) return "Charge Rs${formatPlainAmount(from)}"
+
         val delta = BalanceDeltaCalculator.expenseDelta(
             TransferDeltaInput(payerAccountId, payeeAccountId, from, to)
         )
@@ -1348,12 +1370,18 @@ class TransactionEntryActivity : AppCompatActivity() {
         val toType = accounts.firstOrNull { it.id == toId }?.type
             ?: return toast("Destination account not found")
 
-        val type = when (val resolution = AccountTransferTypeResolver.resolve(fromType, toType)) {
+        val type = when (
+            val resolution =
+                AccountTransferTypeResolver.resolve(fromType, toType, amountFrom, amountTo)
+        ) {
             is TransferTypeResolution.Unsupported -> return toast(resolution.message)
             is TransferTypeResolution.Resolved -> resolution.type
         }
 
         val existing = currentTransfer
+        // Non-null only when a pending transaction is being reclassified; canSwitchTransferMode
+        // rejects the flip for anything already settled.
+        val convertedFrom = currentTransaction
         val entity = AccountTransfer(
             id = existing?.id ?: UUID.randomUUID().toString(),
             fromAccountId = fromId,
@@ -1362,19 +1390,33 @@ class TransactionEntryActivity : AppCompatActivity() {
             amountToPaise = amountTo,
             type = type,
             dateEpoch = selectedDateEpoch,
-            // Preserved so editing an imported transfer keeps its dedupe key.
-            source = existing?.source ?: EntrySource.MANUAL,
-            statementRefNo = existing?.statementRefNo,
+            // Preserved so editing an imported transfer, or converting an imported transaction,
+            // keeps its dedupe key and provenance.
+            source = existing?.source ?: convertedFrom?.entrySource() ?: EntrySource.MANUAL,
+            statementRefNo = existing?.statementRefNo ?: convertedFrom?.statementRefNo,
             notes = etDescription.text.toString().trim().ifEmpty { null }
         )
 
         val repository = AccountRepository(AppDatabase.Companion.getInstance(applicationContext))
         try {
-            withContext(Dispatchers.IO) { repository.upsertTransfer(entity) }
+            withContext(Dispatchers.IO) {
+                if (convertedFrom != null) {
+                    repository.convertTransactionToTransfer(convertedFrom.id, entity)
+                } else {
+                    repository.upsertTransfer(entity)
+                }
+            }
         } catch (e: AccountMutationException) {
             return toast(e.message ?: "Could not save transfer")
         }
         finish()
+    }
+
+    /** `Transaction.source` is a free string; `AccountTransfer.source` is the typed enum. */
+    private fun Transaction.entrySource(): EntrySource = when (source) {
+        "SMS" -> EntrySource.SMS
+        StatementImportRepository.SOURCE_BANK_STATEMENT -> EntrySource.BANK_STATEMENT
+        else -> EntrySource.MANUAL
     }
 
     private suspend fun persistTransaction(db: AppDatabase, amountPaise: Long, payerLabel: String, payeeLabel: String) {

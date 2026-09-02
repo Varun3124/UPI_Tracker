@@ -5,6 +5,7 @@ import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
+import com.varun.upitracker.ui.statement.StatementImportViewModel
 import androidx.lifecycle.viewModelScope
 import com.varun.upitracker.data.repository.AccountCreateRequest
 import com.varun.upitracker.data.repository.AccountDeleteResult
@@ -159,6 +160,7 @@ class AppViewModelFactory(private val context: Context) : ViewModelProvider.Fact
         return when {
             modelClass.isAssignableFrom(CategorySettingsViewModel::class.java) -> CategorySettingsViewModel(context) as T
             modelClass.isAssignableFrom(AccountsViewModel::class.java) -> AccountsViewModel(context) as T
+            modelClass.isAssignableFrom(StatementImportViewModel::class.java) -> StatementImportViewModel(context) as T
             else -> throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")
         }
     }

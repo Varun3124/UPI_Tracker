@@ -99,12 +99,18 @@ class TransactionEntryViewModel(context: Context) : ViewModel() {
 data class AllTransactionsUiState(
     val entries: List<LedgerEntry> = emptyList(),
     val accountLabels: Map<String, String> = emptyMap(),
-    val selectedMonthStartEpoch: Long = 0L
+    val selectedMonthStartEpoch: Long = 0L,
+    val pendingOnly: Boolean = false,
+    /** Entries in the month before the pending filter, so the toggle can show what it hides. */
+    val totalEntryCount: Int = 0
 )
 
 class AllTransactionsViewModel(context: Context) : ViewModel() {
     private val db = AppDatabase.getInstance(context.applicationContext)
     private var selectedMonthStartEpoch: Long = startOfMonth(Calendar.getInstance())
+    private var pendingOnly: Boolean = false
+    private var loadedEntries: List<LedgerEntry> = emptyList()
+    private var loadedAccountLabels: Map<String, String> = emptyMap()
     private val _uiState = MutableLiveData(
         AllTransactionsUiState(selectedMonthStartEpoch = selectedMonthStartEpoch)
     )
@@ -117,7 +123,7 @@ class AllTransactionsViewModel(context: Context) : ViewModel() {
     fun loadMonth(monthStartEpoch: Long) {
         selectedMonthStartEpoch = monthStartEpoch
         viewModelScope.launch {
-            _uiState.value = withContext(Dispatchers.IO) {
+            withContext(Dispatchers.IO) {
                 val endOfMonth = Calendar.getInstance().apply {
                     timeInMillis = monthStartEpoch
                     add(Calendar.MONTH, 1)
@@ -128,13 +134,33 @@ class AllTransactionsViewModel(context: Context) : ViewModel() {
                 val transfers = db.accountTransferDao()
                     .getTransfersBetween(monthStartEpoch, endOfMonth)
                     .map(LedgerEntry::Transfer)
-                AllTransactionsUiState(
-                    entries = (transactions + transfers).sortedByDescending { it.dateEpoch },
-                    accountLabels = db.accountDao().getAllSync().associate { it.id to it.label },
-                    selectedMonthStartEpoch = monthStartEpoch
-                )
+                loadedEntries = (transactions + transfers).sortedByDescending { it.dateEpoch }
+                loadedAccountLabels = db.accountDao().getAllSync().associate { it.id to it.label }
             }
+            emitState()
         }
+    }
+
+    /** Filters what is already loaded, so toggling costs no database round trip. */
+    fun setPendingOnly(enabled: Boolean) {
+        if (enabled == pendingOnly) return
+        pendingOnly = enabled
+        emitState()
+    }
+
+    private fun emitState() {
+        _uiState.value = AllTransactionsUiState(
+            // Account transfers have no pending state, so the filter excludes them entirely.
+            entries = if (pendingOnly) {
+                loadedEntries.filter { it is LedgerEntry.Tx && it.transaction.isPending }
+            } else {
+                loadedEntries
+            },
+            accountLabels = loadedAccountLabels,
+            selectedMonthStartEpoch = selectedMonthStartEpoch,
+            pendingOnly = pendingOnly,
+            totalEntryCount = loadedEntries.size
+        )
     }
 
     fun deleteTransaction(transactionId: Long) {

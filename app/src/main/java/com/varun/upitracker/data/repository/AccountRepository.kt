@@ -295,6 +295,34 @@ class AccountRepository private constructor(
     }
 
     /**
+     * Replaces a pending [com.varun.upitracker.database.entity.Transaction] with an
+     * [AccountTransfer] in one step, for a reviewer classifying an SMS or bank-statement row that
+     * turned out to be a movement between their own accounts.
+     *
+     * The transaction's shares, category splits and IOU entries are all `ON DELETE CASCADE` on
+     * `transactions.id`; they are removed explicitly anyway so the cleanup does not depend on the
+     * foreign-keys pragma being on.
+     *
+     * @throws AccountMutationException if the transfer is invalid, or if its `statementRefNo` is
+     *   already held by another transfer.
+     */
+    suspend fun convertTransactionToTransfer(transactionId: Long, transfer: AccountTransfer) {
+        validateTransfer(transfer)
+        transfer.statementRefNo?.let { ref ->
+            if (database.accountTransferDao().findByStatementRefNo(ref) != null) {
+                throw AccountMutationException("A transfer for this statement row already exists.")
+            }
+        }
+        database.withTransaction {
+            database.iouDao().deleteForTransaction(transactionId)
+            database.categorySplitDao().deleteForTransaction(transactionId)
+            database.transactionShareDao().deleteForTransaction(transactionId)
+            database.transactionDao().deleteById(transactionId)
+            database.accountTransferDao().insert(transfer)
+        }
+    }
+
+    /**
      * Deletes a transfer. Balances are derived, so removing the row is the entire reversal.
      *
      * An [AccountTransferType.FD_RETURN] cannot be deleted here: [recordTransfer] archived the FD
@@ -310,16 +338,20 @@ class AccountRepository private constructor(
         database.accountTransferDao().deleteById(id)
     }
 
-    /** Stricter than the entity, whose nullable account ids exist for one-sided imports. */
+    /**
+     * Stricter than the entity, whose nullable account ids exist for one-sided imports. Source and
+     * destination may match, and one leg may be zero, so that a credit or charge against a single
+     * account (monthly savings interest, an account fee) is representable.
+     */
     private suspend fun validateTransfer(transfer: AccountTransfer) {
         val from = transfer.fromAccountId
             ?: throw AccountMutationException("Source account is required.")
         val to = transfer.toAccountId
             ?: throw AccountMutationException("Destination account is required.")
-        if (from == to) {
-            throw AccountMutationException("Source and destination must be different.")
+        if (transfer.amountFromPaise < 0L || transfer.amountToPaise < 0L) {
+            throw AccountMutationException("Transfer amounts can't be negative.")
         }
-        if (transfer.amountFromPaise <= 0L || transfer.amountToPaise <= 0L) {
+        if (transfer.amountFromPaise == 0L && transfer.amountToPaise == 0L) {
             throw AccountMutationException("Transfer amounts must be greater than zero.")
         }
         if (database.accountDao().getById(from) == null) {
