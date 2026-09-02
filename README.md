@@ -5,11 +5,12 @@ Current state of implementation:<br/>
 1) Track income/expense
 2) Minimize user effort for recording transactions (parse SMS to extract UPI payments)
 3) Track IOU with friends (exactly like Splitwise)
+4) Account balance tracking for various accounts(wallet, savings, FD, investments)
+5) Import transactions from bank statement(HDFC, .xls format)
 
 <br/>
 
 Future implementation plans:
-1. Account balance tracking for various accounts(wallet, savings, FD, investments)
-2. Statistics (category wise expenditure)
-3. Better UI ;)
+1. Statistics (category wise expenditure)
+2. Better UI ;)
 
