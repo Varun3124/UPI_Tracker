@@ -38,6 +38,7 @@ import com.varun.upitracker.database.entity.Account
 import com.varun.upitracker.database.entity.AccountTransfer
 import com.varun.upitracker.database.entity.AccountType
 import com.varun.upitracker.database.entity.Category
+import com.varun.upitracker.database.entity.CategoryKind
 import com.varun.upitracker.database.entity.Friend
 import com.varun.upitracker.database.entity.FriendRawName
 import com.varun.upitracker.database.entity.FriendUpiId
@@ -583,7 +584,10 @@ class TransactionEntryActivity : AppCompatActivity() {
 
     private fun setupCategories() {
         categoryEntries.clear()
-        categoryEntries.addAll(allCategories.map { category ->
+        // Expense-only for now: every transaction this screen can categorise today is money
+        // going out. Income categories become reachable once ledger-neutral transactions and
+        // unlinked merchant credits can be categorised.
+        categoryEntries.addAll(allCategories.filter { it.kind == CategoryKind.EXPENSE }.map { category ->
             CategoryEntry(category = category, isChecked = false, myAmountPaise = 0L)
         })
     }
