@@ -57,6 +57,7 @@ dependencies {
     implementation(libs.material)
     implementation(libs.androidx.activity)
     implementation(libs.androidx.constraintlayout)
+    implementation(libs.flexbox)
 
     implementation("androidx.recyclerview:recyclerview:1.3.2")
     implementation("androidx.cardview:cardview:1.0.0")

@@ -13,6 +13,7 @@ ksp = "2.3.2"
 remoteCreationCompose = "1.0.0-alpha16"
 poi = "5.2.5"
 desugarJdkLibs = "2.1.5"
+flexbox = "3.0.0"
 
 [libraries]
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "coreKtx" }
@@ -26,6 +27,7 @@ androidx-constraintlayout = { group = "androidx.constraintlayout", name = "const
 androidx-remote-creation-compose = { group = "androidx.compose.remote", name = "remote-creation-compose", version.ref = "remoteCreationCompose" }
 poi = { group = "org.apache.poi", name = "poi", version.ref = "poi" }
 desugar-jdk-libs = { group = "com.android.tools", name = "desugar_jdk_libs", version.ref = "desugarJdkLibs" }
+flexbox = { group = "com.google.android.flexbox", name = "flexbox", version.ref = "flexbox" }
 
 [plugins]
 android-application = { id = "com.android.application", version.ref = "agp" }

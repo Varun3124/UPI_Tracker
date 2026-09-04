@@ -7,11 +7,6 @@ data class CategoryVisibilityDecision(
     val shouldClearSelections: Boolean
 )
 
-data class CategoryAutoloadDecision(
-    val shouldLoad: Boolean,
-    val merchantId: Long?
-)
-
 class CategorySplitManager {
 
     fun visibilityDecision(
@@ -40,15 +35,4 @@ class CategorySplitManager {
         }
     }
 
-    fun autoloadDecision(
-        shouldAutoloadMerchantCategories: Boolean,
-        showCategories: Boolean,
-        merchantId: Long?
-    ): CategoryAutoloadDecision {
-        val shouldLoad = shouldAutoloadMerchantCategories && showCategories && merchantId != null
-        return CategoryAutoloadDecision(
-            shouldLoad = shouldLoad,
-            merchantId = merchantId
-        )
-    }
 }

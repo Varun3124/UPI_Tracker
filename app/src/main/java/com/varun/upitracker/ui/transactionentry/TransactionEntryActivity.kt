@@ -3,7 +3,6 @@ package com.varun.upitracker.ui.transactionentry
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
 import android.content.Context
-import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.Rect
 import android.graphics.drawable.GradientDrawable
@@ -29,7 +28,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.ViewModelProvider
-import com.google.android.material.chip.Chip
+import com.google.android.flexbox.FlexboxLayout
 import com.varun.upitracker.R
 import com.varun.upitracker.database.AppDatabase
 import com.varun.upitracker.data.repository.AccountMutationException
@@ -139,6 +138,8 @@ class TransactionEntryActivity : AppCompatActivity() {
     private var payeeMerchantId: Long? = null
 
     private val categoryEntries = mutableListOf<CategoryEntry>()
+    /** The category whose split amount tracks ME's remaining share as it changes; null once cleared or unchecked. */
+    private var trackedCategoryId: Long? = null
     private val payerShareRows = mutableListOf<ShareRow>()
     private val payeeShareRows = mutableListOf<ShareRow>()
 
@@ -161,11 +162,11 @@ class TransactionEntryActivity : AppCompatActivity() {
     private lateinit var btnAddPayerPerson: Button
     private lateinit var btnAddPayeePerson: Button
     private lateinit var btnEqualize: Button
-    private lateinit var categoryContainer: LinearLayout
+    private lateinit var categoryContainer: FlexboxLayout
+    private lateinit var categoryScrollView: View
     private lateinit var formScroll: ScrollView
     private lateinit var etDescription: EditText
 
-    private var shouldAutoloadMerchantCategories = true
     private var smsPayerAliasFallback = ""
     private var smsPayeeAliasFallback = ""
     private var isCategorySectionVisible = false
@@ -249,6 +250,7 @@ class TransactionEntryActivity : AppCompatActivity() {
         btnAddPayeePerson = findViewById(R.id.btnAddPayeePerson)
         btnEqualize = findViewById(R.id.btnEqualize)
         categoryContainer = findViewById(R.id.categoryContainer)
+        categoryScrollView = findViewById(R.id.categoryScrollView)
         etDescription = findViewById(R.id.etDescription)
     }
 
@@ -472,7 +474,6 @@ class TransactionEntryActivity : AppCompatActivity() {
             rowsFor(isPayer).add(buildPrimaryRow(isPayer))
         }
 
-        shouldAutoloadMerchantCategories = true
         enforceTransferModeRows()
         updateActorTileStyles()
         applyTransferModeUi()
@@ -608,7 +609,6 @@ class TransactionEntryActivity : AppCompatActivity() {
 
         val splits = withContext(Dispatchers.IO) { db.categorySplitDao().getForTransaction(tx.id) }
         if (splits.isNotEmpty()) {
-            shouldAutoloadMerchantCategories = false
             categoryEntries.forEach { entry ->
                 val split = splits.firstOrNull { it.categoryId == entry.category.id }
                 if (split != null) {
@@ -734,6 +734,19 @@ class TransactionEntryActivity : AppCompatActivity() {
             cornerRadius = dp(8).toFloat()
             setColor(Color.parseColor("#252015"))
             setStroke(dp(1), Color.parseColor("#8B7355"))
+        }
+    }
+
+    private fun styleCategoryPill(pillRoot: View, checked: Boolean) {
+        pillRoot.background = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = dp(16).toFloat()
+            if (checked) {
+                setColor(Color.parseColor("#252015"))
+                setStroke(dp(1), Color.parseColor("#8B7355"))
+            } else {
+                setColor(Color.parseColor("#2A2A2A"))
+            }
         }
     }
 
@@ -1053,9 +1066,13 @@ class TransactionEntryActivity : AppCompatActivity() {
                 val isPayer = action.side == EntrySide.PAYER
                 val rows = rowsFor(isPayer)
                 if (action.rowIndex in rows.indices) {
-                    rows[action.rowIndex].amountPaise = ((action.rawAmount.toDoubleOrNull() ?: 0.0) * 100).toLong()
+                    val row = rows[action.rowIndex]
+                    row.amountPaise = ((action.rawAmount.toDoubleOrNull() ?: 0.0) * 100).toLong()
                     updateSectionBalance(isPayer)
                     updateLiveCalc()
+                    if (row.participantType == ActorType.ME) {
+                        updateTrackedCategoryAmount()
+                    }
                 }
             }
 
@@ -1096,7 +1113,6 @@ class TransactionEntryActivity : AppCompatActivity() {
             ActorType.MERCHANT -> {
                 val merchant = allMerchants.find { it.name == selected }
                 if (isPayer) payerMerchantId = merchant?.id else payeeMerchantId = merchant?.id
-                shouldAutoloadMerchantCategories = true
                 updateCategoryVisibility()
             }
             else -> {
@@ -1184,6 +1200,22 @@ class TransactionEntryActivity : AppCompatActivity() {
         )
     }
 
+    /** Fills [entry]'s split with what's left of ME's share after every other checked category. */
+    private fun applyRemainderAmount(entry: CategoryEntry) {
+        val othersSum = categoryEntries
+            .filter { it.isChecked && it.category.id != entry.category.id }
+            .sumOf { it.myAmountPaise }
+        entry.myAmountPaise = (myShareForCategories() - othersSum).coerceAtLeast(0L)
+    }
+
+    /** Keeps the tracked category (the one last checked) matching ME's share as it changes. */
+    private fun updateTrackedCategoryAmount() {
+        val trackedId = trackedCategoryId ?: return
+        val entry = categoryEntries.firstOrNull { it.category.id == trackedId && it.isChecked } ?: return
+        applyRemainderAmount(entry)
+        renderCategories()
+    }
+
     private fun updateSectionBalance(isPayer: Boolean) {
         val tv = if (isPayer) tvPayerBalance else tvPayeeBalance
         if (isTransferMode()) {
@@ -1267,47 +1299,17 @@ class TransactionEntryActivity : AppCompatActivity() {
                 it.isChecked = false
                 it.myAmountPaise = 0L
             }
+            trackedCategoryId = null
             renderCategories()
             return
         }
 
         if (!wasVisible && visibilityDecision.showCategories) {
             formScroll.post {
-                formScroll.smoothScrollTo(0, categoryContainer.top)
-            }
-        }
-
-        val autoloadDecision = categorySplitManager.autoloadDecision(
-            shouldAutoloadMerchantCategories = shouldAutoloadMerchantCategories,
-            showCategories = visibilityDecision.showCategories,
-            merchantId = selectedMerchantId()
-        )
-
-        if (autoloadDecision.shouldLoad) {
-            viewModel.launchTask launch@{
-                val merchantId = autoloadDecision.merchantId ?: return@launch
-                val db = AppDatabase.Companion.getInstance(applicationContext)
-                val categories = withContext(Dispatchers.IO) {
-                    db.categoryDao().getCategoriesForMerchant(merchantId)
-                }
-                categoryEntries.forEach { entry ->
-                    entry.isChecked = categories.any { it.id == entry.category.id }
-                    if (entry.isChecked && entry.myAmountPaise <= 0L) {
-                        entry.myAmountPaise = myShare
-                    }
-                }
-                renderCategories()
-                shouldAutoloadMerchantCategories = false
+                formScroll.smoothScrollTo(0, categoryScrollView.top)
             }
         }
     }
-
-    private fun selectedMerchantId(): Long? = categorySplitManager.selectedMerchantId(
-        payerActorType = payerActorType,
-        payeeActorType = payeeActorType,
-        payerMerchantId = payerMerchantId,
-        payeeMerchantId = payeeMerchantId
-    )
 
     private suspend fun handleDone() {
         // Must precede the amount check: in transfer mode etAmount is disabled and empty.
@@ -1341,6 +1343,21 @@ class TransactionEntryActivity : AppCompatActivity() {
         )
         if (!shareValidation.isValid) {
             return toast(shareValidation.message ?: "Invalid share allocation")
+        }
+
+        val myShare = myShareForCategories()
+        val categoryMandatory = categorySplitManager.visibilityDecision(
+            payerActorType = payerActorType,
+            payeeActorType = payeeActorType,
+            mySharePaise = myShare
+        ).showCategories
+        val categoryValidation = transactionValidator.validateCategories(
+            mandatory = categoryMandatory,
+            myShareForCategoriesPaise = myShare,
+            checkedAmountsPaise = categoryEntries.filter { it.isChecked }.map { it.myAmountPaise }
+        )
+        if (!categoryValidation.isValid) {
+            return toast(categoryValidation.message ?: "Fix category split")
         }
 
         val db = AppDatabase.Companion.getInstance(applicationContext)
@@ -1437,8 +1454,8 @@ class TransactionEntryActivity : AppCompatActivity() {
             resolveUnresolvedShareRows = { resolveUnresolvedShareRows(db) },
             buildSharesForPersistence = { txId -> buildSharesForPersistence(txId) },
             mySharePaiseFromShares = { shares -> mySharePaiseFromShares(shares) },
-            persistCategories = { transactionId, meSharePaise ->
-                persistCategories(db, transactionId, meSharePaise)
+            persistCategories = { transactionId, meSharePaise, payer, payee ->
+                persistCategories(db, transactionId, meSharePaise, payer, payee)
             }
         )
     }
@@ -1652,10 +1669,23 @@ class TransactionEntryActivity : AppCompatActivity() {
         }
     }
 
-    private suspend fun persistCategories(db: AppDatabase, transactionId: Long, meSharePaise: Long) {
+    private suspend fun persistCategories(
+        db: AppDatabase,
+        transactionId: Long,
+        meSharePaise: Long,
+        payer: ActorRef,
+        payee: ActorRef
+    ) {
         val merchantInvolved = payerActorType == ActorType.MERCHANT || payeeActorType == ActorType.MERCHANT
         if (!merchantInvolved || meSharePaise <= 0L) return
-        val merchantId = selectedMerchantId() ?: return
+        // Use the just-resolved actor refs, not the cached payerMerchantId/payeeMerchantId fields:
+        // those are still null for a merchant newly created earlier in this same save.
+        val merchantId = categorySplitManager.selectedMerchantId(
+            payerActorType = payerActorType,
+            payeeActorType = payeeActorType,
+            payerMerchantId = payer.merchantId,
+            payeeMerchantId = payee.merchantId
+        ) ?: return
         categoryEntries.filter { it.isChecked }.forEach { entry ->
             db.categoryDao().linkMerchantCategory(
                 MerchantCategory(
@@ -1679,30 +1709,28 @@ class TransactionEntryActivity : AppCompatActivity() {
 
     private fun renderCategories() {
         categoryContainer.removeAllViews()
-        categoryEntries.forEachIndexed { index, entry ->
+        categoryEntries.forEach { entry ->
             val rowView = LayoutInflater.from(this).inflate(R.layout.item_transaction_category_split, categoryContainer, false)
-            val chip = rowView.findViewById<Chip>(R.id.chipCategory)
-            val expansion = rowView.findViewById<LinearLayout>(R.id.categoryExpansion)
+            val tvName = rowView.findViewById<TextView>(R.id.tvCategoryName)
+            val tvSeparator = rowView.findViewById<TextView>(R.id.tvCategorySeparator)
             val etMyAmount = rowView.findViewById<EditText>(R.id.etCategoryMyAmount)
 
-            chip.setOnCheckedChangeListener(null)
-            chip.text = entry.category.name
-            chip.isCheckable = true
-            chip.setTextColor(Color.WHITE)
-            chip.chipBackgroundColor = ColorStateList.valueOf(Color.parseColor("#2A2A2A"))
-            chip.isChecked = entry.isChecked
-            expansion.visibility = if (entry.isChecked) View.VISIBLE else View.GONE
+            tvName.text = entry.category.name
+            tvSeparator.visibility = if (entry.isChecked) View.VISIBLE else View.GONE
+            etMyAmount.visibility = if (entry.isChecked) View.VISIBLE else View.GONE
+            styleCategoryPill(rowView, entry.isChecked)
 
             (etMyAmount.tag as? TextWatcher)?.let { etMyAmount.removeTextChangedListener(it) }
             etMyAmount.inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
             etMyAmount.imeOptions = EditorInfo.IME_ACTION_DONE
-            etMyAmount.setTextColor(Color.WHITE)
-            etMyAmount.setHintTextColor(Color.parseColor("#555555"))
-            etMyAmount.background = null
             etMyAmount.setText(if (entry.myAmountPaise > 0L) formatPlainAmount(entry.myAmountPaise) else "")
 
             val watcher = simpleWatcher {
                 entry.myAmountPaise = ((etMyAmount.text.toString().toDoubleOrNull() ?: 0.0) * 100).toLong()
+                // A manual edit is an explicit override; stop auto-following ME's share for this one.
+                if (trackedCategoryId == entry.category.id) {
+                    trackedCategoryId = null
+                }
                 viewModel.onAction(
                     TransactionEntryAction.CategoryAmountChanged(
                         categoryId = entry.category.id,
@@ -1714,10 +1742,16 @@ class TransactionEntryActivity : AppCompatActivity() {
             etMyAmount.tag = watcher
             wireImeDismiss(etMyAmount)
 
-            chip.setOnCheckedChangeListener { _, checked ->
+            // No native Checkable widget anymore (a real Chip can't host the inline
+            // EditText) — toggle manually on the whole pill row instead.
+            rowView.setOnClickListener {
+                val checked = !entry.isChecked
                 entry.isChecked = checked
-                if (checked && entry.myAmountPaise <= 0L) {
-                    entry.myAmountPaise = myShareForCategories()
+                if (checked) {
+                    trackedCategoryId = entry.category.id
+                    applyRemainderAmount(entry)
+                } else if (trackedCategoryId == entry.category.id) {
+                    trackedCategoryId = null
                 }
                 renderCategories()
                 viewModel.onAction(TransactionEntryAction.CategoryToggled(entry.category.id, checked))

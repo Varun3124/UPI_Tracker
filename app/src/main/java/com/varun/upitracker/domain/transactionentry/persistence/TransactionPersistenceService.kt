@@ -25,7 +25,7 @@ class TransactionPersistenceService(
         resolveUnresolvedShareRows: suspend () -> Unit,
         buildSharesForPersistence: (txId: Long) -> List<TransactionShare>,
         mySharePaiseFromShares: (shares: List<TransactionShare>) -> Long,
-        persistCategories: suspend (transactionId: Long, meSharePaise: Long) -> Unit
+        persistCategories: suspend (transactionId: Long, meSharePaise: Long, payer: ActorRef, payee: ActorRef) -> Unit
     ): Long {
         var persistedTransactionId = 0L
         val tx = request.existingTransaction
@@ -52,7 +52,7 @@ class TransactionPersistenceService(
                 val persistedShares = shares.map { it.copy(transactionId = transactionId) }
                 if (persistedShares.isNotEmpty()) db.transactionShareDao().insertAll(persistedShares)
 
-                persistCategories(transactionId, meSharePaise)
+                persistCategories(transactionId, meSharePaise, payer, payee)
                 ledgerPostingService.postLedger(db, transactionId, payer, payee, persistedShares, request.amountPaise)
                 persistedTransactionId = transactionId
             }

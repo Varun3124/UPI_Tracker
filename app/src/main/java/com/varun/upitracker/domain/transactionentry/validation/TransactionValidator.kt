@@ -71,4 +71,19 @@ class TransactionValidator {
         return validateSide(payerRows, "payer").takeIf { !it.isValid }
             ?: validateSide(payeeRows, "payee")
     }
+
+    fun validateCategories(
+        mandatory: Boolean,
+        myShareForCategoriesPaise: Long,
+        checkedAmountsPaise: List<Long>
+    ): ValidationResult {
+        if (!mandatory) return ValidationResult.valid()
+        if (checkedAmountsPaise.isEmpty()) {
+            return ValidationResult.invalid("Select at least one category")
+        }
+        if (checkedAmountsPaise.sum() != myShareForCategoriesPaise) {
+            return ValidationResult.invalid("Category splits don't add up to your share")
+        }
+        return ValidationResult.valid()
+    }
 }
