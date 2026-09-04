@@ -363,15 +363,18 @@ class AccountRepository private constructor(
     }
 
     /**
-     * Total spend since [fromEpoch], as the negated sum of every account's spend delta. Transfers
-     * contribute automatically: equal legs net to zero, a fee shows up as spend.
-     *
-     * Uses [sumSpendDeltas], not [sumDeltas] — see the former for why the two differ.
+     * Total spend since [fromEpoch]: ME's merchant-share delta (not scoped to an account — see
+     * [TransactionDao.getMerchantSpendTotal] for why) plus every account's transfer delta, negated.
+     * Transfers contribute automatically: equal legs net to zero, a fee shows up as spend.
      */
-    suspend fun getSpendSince(fromEpoch: Long): Long =
-        -database.accountDao().getAllSync().sumOf { account ->
-            sumSpendDeltas(account.id, fromEpoch, Long.MAX_VALUE)
+    suspend fun getSpendSince(fromEpoch: Long): Long {
+        val merchantSpend = database.transactionDao()
+            .getMerchantSpendTotal(fromEpoch, Long.MAX_VALUE) ?: 0L
+        val transferSpend = -database.accountDao().getAllSync().sumOf { account ->
+            sumTransferDeltas(account.id, fromEpoch, Long.MAX_VALUE)
         }
+        return merchantSpend + transferSpend
+    }
 
     suspend fun bookFixedDeposit(
         accountId: String,
@@ -431,22 +434,6 @@ class AccountRepository private constructor(
         return transactionDelta + sumTransferDeltas(accountId, fromEpochExclusive, toEpochInclusive)
     }
 
-    /**
-     * The spend equivalent of [sumDeltas]. Deliberately a narrower question: only your share of
-     * reviewed merchant transactions, so money lent to a friend and later repaid never counts as
-     * spend even though it does move the balance.
-     */
-    private suspend fun sumSpendDeltas(
-        accountId: String,
-        fromEpochExclusive: Long,
-        toEpochInclusive: Long
-    ): Long {
-        val spendDelta = balanceDataSource
-            .getSpendDeltaSum(accountId, fromEpochExclusive, toEpochInclusive)
-
-        return spendDelta + sumTransferDeltas(accountId, fromEpochExclusive, toEpochInclusive)
-    }
-
     private suspend fun sumTransferDeltas(
         accountId: String,
         fromEpochExclusive: Long,
@@ -462,13 +449,6 @@ internal interface AccountBalanceDataSource {
 
     /** Balance movement: whole amounts, any counterparty, pending rows included. */
     suspend fun getTransactionDeltaSum(
-        accountId: String,
-        fromEpochExclusive: Long,
-        toEpochInclusive: Long
-    ): Long
-
-    /** Spend: your share of reviewed merchant transactions only. */
-    suspend fun getSpendDeltaSum(
         accountId: String,
         fromEpochExclusive: Long,
         toEpochInclusive: Long
@@ -495,15 +475,6 @@ private class RoomAccountBalanceDataSource(private val db: AppDatabase) : Accoun
     ): Long {
         return db.transactionDao()
             .getAccountBalanceDeltaBetween(accountId, fromEpochExclusive, toEpochInclusive) ?: 0L
-    }
-
-    override suspend fun getSpendDeltaSum(
-        accountId: String,
-        fromEpochExclusive: Long,
-        toEpochInclusive: Long
-    ): Long {
-        return db.transactionDao()
-            .getTotalDeltaBetweenForAccount(accountId, fromEpochExclusive, toEpochInclusive) ?: 0L
     }
 
     override suspend fun getTransferDeltasBetween(

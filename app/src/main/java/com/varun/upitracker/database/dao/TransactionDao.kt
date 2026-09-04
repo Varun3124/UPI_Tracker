@@ -57,22 +57,37 @@ interface TransactionDao {
         savingsAccountIds: List<String>
     ): List<Transaction>
 
+    /**
+     * ME's net merchant spend over `(fromEpochExclusive, toEpochInclusive]`: ME's share as payer
+     * minus ME's share as payee, for transactions where the other side is a MERCHANT.
+     *
+     * Not scoped to an account: a share row's own [side][com.varun.upitracker.database.entity.TransactionShare.side]
+     * (falling back to the transaction-level actor type for legacy rows where `side` is null) says
+     * which side ME is on, since ME can be a secondary participant in a split where the primary
+     * payer/payee is a FRIEND — and those transactions carry no `myAccountId` at all (there's no UI
+     * to attach an account to a secondary share), so a per-account query would silently drop them.
+     */
     @Query(
         """
-        SELECT 
-            SUM(CASE WHEN t.payerActorType = 'MERCHANT' THEN s.amountPaise ELSE 0 END) +
-            SUM(CASE WHEN t.payeeActorType = 'MERCHANT' THEN -s.amountPaise ELSE 0 END)
+        SELECT
+            SUM(
+                CASE
+                    WHEN COALESCE(s.side, CASE WHEN t.payerActorType = 'ME' THEN 'PAYER' WHEN t.payeeActorType = 'ME' THEN 'PAYEE' END) = 'PAYER'
+                        AND t.payeeActorType = 'MERCHANT' THEN s.amountPaise
+                    WHEN COALESCE(s.side, CASE WHEN t.payerActorType = 'ME' THEN 'PAYER' WHEN t.payeeActorType = 'ME' THEN 'PAYEE' END) = 'PAYEE'
+                        AND t.payerActorType = 'MERCHANT' THEN -s.amountPaise
+                    ELSE 0
+                END
+            )
         FROM transaction_shares s
         INNER JOIN transactions t
             ON s.transactionId = t.id
         WHERE t.dateEpoch > :fromEpochExclusive AND t.dateEpoch <= :toEpochInclusive
-          AND t.myAccountId = :accountId
           AND s.participantType = 'ME'
           AND (t.payerActorType = 'MERCHANT' OR t.payeeActorType = 'MERCHANT')
         """
     )
-    suspend fun getTotalDeltaBetweenForAccount(
-        accountId: String,
+    suspend fun getMerchantSpendTotal(
         fromEpochExclusive: Long,
         toEpochInclusive: Long
     ): Long?
@@ -80,7 +95,7 @@ interface TransactionDao {
     /**
      * How much [accountId]'s balance moved over `(fromEpochExclusive, toEpochInclusive]`.
      *
-     * Unlike [getTotalDeltaBetweenForAccount], which measures spend, this counts the whole amount
+     * Unlike [getMerchantSpendTotal], which measures spend, this counts the whole amount
      * of every transaction on the account whatever the counterparty, and does not join
      * `transaction_shares` — so pending rows from SMS and statement import count too.
      *
