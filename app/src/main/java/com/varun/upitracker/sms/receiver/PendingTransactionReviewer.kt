@@ -4,10 +4,9 @@ import android.content.Context
 import com.varun.upitracker.database.AppDatabase
 import com.varun.upitracker.database.entity.Transaction
 import com.varun.upitracker.database.entity.TransactionShare
+import com.varun.upitracker.domain.transactionentry.persistence.LedgerPostingService
 import com.varun.upitracker.ledger.LedgerManager
-import com.varun.upitracker.ui.ActorRef
 import com.varun.upitracker.ui.ActorType
-import com.varun.upitracker.ui.meShareOnSide
 import com.varun.upitracker.ui.payerActorRef
 import com.varun.upitracker.ui.payeeActorRef
 import kotlinx.coroutines.Dispatchers
@@ -15,6 +14,13 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 
 object PendingTransactionReviewer {
+
+    /**
+     * Shared with the manual entry screen on purpose. This file used to carry its own copy, which
+     * had drifted: it settled a FRIEND -> ME transaction even when it carried shares, and never
+     * reached the payee-side legs at all.
+     */
+    private val ledgerPostingService = LedgerPostingService()
 
     suspend fun review(context: Context, transactionId: Long): Boolean {
         val db = AppDatabase.getInstance(context)
@@ -31,7 +37,10 @@ object PendingTransactionReviewer {
                     val updated = tx.copy(isPending = false)
                     db.transactionDao().update(updated)
                     db.iouDao().deleteForTransaction(tx.id)
-                    postLedger(db, tx.id, tx.payerActorRef(), tx.payeeActorRef(), shares, tx.amountPaise)
+                    ledgerPostingService.postLedger(
+                        LedgerManager(db), tx.id, tx.payerActorRef(), tx.payeeActorRef(),
+                        shares, tx.amountPaise, tx.ledgerEffect
+                    )
                     true
                 }
             }
@@ -53,6 +62,10 @@ object PendingTransactionReviewer {
     }
 
     private fun canAutoReview(tx: com.varun.upitracker.database.entity.Transaction): Boolean {
+        // Money arriving from a friend is either a repayment or a gift, and nothing in an SMS
+        // says which. Auto-reviewing it as a repayment settles debt that may still be owed, so
+        // leave the notification up and let the user declare it.
+        if (tx.payerActorType == ActorType.FRIEND && tx.payeeActorType == ActorType.ME) return false
         val payerKnown = tx.payerActorType != ActorType.UNKNOWN
         val payeeKnown = tx.payeeActorType != ActorType.UNKNOWN
         val payerLabelPresent = tx.payerActorType == ActorType.ME || !tx.payerRawLabel.isNullOrBlank() || tx.payerFriendId != null || tx.payerMerchantId != null
@@ -60,31 +73,4 @@ object PendingTransactionReviewer {
         return payerKnown && payeeKnown && payerLabelPresent && payeeLabelPresent
     }
 
-    private suspend fun postLedger(
-        db: AppDatabase,
-        transactionId: Long,
-        payer: ActorRef,
-        payee: ActorRef,
-        shares: List<com.varun.upitracker.database.entity.TransactionShare>,
-        amountPaise: Long
-    ) {
-        val ledger = LedgerManager(db)
-        if (payer.actorType == ActorType.FRIEND && payee.actorType == ActorType.ME && payer.friendId != null) {
-            ledger.applyRepayment(transactionId, payer.friendId, amountPaise)
-            return
-        }
-        if (payer.actorType == ActorType.ME && payee.actorType == ActorType.FRIEND && payee.friendId != null) {
-            ledger.applyOutgoingSettlement(transactionId, payee.friendId, amountPaise)
-            return
-        }
-        if (payer.actorType == ActorType.ME) {
-            shares.filter { it.side == "PAYER" && it.participantType == ActorType.FRIEND && it.friendId != null }
-                .forEach { ledger.recordBalanceChange(transactionId, it.friendId!!, it.amountPaise) }
-            return
-        }
-        val meShare = meShareOnSide(shares, "PAYEE")
-        if (payer.actorType == ActorType.FRIEND && payer.friendId != null && meShare > 0L) {
-            ledger.recordBalanceChange(transactionId, payer.friendId, -meShare)
-        }
-    }
 }

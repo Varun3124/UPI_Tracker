@@ -1,5 +1,7 @@
 ﻿package com.varun.upitracker.domain.transactionentry.share
 
+import com.varun.upitracker.database.entity.CategoryKind
+import com.varun.upitracker.database.entity.LedgerEffect
 import com.varun.upitracker.ui.ActorType
 
 enum class SectionBalanceState {
@@ -24,6 +26,12 @@ enum class OverallAllocationState {
 data class OverallAllocationResult(
     val state: OverallAllocationState,
     val deltaPaise: Long
+)
+
+/** How much ME can categorise on a transaction, and which direction those categories measure. */
+data class CategoryTargeting(
+    val sharePaise: Long,
+    val kind: CategoryKind
 )
 
 class ShareCalculator {
@@ -68,15 +76,37 @@ class ShareCalculator {
         }
     }
 
-    fun myShareForCategories(
+    /**
+     * How much of this transaction ME can attribute to categories, and which direction those
+     * categories measure.
+     *
+     * Zero means the transaction is not categorisable: a plain loan to a friend moves debt around
+     * but consumes nothing.
+     */
+    fun categoryTargeting(
         payerActorType: String,
         payeeActorType: String,
+        ledgerEffect: LedgerEffect,
+        isLinkedRefund: Boolean,
         payerMeSharePaise: Long,
         payeeMeSharePaise: Long
-    ): Long {
+    ): CategoryTargeting {
         val merchantInvolved = payerActorType == ActorType.MERCHANT || payeeActorType == ActorType.MERCHANT
-        if (!merchantInvolved) return 0L
+        if (!merchantInvolved && ledgerEffect != LedgerEffect.NONE) {
+            return CategoryTargeting(0L, CategoryKind.EXPENSE)
+        }
 
-        return payerMeSharePaise + payeeMeSharePaise
+        // A refund puts ME on the payee side, but it is a negative expense, not income: its pills
+        // are the original purchase's expense categories.
+        if (isLinkedRefund) return CategoryTargeting(payeeMeSharePaise, CategoryKind.EXPENSE)
+
+        // Pick a side rather than summing. ME can hold a share on both sides at once -- the "Me"
+        // option is offered per side -- and summing would both double-count and leave the
+        // direction ambiguous.
+        return if (payerMeSharePaise > 0L) {
+            CategoryTargeting(payerMeSharePaise, CategoryKind.EXPENSE)
+        } else {
+            CategoryTargeting(payeeMeSharePaise, CategoryKind.INCOME)
+        }
     }
 }

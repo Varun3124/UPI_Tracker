@@ -5,10 +5,10 @@ import com.varun.upitracker.database.AppDatabase
 
 typealias FriendLedgerSummary = com.varun.upitracker.data.repository.FriendLedgerSummary
 
-class LedgerManager(private val db: AppDatabase) {
+class LedgerManager(private val db: AppDatabase) : LedgerPort {
     private val repository = LedgerRepository(db)
 
-    suspend fun recordBalanceChange(transactionId: Long, friendId: Long, deltaPaise: Long) =
+    override suspend fun recordBalanceChange(transactionId: Long, friendId: Long, deltaPaise: Long) =
         repository.recordBalanceChange(transactionId, friendId, deltaPaise)
 
     suspend fun recordDebts(transactionId: Long, friendShares: Map<Long, Long>) =
@@ -17,10 +17,10 @@ class LedgerManager(private val db: AppDatabase) {
     suspend fun recordReverseDebt(transactionId: Long, friendId: Long, amountPaise: Long) =
         repository.recordReverseDebt(transactionId, friendId, amountPaise)
 
-    suspend fun applyRepayment(transactionId: Long, friendId: Long, creditAmountPaise: Long) =
+    override suspend fun applyRepayment(transactionId: Long, friendId: Long, creditAmountPaise: Long) =
         repository.applyRepayment(transactionId, friendId, creditAmountPaise)
 
-    suspend fun applyOutgoingSettlement(transactionId: Long, friendId: Long, debitAmountPaise: Long) =
+    override suspend fun applyOutgoingSettlement(transactionId: Long, friendId: Long, debitAmountPaise: Long) =
         repository.applyOutgoingSettlement(transactionId, friendId, debitAmountPaise)
 
     suspend fun getSummaryForFriend(friendId: Long): FriendLedgerSummary? =

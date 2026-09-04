@@ -39,6 +39,7 @@ import com.varun.upitracker.database.entity.AccountTransfer
 import com.varun.upitracker.database.entity.AccountType
 import com.varun.upitracker.database.entity.Category
 import com.varun.upitracker.database.entity.CategoryKind
+import com.varun.upitracker.database.entity.LedgerEffect
 import com.varun.upitracker.database.entity.Friend
 import com.varun.upitracker.database.entity.FriendRawName
 import com.varun.upitracker.database.entity.FriendUpiId
@@ -58,6 +59,7 @@ import com.varun.upitracker.domain.transactionentry.actor.ActorSelectionService
 import com.varun.upitracker.domain.transactionentry.category.CategorySplitManager
 import com.varun.upitracker.domain.transactionentry.persistence.PersistTransactionRequest
 import com.varun.upitracker.domain.transactionentry.persistence.TransactionPersistenceService
+import com.varun.upitracker.domain.transactionentry.share.CategoryTargeting
 import com.varun.upitracker.domain.transactionentry.share.OverallAllocationState
 import com.varun.upitracker.domain.transactionentry.share.SectionBalanceState
 import com.varun.upitracker.domain.transactionentry.share.ShareCalculator
@@ -137,6 +139,9 @@ class TransactionEntryActivity : AppCompatActivity() {
     private var payerMerchantId: Long? = null
     private var payeeFriendId: Long? = null
     private var payeeMerchantId: Long? = null
+    private var ledgerEffect = LedgerEffect.DEBT
+    /** Kind the pill list is currently offering; a change clears what was checked. */
+    private var categoryKind = CategoryKind.EXPENSE
 
     private val categoryEntries = mutableListOf<CategoryEntry>()
     /** The category whose split amount tracks ME's remaining share as it changes; null once cleared or unchecked. */
@@ -167,6 +172,8 @@ class TransactionEntryActivity : AppCompatActivity() {
     private lateinit var categoryScrollView: View
     private lateinit var formScroll: ScrollView
     private lateinit var etDescription: EditText
+    private lateinit var ledgerOptionsCard: LinearLayout
+    private lateinit var tvLedgerEffectToggle: TextView
 
     private var smsPayerAliasFallback = ""
     private var smsPayeeAliasFallback = ""
@@ -253,6 +260,11 @@ class TransactionEntryActivity : AppCompatActivity() {
         categoryContainer = findViewById(R.id.categoryContainer)
         categoryScrollView = findViewById(R.id.categoryScrollView)
         etDescription = findViewById(R.id.etDescription)
+        ledgerOptionsCard = findViewById(R.id.ledgerOptionsCard)
+        tvLedgerEffectToggle = findViewById(R.id.tvLedgerEffectToggle)
+        tvLedgerEffectToggle.setOnClickListener {
+            viewModel.onAction(TransactionEntryAction.LedgerEffectToggled)
+        }
     }
 
     private suspend fun setupUi(db: AppDatabase) {
@@ -584,10 +596,7 @@ class TransactionEntryActivity : AppCompatActivity() {
 
     private fun setupCategories() {
         categoryEntries.clear()
-        // Expense-only for now: every transaction this screen can categorise today is money
-        // going out. Income categories become reachable once ledger-neutral transactions and
-        // unlinked merchant credits can be categorised.
-        categoryEntries.addAll(allCategories.filter { it.kind == CategoryKind.EXPENSE }.map { category ->
+        categoryEntries.addAll(allCategories.filter { it.kind == categoryKind }.map { category ->
             CategoryEntry(category = category, isChecked = false, myAmountPaise = 0L)
         })
     }
@@ -601,6 +610,7 @@ class TransactionEntryActivity : AppCompatActivity() {
         payerMerchantId = tx.payerMerchantId
         payeeFriendId = tx.payeeFriendId
         payeeMerchantId = tx.payeeMerchantId
+        ledgerEffect = tx.ledgerEffect
 
         smsPayerAliasFallback = resolveInitialEndpointLabel(db, true, tx)
         smsPayeeAliasFallback = resolveInitialEndpointLabel(db, false, tx)
@@ -610,6 +620,11 @@ class TransactionEntryActivity : AppCompatActivity() {
         val shares =
             withContext(Dispatchers.IO) { db.transactionShareDao().getSharesForTransaction(tx.id) }
         seedShareRows(shares)
+
+        // Shares are seeded above, so targeting can now resolve the direction this transaction
+        // categorises in. Rebuild the pill list for that kind before matching stored splits,
+        // otherwise an income transaction's splits find no pill to attach to.
+        applyCategoryKind(categoryTargeting().kind)
 
         val splits = withContext(Dispatchers.IO) { db.categorySplitDao().getForTransaction(tx.id) }
         if (splits.isNotEmpty()) {
@@ -630,6 +645,7 @@ class TransactionEntryActivity : AppCompatActivity() {
         payerMerchantId = null
         payeeFriendId = null
         payeeMerchantId = null
+        ledgerEffect = LedgerEffect.DEBT
         payerAccountId = transfer.fromAccountId
         payeeAccountId = transfer.toAccountId
         etDescription.setText(transfer.notes ?: "")
@@ -642,6 +658,7 @@ class TransactionEntryActivity : AppCompatActivity() {
     private fun seedDefaultState() {
         payerActorType = ActorType.ME
         payeeActorType = ActorType.MERCHANT
+        ledgerEffect = LedgerEffect.DEBT
         smsPayerAliasFallback = ""
         smsPayeeAliasFallback = ""
         payerShareRows.clear()
@@ -692,6 +709,7 @@ class TransactionEntryActivity : AppCompatActivity() {
     private fun updateActorTileStyles() {
         styleActorTiles(true, payerActorType, isSmsLockedMeEndpoint(true))
         styleActorTiles(false, payeeActorType, isSmsLockedMeEndpoint(false))
+        updateLedgerOptionsVisibility()
     }
 
     private fun styleActorTiles(isPayer: Boolean, selectedType: String, lockedToMe: Boolean) {
@@ -1085,6 +1103,13 @@ class TransactionEntryActivity : AppCompatActivity() {
                 // ViewModel already receives changes. Keep branch to exhaust the when expression.
             }
 
+            is TransactionEntryAction.LedgerEffectToggled -> {
+                ledgerEffect =
+                    if (ledgerEffect == LedgerEffect.NONE) LedgerEffect.DEBT else LedgerEffect.NONE
+                styleLedgerEffectTile()
+                updateCategoryVisibility()
+                updateLiveCalc()
+            }
             is TransactionEntryAction.CategoryToggled -> updateCategoryVisibility()
             is TransactionEntryAction.CategoryAmountChanged -> updateCategoryVisibility()
             TransactionEntryAction.SaveClicked -> {
@@ -1193,16 +1218,16 @@ class TransactionEntryActivity : AppCompatActivity() {
         return rows.firstOrNull { it.participantType == ActorType.ME }?.amountPaise ?: 0L
     }
 
-    private fun myShareForCategories(): Long {
-        val payerMeShare = getMyShareAmount("PAYER")
-        val payeeMeShare = getMyShareAmount("PAYEE")
-        return shareCalculator.myShareForCategories(
-            payerActorType = payerActorType,
-            payeeActorType = payeeActorType,
-            payerMeSharePaise = payerMeShare,
-            payeeMeSharePaise = payeeMeShare
-        )
-    }
+    private fun categoryTargeting(): CategoryTargeting = shareCalculator.categoryTargeting(
+        payerActorType = payerActorType,
+        payeeActorType = payeeActorType,
+        ledgerEffect = ledgerEffect,
+        isLinkedRefund = false,
+        payerMeSharePaise = getMyShareAmount("PAYER"),
+        payeeMeSharePaise = getMyShareAmount("PAYEE")
+    )
+
+    private fun myShareForCategories(): Long = categoryTargeting().sharePaise
 
     /** Fills [entry]'s split with what's left of ME's share after every other checked category. */
     private fun applyRemainderAmount(entry: CategoryEntry) {
@@ -1287,13 +1312,51 @@ class TransactionEntryActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * The toggle is only meaningful between ME and a friend. Offering it on a merchant bill would
+     * let "my treat" contradict the share rows, which are what the splits and the spend total are
+     * computed from -- enter your share as the full amount instead.
+     */
+    private fun isLedgerEffectApplicable(): Boolean {
+        if (isTransferMode()) return false
+        val merchantInvolved = payerActorType == ActorType.MERCHANT || payeeActorType == ActorType.MERCHANT
+        val friendInvolved = payerActorType == ActorType.FRIEND || payeeActorType == ActorType.FRIEND
+        return friendInvolved && !merchantInvolved
+    }
+
+    private fun updateLedgerOptionsVisibility() {
+        val applicable = isLedgerEffectApplicable()
+        ledgerOptionsCard.visibility = if (applicable) View.VISIBLE else View.GONE
+        if (!applicable && ledgerEffect != LedgerEffect.DEBT) {
+            ledgerEffect = LedgerEffect.DEBT
+        }
+        styleLedgerEffectTile()
+    }
+
+    private fun styleLedgerEffectTile() {
+        val selected = ledgerEffect == LedgerEffect.NONE
+        tvLedgerEffectToggle.background = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = dp(10).toFloat()
+            setColor(Color.parseColor(if (selected) "#00BCD4" else "#262626"))
+            setStroke(dp(1), Color.parseColor(if (selected) "#62EFFF" else "#3A3A3A"))
+        }
+    }
+
+    /** Swapping direction invalidates every checked pill, so clear them rather than carry them over. */
+    private fun applyCategoryKind(kind: CategoryKind) {
+        if (kind == categoryKind) return
+        categoryKind = kind
+        categoryEntries.clear()
+        categoryEntries.addAll(allCategories.filter { it.kind == kind }.map { category ->
+            CategoryEntry(category = category, isChecked = false, myAmountPaise = 0L)
+        })
+        trackedCategoryId = null
+    }
+
     private fun updateCategoryVisibility() {
-        val myShare = myShareForCategories()
-        val visibilityDecision = categorySplitManager.visibilityDecision(
-            payerActorType = payerActorType,
-            payeeActorType = payeeActorType,
-            mySharePaise = myShare
-        )
+        val visibilityDecision = categorySplitManager.visibilityDecision(categoryTargeting())
+        applyCategoryKind(visibilityDecision.kind)
 
         val wasVisible = isCategorySectionVisible
         isCategorySectionVisible = visibilityDecision.showCategories
@@ -1350,11 +1413,7 @@ class TransactionEntryActivity : AppCompatActivity() {
         }
 
         val myShare = myShareForCategories()
-        val categoryMandatory = categorySplitManager.visibilityDecision(
-            payerActorType = payerActorType,
-            payeeActorType = payeeActorType,
-            mySharePaise = myShare
-        ).showCategories
+        val categoryMandatory = categorySplitManager.visibilityDecision(categoryTargeting()).showCategories
         val categoryValidation = transactionValidator.validateCategories(
             mandatory = categoryMandatory,
             myShareForCategoriesPaise = myShare,
@@ -1448,7 +1507,8 @@ class TransactionEntryActivity : AppCompatActivity() {
                 amountPaise = amountPaise,
                 selectedAccountId = accountIdForPersistence(),
                 dateEpoch = selectedDateEpoch,
-                description = etDescription.text.toString().trim().ifEmpty { null }
+                description = etDescription.text.toString().trim().ifEmpty { null },
+                ledgerEffect = ledgerEffect
             ),
             resolveActors = {
                 val payer = resolveActor(db, true, payerActorType, payerLabel)

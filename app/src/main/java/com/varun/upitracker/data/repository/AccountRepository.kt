@@ -363,17 +363,17 @@ class AccountRepository private constructor(
     }
 
     /**
-     * Total spend since [fromEpoch]: ME's merchant-share delta (not scoped to an account — see
-     * [TransactionDao.getMerchantSpendTotal] for why) plus every account's transfer delta, negated.
+     * Total spend since [fromEpoch]: ME's expense total (not scoped to an account — see
+     * [TransactionDao.getExpenseTotalBetween] for why) plus every account's transfer delta, negated.
      * Transfers contribute automatically: equal legs net to zero, a fee shows up as spend.
      */
     suspend fun getSpendSince(fromEpoch: Long): Long {
-        val merchantSpend = database.transactionDao()
-            .getMerchantSpendTotal(fromEpoch, Long.MAX_VALUE) ?: 0L
+        val expense = database.transactionDao()
+            .getExpenseTotalBetween(fromEpoch, Long.MAX_VALUE)
         val transferSpend = -database.accountDao().getAllSync().sumOf { account ->
             sumTransferDeltas(account.id, fromEpoch, Long.MAX_VALUE)
         }
-        return merchantSpend + transferSpend
+        return expense + transferSpend
     }
 
     suspend fun bookFixedDeposit(

@@ -17,6 +17,7 @@ sealed interface TransactionEntryAction {
     data class DescriptionChanged(val text: String) : TransactionEntryAction
     data class CategoryToggled(val categoryId: Long, val selected: Boolean) : TransactionEntryAction
     data class CategoryAmountChanged(val categoryId: Long, val rawAmount: String) : TransactionEntryAction
+    data object LedgerEffectToggled : TransactionEntryAction
     data object SaveClicked : TransactionEntryAction
     data object CloseClicked : TransactionEntryAction
 }

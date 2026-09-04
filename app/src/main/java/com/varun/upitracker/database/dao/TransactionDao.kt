@@ -58,44 +58,64 @@ interface TransactionDao {
     ): List<Transaction>
 
     /**
-     * ME's net merchant spend over `(fromEpochExclusive, toEpochInclusive]`: ME's share as payer
-     * minus ME's share as payee, for transactions where the other side is a MERCHANT.
+     * ME's net expense over `(fromEpochExclusive, toEpochInclusive]`.
      *
-     * Not scoped to an account: a share row's own [side][com.varun.upitracker.database.entity.TransactionShare.side]
-     * (falling back to the transaction-level actor type for legacy rows where `side` is null) says
-     * which side ME is on, since ME can be a secondary participant in a split where the primary
-     * payer/payee is a FRIEND — and those transactions carry no `myAccountId` at all (there's no UI
-     * to attach an account to a secondary share), so a per-account query would silently drop them.
+     * Two legs. The outflow leg is dated by the transaction; the refund leg is dated by the
+     * ORIGINAL purchase, so a refund reduces the period the money was actually spent in.
+     *
+     * The outflow leg's `(MERCHANT on either side OR ledgerEffect = NONE)` predicate is
+     * deliberately the same gate as
+     * [com.varun.upitracker.domain.transactionentry.share.ShareCalculator.categoryTargeting]:
+     * whatever the entry screen lets you attach expense categories to must be counted here, and
+     * nothing else. Change one and change the other, or the dashboard total and the per-category
+     * breakdown will disagree.
+     *
+     * An unlinked merchant credit is income and appears in neither leg -- it only ever puts ME on
+     * the PAYEE side, which the outflow leg does not read.
+     *
+     * Not scoped to an account: a share row's own side says which side ME is on, since ME can be a
+     * secondary participant in a split where the primary payer is a FRIEND -- and those carry no
+     * `myAccountId` at all, so a per-account query would silently drop them.
      */
     @Query(
         """
-        SELECT
-            SUM(
-                CASE
-                    WHEN COALESCE(s.side, CASE WHEN t.payerActorType = 'ME' THEN 'PAYER' WHEN t.payeeActorType = 'ME' THEN 'PAYEE' END) = 'PAYER'
-                        AND t.payeeActorType = 'MERCHANT' THEN s.amountPaise
-                    WHEN COALESCE(s.side, CASE WHEN t.payerActorType = 'ME' THEN 'PAYER' WHEN t.payeeActorType = 'ME' THEN 'PAYEE' END) = 'PAYEE'
-                        AND t.payerActorType = 'MERCHANT' THEN -s.amountPaise
-                    ELSE 0
-                END
-            )
-        FROM transaction_shares s
-        INNER JOIN transactions t
-            ON s.transactionId = t.id
-        WHERE t.dateEpoch > :fromEpochExclusive AND t.dateEpoch <= :toEpochInclusive
-          AND s.participantType = 'ME'
-          AND (t.payerActorType = 'MERCHANT' OR t.payeeActorType = 'MERCHANT')
+        SELECT COALESCE(SUM(paise), 0) FROM (
+            SELECT s.amountPaise AS paise
+            FROM transaction_shares s
+            INNER JOIN transactions t ON t.id = s.transactionId
+            WHERE t.dateEpoch > :fromEpochExclusive
+              AND t.dateEpoch <= :toEpochInclusive
+              AND s.participantType = 'ME'
+              AND COALESCE(
+                    s.side,
+                    CASE WHEN t.payerActorType = 'ME' THEN 'PAYER'
+                         WHEN t.payeeActorType = 'ME' THEN 'PAYEE' END
+                  ) = 'PAYER'
+              AND t.refundsTransactionId IS NULL
+              AND (t.payerActorType = 'MERCHANT'
+                   OR t.payeeActorType = 'MERCHANT'
+                   OR t.ledgerEffect = 'NONE')
+
+            UNION ALL
+
+            SELECT -cs.myAmountPaise AS paise
+            FROM transaction_category_splits cs
+            INNER JOIN transactions r ON r.id = cs.transactionId
+            INNER JOIN transactions o ON o.id = r.refundsTransactionId
+            WHERE o.dateEpoch > :fromEpochExclusive
+              AND o.dateEpoch <= :toEpochInclusive
+        )
         """
     )
-    suspend fun getMerchantSpendTotal(
+    suspend fun getExpenseTotalBetween(
         fromEpochExclusive: Long,
         toEpochInclusive: Long
-    ): Long?
+    ): Long
 
     /**
      * How much [accountId]'s balance moved over `(fromEpochExclusive, toEpochInclusive]`.
      *
-     * Unlike [getMerchantSpendTotal], which measures spend, this counts the whole amount
+     * Unlike [getExpenseTotalBetween], which measures spend, this counts the whole amount
      * of every transaction on the account whatever the counterparty, and does not join
      * `transaction_shares` — so pending rows from SMS and statement import count too.
      *

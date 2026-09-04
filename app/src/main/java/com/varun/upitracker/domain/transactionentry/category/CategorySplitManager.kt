@@ -1,24 +1,27 @@
 package com.varun.upitracker.domain.transactionentry.category
 
+import com.varun.upitracker.database.entity.CategoryKind
+import com.varun.upitracker.domain.transactionentry.share.CategoryTargeting
 import com.varun.upitracker.ui.ActorType
 
 data class CategoryVisibilityDecision(
     val showCategories: Boolean,
-    val shouldClearSelections: Boolean
+    val shouldClearSelections: Boolean,
+    val kind: CategoryKind
 )
 
 class CategorySplitManager {
 
-    fun visibilityDecision(
-        payerActorType: String,
-        payeeActorType: String,
-        mySharePaise: Long
-    ): CategoryVisibilityDecision {
-        val merchantInvolved = payerActorType == ActorType.MERCHANT || payeeActorType == ActorType.MERCHANT
-        val show = merchantInvolved && mySharePaise > 0L
+    /**
+     * [targeting] already encodes the merchant/ledger-neutral gate, so this only has to act on
+     * whether there is anything to attribute.
+     */
+    fun visibilityDecision(targeting: CategoryTargeting): CategoryVisibilityDecision {
+        val show = targeting.sharePaise > 0L
         return CategoryVisibilityDecision(
             showCategories = show,
-            shouldClearSelections = !show
+            shouldClearSelections = !show,
+            kind = targeting.kind
         )
     }
 

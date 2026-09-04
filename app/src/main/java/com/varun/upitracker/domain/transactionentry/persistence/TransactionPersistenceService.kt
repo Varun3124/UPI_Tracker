@@ -1,8 +1,10 @@
 ﻿package com.varun.upitracker.domain.transactionentry.persistence
 
 import com.varun.upitracker.database.AppDatabase
+import com.varun.upitracker.database.entity.LedgerEffect
 import com.varun.upitracker.database.entity.Transaction
 import com.varun.upitracker.database.entity.TransactionShare
+import com.varun.upitracker.ledger.LedgerManager
 import com.varun.upitracker.ui.ActorRef
 import kotlinx.coroutines.runBlocking
 
@@ -11,7 +13,9 @@ data class PersistTransactionRequest(
     val amountPaise: Long,
     val selectedAccountId: String?,
     val dateEpoch: Long,
-    val description: String? = null
+    val description: String? = null,
+    val ledgerEffect: LedgerEffect = LedgerEffect.DEBT,
+    val refundsTransactionId: Long? = null
 )
 
 class TransactionPersistenceService(
@@ -53,7 +57,10 @@ class TransactionPersistenceService(
                 if (persistedShares.isNotEmpty()) db.transactionShareDao().insertAll(persistedShares)
 
                 persistCategories(transactionId, meSharePaise, payer, payee)
-                ledgerPostingService.postLedger(db, transactionId, payer, payee, persistedShares, request.amountPaise)
+                ledgerPostingService.postLedger(
+                    LedgerManager(db), transactionId, payer, payee, persistedShares,
+                    request.amountPaise, request.ledgerEffect
+                )
                 persistedTransactionId = transactionId
             }
         }
@@ -80,7 +87,9 @@ class TransactionPersistenceService(
             myAccountId = request.selectedAccountId,
             dateEpoch = request.dateEpoch,
             source = "MANUAL",
-            isPending = false
+            isPending = false,
+            refundsTransactionId = request.refundsTransactionId,
+            ledgerEffect = request.ledgerEffect
         )).copy(
             amountPaise = request.amountPaise,
             payerActorType = payer.actorType,
@@ -94,7 +103,11 @@ class TransactionPersistenceService(
             reason = request.description,
             myAccountId = request.selectedAccountId,
             dateEpoch = request.dateEpoch,
-            isPending = false
+            isPending = false,
+            // Must be repeated here, not just in the constructor above: on an edit `tx` is
+            // non-null and only the fields named in this copy survive.
+            refundsTransactionId = request.refundsTransactionId,
+            ledgerEffect = request.ledgerEffect
         )
     }
 }
