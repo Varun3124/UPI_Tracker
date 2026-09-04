@@ -48,15 +48,20 @@ class ShareCalculator {
         payerSummedPaise: Long,
         payeeSummedPaise: Long
     ): OverallAllocationResult {
-        val maxOver = maxOf(payerSummedPaise - amountPaise, payeeSummedPaise - amountPaise, 0L)
+        // A merchant side has no share rows of its own; it absorbs the whole amount,
+        // so treat it as always matching the total instead of comparing its 0 sentinel.
+        val effectivePayerSummed = if (payerActorType == ActorType.MERCHANT) amountPaise else payerSummedPaise
+        val effectivePayeeSummed = if (payeeActorType == ActorType.MERCHANT) amountPaise else payeeSummedPaise
+
+        val maxOver = maxOf(effectivePayerSummed - amountPaise, effectivePayeeSummed - amountPaise, 0L)
 
         return when {
             maxOver > 0L -> OverallAllocationResult(OverallAllocationState.OVER_ALLOCATED, maxOver)
-            payerSummedPaise < amountPaise -> {
-                OverallAllocationResult(OverallAllocationState.PAYER_UNALLOCATED, amountPaise - payerSummedPaise)
+            effectivePayerSummed < amountPaise -> {
+                OverallAllocationResult(OverallAllocationState.PAYER_UNALLOCATED, amountPaise - effectivePayerSummed)
             }
-            payeeSummedPaise < amountPaise -> {
-                OverallAllocationResult(OverallAllocationState.PAYEE_UNALLOCATED, amountPaise - payeeSummedPaise)
+            effectivePayeeSummed < amountPaise -> {
+                OverallAllocationResult(OverallAllocationState.PAYEE_UNALLOCATED, amountPaise - effectivePayeeSummed)
             }
             amountPaise <= 0L -> OverallAllocationResult(OverallAllocationState.UNALLOCATED, 0L)
             else -> OverallAllocationResult(OverallAllocationState.BALANCED, 0L)
