@@ -5,6 +5,7 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.Query
 import androidx.room.Update
+import com.varun.upitracker.database.entity.CategoryKind
 import com.varun.upitracker.database.entity.Transaction
 
 @Dao
@@ -294,4 +295,63 @@ interface TransactionDao {
     /** Ids of refunds pointing at [originalId]; used to guard edits and deletes of the original. */
     @Query("SELECT id FROM transactions WHERE refundsTransactionId = :originalId")
     suspend fun getRefundIdsForOriginal(originalId: Long): List<Long>
+
+    /**
+     * Net total per category of [kind] over `(fromEpochExclusive, toEpochInclusive]` -- the
+     * breakdown behind the statistics page.
+     *
+     * Same two legs as [getExpenseTotalBetween], grouped by category: splits dated by their own
+     * transaction, minus linked-refund splits dated by the ORIGINAL purchase. Both legs are
+     * filtered to [kind], so a gift received cannot appear as a positive slice in an expense
+     * breakdown -- it writes a split against an INCOME category, and without the filter that
+     * income would land in the expense pie.
+     *
+     * The refund leg contributes nothing when [kind] is INCOME: a refund's pills are narrowed to
+     * the purchase's categories, which are always expense.
+     *
+     * Summing this equals [getExpenseTotalBetween] for the same window, minus any legacy
+     * transaction that has shares but no splits -- those pre-date mandatory category selection
+     * and are flagged pending for review. It does NOT include transfer spend, which
+     * [com.varun.upitracker.data.repository.AccountRepository.getSpendSince] adds separately.
+     *
+     * Categories whose net is zero are omitted: a fully refunded purchase should not draw an empty
+     * slice. A net below zero is impossible while
+     * [com.varun.upitracker.domain.transactionentry.validation.TransactionValidator.validateRefundCoverage]
+     * holds, since it caps refunds per category against the purchase they reverse.
+     */
+    @Query(
+        """
+        SELECT categoryId, categoryName, SUM(paise) AS netPaise FROM (
+            SELECT cs.categoryId    AS categoryId,
+                   c.name           AS categoryName,
+                   cs.myAmountPaise AS paise
+            FROM transaction_category_splits cs
+            INNER JOIN transactions t ON t.id = cs.transactionId
+            INNER JOIN categories c ON c.id = cs.categoryId AND c.kind = :kind
+            WHERE t.refundsTransactionId IS NULL
+              AND t.dateEpoch > :fromEpochExclusive
+              AND t.dateEpoch <= :toEpochInclusive
+
+            UNION ALL
+
+            SELECT cs.categoryId     AS categoryId,
+                   c.name            AS categoryName,
+                   -cs.myAmountPaise AS paise
+            FROM transaction_category_splits cs
+            INNER JOIN transactions r ON r.id = cs.transactionId
+            INNER JOIN transactions o ON o.id = r.refundsTransactionId
+            INNER JOIN categories c ON c.id = cs.categoryId AND c.kind = :kind
+            WHERE o.dateEpoch > :fromEpochExclusive
+              AND o.dateEpoch <= :toEpochInclusive
+        )
+        GROUP BY categoryId, categoryName
+        HAVING SUM(paise) != 0
+        ORDER BY netPaise DESC
+        """
+    )
+    suspend fun getTotalsByCategoryBetween(
+        kind: CategoryKind,
+        fromEpochExclusive: Long,
+        toEpochInclusive: Long
+    ): List<com.varun.upitracker.database.model.CategoryTotal>
 }

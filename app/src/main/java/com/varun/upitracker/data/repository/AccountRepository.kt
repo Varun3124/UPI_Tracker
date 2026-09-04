@@ -2,7 +2,9 @@ package com.varun.upitracker.data.repository
 
 import androidx.lifecycle.LiveData
 import androidx.room.withTransaction
+import com.varun.upitracker.database.model.CategoryTotal
 import com.varun.upitracker.database.AppDatabase
+import com.varun.upitracker.database.entity.CategoryKind
 import com.varun.upitracker.database.entity.Account
 import com.varun.upitracker.database.entity.AccountTransfer
 import com.varun.upitracker.database.entity.AccountTransferType
@@ -382,6 +384,21 @@ class AccountRepository private constructor(
         }
         return expense + transferSpend
     }
+
+    /**
+     * Category breakdown over `(fromEpoch, toEpoch]`, newest-largest first.
+     *
+     * Shares its rules with [getSpendSince] by construction -- both legs come from
+     * [com.varun.upitracker.database.dao.TransactionDao.getTotalsByCategoryBetween], which mirrors
+     * `getExpenseTotalBetween`. The one deliberate difference is transfers: a transfer fee is
+     * spend but belongs to no category, so it counts in [getSpendSince] and not here.
+     */
+    suspend fun getTotalsByCategory(
+        kind: CategoryKind,
+        fromEpoch: Long,
+        toEpoch: Long = Long.MAX_VALUE
+    ): List<CategoryTotal> = database.transactionDao()
+        .getTotalsByCategoryBetween(kind, fromEpoch, toEpoch)
 
     suspend fun bookFixedDeposit(
         accountId: String,
