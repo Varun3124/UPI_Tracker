@@ -6,6 +6,8 @@ import android.graphics.drawable.GradientDrawable
 import android.app.DatePickerDialog
 import android.os.Bundle
 import android.util.TypedValue
+import android.view.MotionEvent
+import android.view.ViewConfiguration
 import android.view.LayoutInflater
 import android.view.Menu
 import android.view.View
@@ -68,12 +70,15 @@ class AllTransactionsActivity : AppCompatActivity() {
         findViewById<TextView>(R.id.btnBackAll).setOnClickListener { finish() }
         btnPickMonth = findViewById(R.id.btnPickMonth)
         btnPickMonth.setOnClickListener {
-            showMonthPicker(viewModel.uiState.value?.rangeStartEpoch ?: startOfCurrentMonth())
+            val state = viewModel.uiState.value
+            val initial = if (state == null || state.isAllTime) startOfCurrentMonth() else state.rangeStartEpoch
+            showMonthPicker(initial)
         }
         btnPickMonth.setOnLongClickListener {
-            showRangePicker()
+            showRangeChoiceMenu()
             true
         }
+        wireMonthSwipeGesture()
 
         viewModel = ViewModelProvider(
             this,
@@ -133,10 +138,20 @@ class AllTransactionsActivity : AppCompatActivity() {
     }
 
     private fun rangeLabel(state: AllTransactionsUiState): String {
+        if (state.isAllTime) return "All time"
         if (!state.isCustomRange) return monthFmt.format(Date(state.rangeStartEpoch))
         // The stored end is exclusive; show the inclusive day the user actually picked.
         val lastDay = Date(state.rangeEndExclusiveEpoch - 1)
         return "${shortDateFmt.format(Date(state.rangeStartEpoch))} - ${shortDateFmt.format(lastDay)}"
+    }
+
+    /** Long-press on the month button: "All time" jumps straight there; otherwise pick a range. */
+    private fun showRangeChoiceMenu() {
+        AlertDialog.Builder(this)
+            .setItems(arrayOf("All time", "Custom date range")) { _, which ->
+                if (which == 0) viewModel.loadAllTime() else showRangePicker()
+            }
+            .show()
     }
 
     /** Long-press on the month button: pick From, then To. Both ends inclusive. */
@@ -150,6 +165,57 @@ class AllTransactionsActivity : AppCompatActivity() {
                 }
                 // toEpoch is the start of the chosen day; the range must cover all of it.
                 viewModel.loadRange(fromEpoch, toEpoch + DAY_MILLIS, isCustom = true)
+            }
+        }
+    }
+
+    /**
+     * Any vertical drag on the month button changes the month on finger-up, whatever its length or
+     * speed — up for next, down for previous. Only [ViewConfiguration.getScaledTouchSlop] worth of
+     * movement is required, purely to tell a drag apart from a stationary tap; there is no minimum
+     * swipe distance or fling velocity beyond that.
+     *
+     * Implemented as a raw [View.OnTouchListener] rather than a [android.view.GestureDetector]
+     * because a fling detector requires velocity and is built to reject slow drags, which is
+     * exactly what this needs to accept. Once slop is crossed we dispatch ACTION_CANCEL into the
+     * button's own touch handling so its pressed state clears and no click fires alongside the
+     * swipe; a movement that stays under slop is left untouched so tap and long-press keep working.
+     */
+    private fun wireMonthSwipeGesture() {
+        val touchSlop = ViewConfiguration.get(this).scaledTouchSlop
+        var startY = 0f
+        var isDragging = false
+
+        btnPickMonth.setOnTouchListener { view, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    startY = event.rawY
+                    isDragging = false
+                    false
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    if (!isDragging && kotlin.math.abs(event.rawY - startY) > touchSlop) {
+                        isDragging = true
+                        val cancel = MotionEvent.obtain(event).apply { action = MotionEvent.ACTION_CANCEL }
+                        view.onTouchEvent(cancel)
+                        cancel.recycle()
+                    }
+                    isDragging
+                }
+                MotionEvent.ACTION_UP -> {
+                    if (isDragging) {
+                        val movedUp = event.rawY - startY < 0
+                        viewModel.shiftMonth(if (movedUp) 1 else -1)
+                    }
+                    val wasDragging = isDragging
+                    isDragging = false
+                    wasDragging
+                }
+                MotionEvent.ACTION_CANCEL -> {
+                    isDragging = false
+                    false
+                }
+                else -> false
             }
         }
     }

@@ -104,6 +104,8 @@ data class AllTransactionsUiState(
     val rangeEndExclusiveEpoch: Long = 0L,
     /** True when the range came from the long-press picker rather than being a whole month. */
     val isCustomRange: Boolean = false,
+    /** True when the long-press menu's "All time" choice is active. */
+    val isAllTime: Boolean = false,
     val pendingOnly: Boolean = false,
     /** Accounts offered by the filter dropdown. */
     val accounts: List<Account> = emptyList(),
@@ -130,6 +132,7 @@ class AllTransactionsViewModel(context: Context) : ViewModel() {
     private var rangeStartEpoch: Long = startOfMonth(Calendar.getInstance())
     private var rangeEndExclusiveEpoch: Long = nextMonth(rangeStartEpoch)
     private var isCustomRange: Boolean = false
+    private var isAllTime: Boolean = false
     private var pendingOnly: Boolean = false
     private var selectedAccountId: String? = null
     private var showBalance: Boolean = false
@@ -148,7 +151,7 @@ class AllTransactionsViewModel(context: Context) : ViewModel() {
 
     /** Reloads whatever range is showing, so a custom range survives returning to the screen. */
     fun loadCurrentMonth() {
-        loadRange(rangeStartEpoch, rangeEndExclusiveEpoch, isCustomRange)
+        loadRange(rangeStartEpoch, rangeEndExclusiveEpoch, isCustomRange, isAllTime)
     }
 
     fun loadMonth(monthStartEpoch: Long) {
@@ -156,13 +159,42 @@ class AllTransactionsViewModel(context: Context) : ViewModel() {
     }
 
     /**
+     * Every transaction and transfer ever recorded. `rangeStartEpoch = 0` (the Unix epoch) rather
+     * than [Long.MIN_VALUE] deliberately: [loadOpeningBalance] derives `rangeStartEpoch - 1`, and
+     * subtracting from [Long.MIN_VALUE] would overflow. Nothing real predates 1970 anyway, and
+     * `AccountRepository.getBalance` already free-falls to "assume zero" once it runs out of
+     * snapshots and transactions to walk back through.
+     */
+    fun loadAllTime() {
+        loadRange(0L, Long.MAX_VALUE, isCustom = false, isAllTime = true)
+    }
+
+    /**
+     * Jumps to the next or previous whole month, anchored on the month currently in view — or on
+     * today's month when the current view is "All time", where there is no sensible anchor.
+     */
+    fun shiftMonth(delta: Int) {
+        val anchorMonthStart = if (isAllTime) {
+            startOfMonth(Calendar.getInstance())
+        } else {
+            startOfMonth(Calendar.getInstance().apply { timeInMillis = rangeStartEpoch })
+        }
+        val shifted = Calendar.getInstance().apply {
+            timeInMillis = anchorMonthStart
+            add(Calendar.MONTH, delta)
+        }.timeInMillis
+        loadMonth(shifted)
+    }
+
+    /**
      * @param endExclusiveEpoch matches the `[from, to)` convention of the two range DAOs. For an
      *   inclusive To date the caller passes the start of the following day.
      */
-    fun loadRange(startEpoch: Long, endExclusiveEpoch: Long, isCustom: Boolean) {
+    fun loadRange(startEpoch: Long, endExclusiveEpoch: Long, isCustom: Boolean, isAllTime: Boolean = false) {
         rangeStartEpoch = startEpoch
         rangeEndExclusiveEpoch = endExclusiveEpoch
         isCustomRange = isCustom
+        this.isAllTime = isAllTime
         viewModelScope.launch {
             withContext(Dispatchers.IO) {
                 val transactions = db.transactionDao()
@@ -247,6 +279,7 @@ class AllTransactionsViewModel(context: Context) : ViewModel() {
             rangeStartEpoch = rangeStartEpoch,
             rangeEndExclusiveEpoch = rangeEndExclusiveEpoch,
             isCustomRange = isCustomRange,
+            isAllTime = isAllTime,
             accounts = loadedAccounts,
             selectedAccountId = accountId,
             pendingOnly = pendingOnly,
