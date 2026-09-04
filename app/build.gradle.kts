@@ -3,6 +3,12 @@ plugins {
     alias(libs.plugins.ksp)
 }
 
+// Room schema JSONs. Without these there is no baseline to validate a hand-written migration
+// against, and MigrationTestHelper cannot run at all. Recording starts at v13.
+ksp {
+    arg("room.schemaLocation", "$projectDir/schemas")
+}
+
 android {
     namespace = "com.varun.upitracker"
     compileSdk = 36

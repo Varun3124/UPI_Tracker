@@ -24,6 +24,7 @@ import com.varun.upitracker.database.entity.AccountTransfer
 import com.varun.upitracker.database.entity.BalanceSnapshot
 import com.varun.upitracker.database.entity.BudgetSettings
 import com.varun.upitracker.database.entity.Category
+import com.varun.upitracker.database.entity.CategoryKind
 import com.varun.upitracker.database.entity.FixedDepositDetail
 import com.varun.upitracker.database.entity.Friend
 import com.varun.upitracker.database.entity.FriendRawName
@@ -60,8 +61,8 @@ import kotlinx.coroutines.launch
         AccountTransfer::class,
         BalanceSnapshot::class
     ],
-    version = 12,
-    exportSchema = false
+    version = 13,
+    exportSchema = true
 )
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
@@ -83,9 +84,24 @@ abstract class AppDatabase : RoomDatabase() {
         @Volatile
         private var INSTANCE: AppDatabase? = null
 
+        /**
+         * Seeded on fresh installs only -- [Callback.onCreate] never fires on an upgrade, so
+         * MIGRATION_12_13 seeds the INCOME half separately. Keep the two lists in step.
+         */
         private val DEFAULT_CATEGORIES = listOf(
-            "Food & Drink", "Entertainment", "Transport", "Essentials"
+            "Food & Drink" to CategoryKind.EXPENSE,
+            "Entertainment" to CategoryKind.EXPENSE,
+            "Transport" to CategoryKind.EXPENSE,
+            "Essentials" to CategoryKind.EXPENSE,
+            "Gift given" to CategoryKind.EXPENSE,
+            "Gift received" to CategoryKind.INCOME,
+            "Refund" to CategoryKind.INCOME,
+            "Dividend" to CategoryKind.INCOME
         )
+
+        /** The INCOME rows MIGRATION_12_13 backfills into existing installs. */
+        private val SEEDED_INCOME_CATEGORIES =
+            DEFAULT_CATEGORIES.filter { it.second == CategoryKind.INCOME }.map { it.first }
 
         private val MIGRATION_8_9 = object : Migration(8, 9) {
             override fun migrate(db: SupportSQLiteDatabase) {
@@ -274,6 +290,53 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_12_13 = object : Migration(12, 13) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                if (!hasColumn(db, "transactions", "ledgerEffect")) {
+                    db.execSQL(
+                        "ALTER TABLE `transactions` ADD COLUMN `ledgerEffect` TEXT NOT NULL " +
+                            "DEFAULT 'DEBT'"
+                    )
+                }
+                if (!hasColumn(db, "transactions", "refundsTransactionId")) {
+                    // No DEFAULT clause on purpose: SQLite only permits ADD COLUMN with a
+                    // REFERENCES clause when the column's default is NULL, and an omitted
+                    // default is exactly that. This is why no table rebuild is needed.
+                    db.execSQL(
+                        "ALTER TABLE `transactions` ADD COLUMN `refundsTransactionId` INTEGER " +
+                            "REFERENCES `transactions`(`id`) ON UPDATE NO ACTION ON DELETE RESTRICT"
+                    )
+                }
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_transactions_refundsTransactionId` " +
+                        "ON `transactions`(`refundsTransactionId`)"
+                )
+
+                if (!hasColumn(db, "categories", "kind")) {
+                    db.execSQL(
+                        "ALTER TABLE `categories` ADD COLUMN `kind` TEXT NOT NULL " +
+                            "DEFAULT 'EXPENSE'"
+                    )
+                }
+                // The old index is unique on `name` alone, which would reject "Gift" existing
+                // as both an expense and an income category. Drop before creating.
+                db.execSQL("DROP INDEX IF EXISTS `index_categories_name`")
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS `index_categories_name_kind` " +
+                        "ON `categories`(`name`, `kind`)"
+                )
+
+                // onCreate's seeding never runs on an upgrade, so without this the INCOME picker
+                // is empty on every existing install and unlinked credits cannot be categorised.
+                SEEDED_INCOME_CATEGORIES.forEach { name ->
+                    db.execSQL(
+                        "INSERT OR IGNORE INTO `categories` (`name`, `kind`) VALUES (?, 'INCOME')",
+                        arrayOf<Any>(name)
+                    )
+                }
+            }
+        }
+
         private fun hasColumn(db: SupportSQLiteDatabase, table: String, column: String): Boolean {
             db.query("PRAGMA table_info(`$table`)").use { cursor ->
                 val nameColumnIndex = cursor.getColumnIndex("name")
@@ -292,14 +355,17 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "upi_tracker_db"
                 )
-                    .addMigrations(MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12)
+                    .addMigrations(
+                        MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12,
+                        MIGRATION_12_13
+                    )
                     .addCallback(object : Callback() {
                         override fun onCreate(db: SupportSQLiteDatabase) {
                             super.onCreate(db)
                             CoroutineScope(Dispatchers.IO).launch {
                                 val instance = getInstance(context)
-                                DEFAULT_CATEGORIES.forEach { name ->
-                                    instance.categoryDao().insertCategory(Category(name = name))
+                                DEFAULT_CATEGORIES.forEach { (name, kind) ->
+                                    instance.categoryDao().insertCategory(Category(name = name, kind = kind))
                                 }
                             }
                         }
