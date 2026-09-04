@@ -1,5 +1,6 @@
 package com.varun.upitracker.ui.transactionentry
 
+import android.app.AlertDialog
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
 import android.content.Context
@@ -28,6 +29,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.lifecycleScope
 import com.google.android.flexbox.FlexboxLayout
 import com.varun.upitracker.R
 import com.varun.upitracker.database.AppDatabase
@@ -67,6 +69,7 @@ import com.varun.upitracker.domain.transactionentry.share.ShareManager
 import com.varun.upitracker.domain.transactionentry.share.ShareRowModel
 import com.varun.upitracker.domain.transactionentry.validation.AccountTransferValidator
 import com.varun.upitracker.domain.transactionentry.validation.ShareValidationRow
+import com.varun.upitracker.domain.transactionentry.validation.ValidationResult
 import com.varun.upitracker.domain.transactionentry.validation.TransactionValidator
 import com.varun.upitracker.domain.transactionentry.validation.TransferValidationInput
 import com.varun.upitracker.sms.receiver.TransactionNotificationHelper
@@ -81,6 +84,7 @@ import com.varun.upitracker.ui.payerActorRef
 import com.varun.upitracker.ui.resolveActorDisplayName
 import com.varun.upitracker.ui.resolvePrimaryDisplay
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -95,6 +99,11 @@ class TransactionEntryActivity : AppCompatActivity() {
 
         /** Separate from [EXTRA_TRANSACTION_ID] because `AccountTransfer.id` is a UUID string. */
         const val EXTRA_TRANSFER_ID = "transfer_id"
+
+        private const val NOT_A_REFUND_LABEL = "Not a refund - counts as income"
+
+        /** The picker is a flat dialog list, so keep it to a scannable number of recent purchases. */
+        private const val REFUND_CANDIDATE_LIMIT = 60
     }
 
     private data class CategoryEntry(
@@ -142,6 +151,14 @@ class TransactionEntryActivity : AppCompatActivity() {
     private var ledgerEffect = LedgerEffect.DEBT
     /** Kind the pill list is currently offering; a change clears what was checked. */
     private var categoryKind = CategoryKind.EXPENSE
+    private var refundsTransactionId: Long? = null
+    /** Purchases this could be a refund for, with display labels, resolved off the UI thread. */
+    private var refundCandidates = listOf<Pair<Transaction, String>>()
+    /**
+     * When this is a linked refund, the categories the original used. The pill list narrows to
+     * these so a refund can only give money back to where the purchase actually put it.
+     */
+    private var refundAllowedCategoryIds: Set<Long>? = null
 
     private val categoryEntries = mutableListOf<CategoryEntry>()
     /** The category whose split amount tracks ME's remaining share as it changes; null once cleared or unchecked. */
@@ -173,7 +190,10 @@ class TransactionEntryActivity : AppCompatActivity() {
     private lateinit var formScroll: ScrollView
     private lateinit var etDescription: EditText
     private lateinit var ledgerOptionsCard: LinearLayout
+    private lateinit var ledgerEffectSection: LinearLayout
     private lateinit var tvLedgerEffectToggle: TextView
+    private lateinit var refundSection: LinearLayout
+    private lateinit var tvRefundTarget: TextView
 
     private var smsPayerAliasFallback = ""
     private var smsPayeeAliasFallback = ""
@@ -261,10 +281,14 @@ class TransactionEntryActivity : AppCompatActivity() {
         categoryScrollView = findViewById(R.id.categoryScrollView)
         etDescription = findViewById(R.id.etDescription)
         ledgerOptionsCard = findViewById(R.id.ledgerOptionsCard)
+        ledgerEffectSection = findViewById(R.id.ledgerEffectSection)
         tvLedgerEffectToggle = findViewById(R.id.tvLedgerEffectToggle)
+        refundSection = findViewById(R.id.refundSection)
+        tvRefundTarget = findViewById(R.id.tvRefundTarget)
         tvLedgerEffectToggle.setOnClickListener {
             viewModel.onAction(TransactionEntryAction.LedgerEffectToggled)
         }
+        refundSection.setOnClickListener { showRefundPicker() }
     }
 
     private suspend fun setupUi(db: AppDatabase) {
@@ -287,6 +311,7 @@ class TransactionEntryActivity : AppCompatActivity() {
         setupDateSection()
         initializeSelectedAccounts(tx)
         setupCategories()
+        loadRefundCandidates(db)
 
         when {
             transfer != null -> populateExistingTransfer(transfer)
@@ -594,12 +619,7 @@ class TransactionEntryActivity : AppCompatActivity() {
         updateLiveCalc()
     }
 
-    private fun setupCategories() {
-        categoryEntries.clear()
-        categoryEntries.addAll(allCategories.filter { it.kind == categoryKind }.map { category ->
-            CategoryEntry(category = category, isChecked = false, myAmountPaise = 0L)
-        })
-    }
+    private fun setupCategories() = rebuildCategoryEntries()
 
     private suspend fun populateExistingTransaction(tx: Transaction, db: AppDatabase) {
         if (tx.amountPaise > 0) etAmount.setText("%.2f".format(tx.amountPaise / 100.0))
@@ -611,6 +631,12 @@ class TransactionEntryActivity : AppCompatActivity() {
         payeeFriendId = tx.payeeFriendId
         payeeMerchantId = tx.payeeMerchantId
         ledgerEffect = tx.ledgerEffect
+        refundsTransactionId = tx.refundsTransactionId
+        refundAllowedCategoryIds = tx.refundsTransactionId?.let { originalId ->
+            withContext(Dispatchers.IO) {
+                db.categorySplitDao().getForTransaction(originalId).map { it.categoryId }.toSet()
+            }
+        }
 
         smsPayerAliasFallback = resolveInitialEndpointLabel(db, true, tx)
         smsPayeeAliasFallback = resolveInitialEndpointLabel(db, false, tx)
@@ -646,6 +672,7 @@ class TransactionEntryActivity : AppCompatActivity() {
         payeeFriendId = null
         payeeMerchantId = null
         ledgerEffect = LedgerEffect.DEBT
+        clearRefundTarget()
         payerAccountId = transfer.fromAccountId
         payeeAccountId = transfer.toAccountId
         etDescription.setText(transfer.notes ?: "")
@@ -659,6 +686,7 @@ class TransactionEntryActivity : AppCompatActivity() {
         payerActorType = ActorType.ME
         payeeActorType = ActorType.MERCHANT
         ledgerEffect = LedgerEffect.DEBT
+        clearRefundTarget()
         smsPayerAliasFallback = ""
         smsPayeeAliasFallback = ""
         payerShareRows.clear()
@@ -1222,7 +1250,7 @@ class TransactionEntryActivity : AppCompatActivity() {
         payerActorType = payerActorType,
         payeeActorType = payeeActorType,
         ledgerEffect = ledgerEffect,
-        isLinkedRefund = false,
+        isLinkedRefund = refundsTransactionId != null,
         payerMeSharePaise = getMyShareAmount("PAYER"),
         payeeMeSharePaise = getMyShareAmount("PAYEE")
     )
@@ -1324,13 +1352,104 @@ class TransactionEntryActivity : AppCompatActivity() {
         return friendInvolved && !merchantInvolved
     }
 
+    /** Only a merchant paying ME can be a refund; anything else is a purchase or a transfer. */
+    private fun isRefundApplicable(): Boolean =
+        payerActorType == ActorType.MERCHANT && payeeActorType == ActorType.ME
+
     private fun updateLedgerOptionsVisibility() {
-        val applicable = isLedgerEffectApplicable()
-        ledgerOptionsCard.visibility = if (applicable) View.VISIBLE else View.GONE
-        if (!applicable && ledgerEffect != LedgerEffect.DEBT) {
+        val effectApplicable = isLedgerEffectApplicable()
+        val refundApplicable = isRefundApplicable()
+        ledgerEffectSection.visibility = if (effectApplicable) View.VISIBLE else View.GONE
+        refundSection.visibility = if (refundApplicable) View.VISIBLE else View.GONE
+        ledgerOptionsCard.visibility =
+            if (effectApplicable || refundApplicable) View.VISIBLE else View.GONE
+
+        if (!effectApplicable && ledgerEffect != LedgerEffect.DEBT) {
             ledgerEffect = LedgerEffect.DEBT
         }
+        if (!refundApplicable && refundsTransactionId != null) {
+            clearRefundTarget()
+            rebuildCategoryEntries()
+        }
         styleLedgerEffectTile()
+        renderRefundTarget()
+    }
+
+    private fun renderRefundTarget() {
+        val target = refundsTransactionId
+        tvRefundTarget.text = if (target == null) {
+            NOT_A_REFUND_LABEL
+        } else {
+            refundCandidates.firstOrNull { it.first.id == target }?.second ?: "Linked purchase"
+        }
+    }
+
+    private fun clearRefundTarget() {
+        refundsTransactionId = null
+        refundAllowedCategoryIds = null
+    }
+
+    private fun showRefundPicker() {
+        if (!isRefundApplicable()) return
+        val eligible = refundCandidates.filter { it.first.dateEpoch <= selectedDateEpoch }
+        val labels = buildList {
+            add(NOT_A_REFUND_LABEL)
+            addAll(eligible.map { it.second })
+        }.toTypedArray()
+        AlertDialog.Builder(this)
+            .setTitle("Refund for")
+            .setItems(labels) { _, which ->
+                if (which == 0) {
+                    clearRefundTarget()
+                    rebuildCategoryEntries()
+                    renderRefundTarget()
+                    updateCategoryVisibility()
+                } else {
+                    selectRefundTarget(eligible[which - 1].first.id)
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun selectRefundTarget(originalId: Long) {
+        lifecycleScope.launch {
+            val db = AppDatabase.Companion.getInstance(applicationContext)
+            val splits = withContext(Dispatchers.IO) {
+                db.categorySplitDao().getForTransaction(originalId)
+            }
+            if (splits.isEmpty()) {
+                toast("That purchase has no categories to refund against")
+                return@launch
+            }
+            refundsTransactionId = originalId
+            refundAllowedCategoryIds = splits.map { it.categoryId }.toSet()
+            rebuildCategoryEntries()
+            // One category means there is nothing to choose: give the whole refund back to it.
+            if (categoryEntries.size == 1) {
+                categoryEntries[0].isChecked = true
+                trackedCategoryId = categoryEntries[0].category.id
+                applyRemainderAmount(categoryEntries[0])
+            }
+            renderRefundTarget()
+            updateCategoryVisibility()
+        }
+    }
+
+    private suspend fun loadRefundCandidates(db: AppDatabase) {
+        val rows = withContext(Dispatchers.IO) {
+            db.transactionDao().getRefundCandidates(
+                refundDateEpoch = Long.MAX_VALUE,
+                excludeTransactionId = currentTransaction?.id ?: -1L,
+                limit = REFUND_CANDIDATE_LIMIT
+            )
+        }
+        refundCandidates = rows.map { tx ->
+            val label = fmtDateTime(tx.dateEpoch) + " - " + tx.resolvePrimaryDisplay(db) +
+                " - Rs" + formatPlainAmount(tx.amountPaise)
+            tx to label
+        }
+        renderRefundTarget()
     }
 
     private fun styleLedgerEffectTile() {
@@ -1347,10 +1466,21 @@ class TransactionEntryActivity : AppCompatActivity() {
     private fun applyCategoryKind(kind: CategoryKind) {
         if (kind == categoryKind) return
         categoryKind = kind
+        rebuildCategoryEntries()
+    }
+
+    /**
+     * A linked refund narrows the list to the original's categories; otherwise it is every
+     * category of the direction currently being attributed.
+     */
+    private fun rebuildCategoryEntries() {
+        val allowed = refundAllowedCategoryIds
         categoryEntries.clear()
-        categoryEntries.addAll(allCategories.filter { it.kind == kind }.map { category ->
-            CategoryEntry(category = category, isChecked = false, myAmountPaise = 0L)
-        })
+        categoryEntries.addAll(
+            allCategories
+                .filter { if (allowed != null) it.id in allowed else it.kind == categoryKind }
+                .map { CategoryEntry(category = it, isChecked = false, myAmountPaise = 0L) }
+        )
         trackedCategoryId = null
     }
 
@@ -1421,6 +1551,11 @@ class TransactionEntryActivity : AppCompatActivity() {
         )
         if (!categoryValidation.isValid) {
             return toast(categoryValidation.message ?: "Fix category split")
+        }
+
+        val refundValidation = validateRefundCoverage()
+        if (!refundValidation.isValid) {
+            return toast(refundValidation.message ?: "Fix refund allocation")
         }
 
         val db = AppDatabase.Companion.getInstance(applicationContext)
@@ -1499,6 +1634,49 @@ class TransactionEntryActivity : AppCompatActivity() {
         else -> EntrySource.MANUAL
     }
 
+    /**
+     * Guards both directions of the refund invariant: this transaction being a refund that would
+     * over-refund a category, and this transaction being a purchase edited down below what has
+     * already been refunded against it.
+     */
+    private suspend fun validateRefundCoverage(): ValidationResult {
+        val db = AppDatabase.Companion.getInstance(applicationContext)
+        val names = allCategories.associate { it.id to it.name }
+        val checkedAmounts = categoryEntries
+            .filter { it.isChecked && it.myAmountPaise > 0L }
+            .associate { it.category.id to it.myAmountPaise }
+
+        refundsTransactionId?.let { originalId ->
+            val thisId = currentTransaction?.id ?: -1L
+            val (originalSplits, otherRefunds) = withContext(Dispatchers.IO) {
+                db.categorySplitDao().getForTransaction(originalId) to
+                    db.transactionDao().getRefundedAmountsForOriginal(originalId, thisId)
+            }
+            val refunded = checkedAmounts.toMutableMap()
+            otherRefunds.forEach { row ->
+                refunded[row.categoryId] = (refunded[row.categoryId] ?: 0L) + row.amountPaise
+            }
+            val result = transactionValidator.validateRefundCoverage(
+                originalAmountsPaise = originalSplits.associate { it.categoryId to it.myAmountPaise },
+                refundedAmountsPaise = refunded,
+                categoryNames = names
+            )
+            if (!result.isValid) return result
+        }
+
+        val editedId = currentTransaction?.id ?: return ValidationResult.valid()
+        if (refundsTransactionId != null) return ValidationResult.valid()
+        val refundedAgainstThis = withContext(Dispatchers.IO) {
+            db.transactionDao().getRefundedAmountsForOriginal(editedId, -1L)
+        }
+        if (refundedAgainstThis.isEmpty()) return ValidationResult.valid()
+        return transactionValidator.validateRefundCoverage(
+            originalAmountsPaise = checkedAmounts,
+            refundedAmountsPaise = refundedAgainstThis.associate { it.categoryId to it.amountPaise },
+            categoryNames = names
+        )
+    }
+
     private suspend fun persistTransaction(db: AppDatabase, amountPaise: Long, payerLabel: String, payeeLabel: String) {
         transactionPersistenceService.persist(
             db = db,
@@ -1508,7 +1686,8 @@ class TransactionEntryActivity : AppCompatActivity() {
                 selectedAccountId = accountIdForPersistence(),
                 dateEpoch = selectedDateEpoch,
                 description = etDescription.text.toString().trim().ifEmpty { null },
-                ledgerEffect = ledgerEffect
+                ledgerEffect = ledgerEffect,
+                refundsTransactionId = refundsTransactionId
             ),
             resolveActors = {
                 val payer = resolveActor(db, true, payerActorType, payerLabel)

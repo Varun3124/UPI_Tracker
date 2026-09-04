@@ -348,6 +348,13 @@
                 android:padding="14dp"
                 android:visibility="gone">
 
+                <LinearLayout
+                    android:id="@+id/ledgerEffectSection"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:visibility="gone">
+
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
@@ -371,6 +378,33 @@
                     android:text="Doesn&apos;t affect what we owe each other"
                     android:textColor="#FFFFFF"
                     android:textSize="12sp" />
+                </LinearLayout>
+
+                <!-- Shape copied from dateSection: label + value, whole block opens a dialog. -->
+                <LinearLayout
+                    android:id="@+id/refundSection"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:visibility="gone">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Refund for"
+                        android:textColor="#FFFFFF"
+                        android:textSize="14sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/tvRefundTarget"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:text="Not a refund - counts as income"
+                        android:textColor="#D7D7D7"
+                        android:textSize="14sp" />
+                </LinearLayout>
             </LinearLayout>
 
             <TextView

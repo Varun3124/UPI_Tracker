@@ -402,7 +402,9 @@ class AllTransactionsActivity : AppCompatActivity() {
             .setMessage(message)
             .setPositiveButton("Delete") { _, _ ->
                 when (entry) {
-                    is LedgerEntry.Tx -> viewModel.deleteTransaction(entry.transaction.id)
+                    is LedgerEntry.Tx -> viewModel.deleteTransaction(entry.transaction.id) { error ->
+                        Toast.makeText(this, error, Toast.LENGTH_LONG).show()
+                    }
                     is LedgerEntry.Transfer -> viewModel.deleteTransfer(entry.transfer.id) { error ->
                         Toast.makeText(this, error, Toast.LENGTH_SHORT).show()
                     }

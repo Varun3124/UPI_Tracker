@@ -86,4 +86,36 @@ class TransactionValidator {
         }
         return ValidationResult.valid()
     }
+
+    /**
+     * Checks that no category has been refunded for more than it was spent on.
+     *
+     * The same check guards both directions, because both are the same statement: a refund must
+     * not push a category below zero, and editing a purchase must not drop a category below what
+     * has already been refunded against it. Callers just swap what they pass in.
+     *
+     * This is what keeps every category's net non-negative in every window, which is why the
+     * statistics breakdown never has to render a negative slice.
+     */
+    fun validateRefundCoverage(
+        originalAmountsPaise: Map<Long, Long>,
+        refundedAmountsPaise: Map<Long, Long>,
+        categoryNames: Map<Long, String>
+    ): ValidationResult {
+        refundedAmountsPaise.forEach { (categoryId, refunded) ->
+            if (refunded <= 0L) return@forEach
+            val name = categoryNames[categoryId] ?: "this category"
+            val original = originalAmountsPaise[categoryId]
+                ?: return ValidationResult.invalid("The purchase has nothing under $name to refund.")
+            if (refunded > original) {
+                return ValidationResult.invalid(
+                    "Refunds under $name would exceed the ${formatPaise(original)} spent on it."
+                )
+            }
+        }
+        return ValidationResult.valid()
+    }
+
+    private fun formatPaise(paise: Long): String =
+        if (paise % 100 > 0) "Rs%.2f".format(paise / 100.0) else "Rs%.0f".format(paise / 100.0)
 }

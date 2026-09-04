@@ -303,8 +303,8 @@ class AccountRepository private constructor(
      * `transactions.id`; they are removed explicitly anyway so the cleanup does not depend on the
      * foreign-keys pragma being on.
      *
-     * @throws AccountMutationException if the transfer is invalid, or if its `statementRefNo` is
-     *   already held by another transfer.
+     * @throws AccountMutationException if the transfer is invalid, if its `statementRefNo` is
+     *   already held by another transfer, or if a refund is linked to the transaction.
      */
     suspend fun convertTransactionToTransfer(transactionId: Long, transfer: AccountTransfer) {
         validateTransfer(transfer)
@@ -312,6 +312,13 @@ class AccountRepository private constructor(
             if (database.accountTransferDao().findByStatementRefNo(ref) != null) {
                 throw AccountMutationException("A transfer for this statement row already exists.")
             }
+        }
+        // `refundsTransactionId` is RESTRICT, so this delete would throw a raw
+        // SQLiteConstraintException from inside the transaction. Fail with a readable message.
+        if (database.transactionDao().getRefundIdsForOriginal(transactionId).isNotEmpty()) {
+            throw AccountMutationException(
+                "A refund is linked to this transaction. Delete or unlink the refund first."
+            )
         }
         database.withTransaction {
             database.iouDao().deleteForTransaction(transactionId)

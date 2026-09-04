@@ -304,8 +304,24 @@ class AllTransactionsViewModel(context: Context) : ViewModel() {
             transfer.fromAccountId == accountId || transfer.toAccountId == accountId
     }
 
-    fun deleteTransaction(transactionId: Long) {
+    fun deleteTransaction(transactionId: Long, onError: (String) -> Unit = {}) {
         viewModelScope.launch {
+            // A purchase with refunds pointing at it cannot be deleted: the refund is real money
+            // that arrived, and its category credit is attributed to this transaction's date.
+            // Blocking beats silently dropping the refund or silently turning it into income.
+            val refundCount = withContext(Dispatchers.IO) {
+                db.transactionDao().getRefundIdsForOriginal(transactionId).size
+            }
+            if (refundCount > 0) {
+                onError(
+                    if (refundCount == 1) {
+                        "A refund is linked to this transaction. Delete or unlink the refund first."
+                    } else {
+                        "$refundCount refunds are linked to this transaction. Delete or unlink them first."
+                    }
+                )
+                return@launch
+            }
             withContext(Dispatchers.IO) {
                 db.withTransaction {
                     db.transactionShareDao().deleteForTransaction(transactionId)

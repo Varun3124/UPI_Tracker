@@ -242,4 +242,56 @@ interface TransactionDao {
 
     @Query("UPDATE transactions SET payeeMerchantId = :targetId WHERE payeeMerchantId = :sourceId")
     suspend fun reassignPayeeMerchant(sourceId: Long, targetId: Long)
+
+    /**
+     * Purchases [refundDateEpoch] can be a refund for: settled, categorised, not themselves a
+     * refund, and not this transaction.
+     *
+     * Refunds of refunds are excluded so a chain can never form -- the aggregates resolve a
+     * refund's period by following exactly one hop to its original.
+     */
+    @Query(
+        """
+        SELECT t.* FROM transactions t
+        WHERE t.isPending = 0
+          AND t.refundsTransactionId IS NULL
+          AND t.id != :excludeTransactionId
+          AND t.dateEpoch <= :refundDateEpoch
+          AND EXISTS (SELECT 1 FROM transaction_category_splits cs WHERE cs.transactionId = t.id)
+        ORDER BY t.dateEpoch DESC, t.id DESC
+        LIMIT :limit
+        """
+    )
+    suspend fun getRefundCandidates(
+        refundDateEpoch: Long,
+        excludeTransactionId: Long,
+        limit: Int
+    ): List<Transaction>
+
+    /**
+     * How much has already been refunded against [originalId], per category, ignoring
+     * [excludeTransactionId] (the refund currently being edited).
+     *
+     * Both directions of the over-refund check read this: a new refund must not push a category
+     * below zero, and editing the original must not drop a category below what it has already
+     * refunded.
+     */
+    @Query(
+        """
+        SELECT cs.categoryId AS categoryId, SUM(cs.myAmountPaise) AS amountPaise
+        FROM transaction_category_splits cs
+        INNER JOIN transactions r ON r.id = cs.transactionId
+        WHERE r.refundsTransactionId = :originalId
+          AND r.id != :excludeTransactionId
+        GROUP BY cs.categoryId
+        """
+    )
+    suspend fun getRefundedAmountsForOriginal(
+        originalId: Long,
+        excludeTransactionId: Long
+    ): List<com.varun.upitracker.database.model.CategoryAmount>
+
+    /** Ids of refunds pointing at [originalId]; used to guard edits and deletes of the original. */
+    @Query("SELECT id FROM transactions WHERE refundsTransactionId = :originalId")
+    suspend fun getRefundIdsForOriginal(originalId: Long): List<Long>
 }
