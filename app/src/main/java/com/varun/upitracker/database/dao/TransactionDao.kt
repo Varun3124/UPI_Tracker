@@ -314,6 +314,11 @@ interface TransactionDao {
      * The refund leg contributes nothing when [kind] is INCOME: a refund's pills are narrowed to
      * the purchase's categories, which are always expense.
      *
+     * The first leg repeats [getExpenseTotalBetween]'s gate -- merchant or ledger-neutral, with
+     * ME's share on the side matching [kind] -- so the two cannot diverge on data shape. Without
+     * it, a merchant credit predating this work still carries positive EXPENSE splits and would
+     * inflate the breakdown above the total it is supposed to partition.
+     *
      * Summing this equals [getExpenseTotalBetween] for the same window, minus any legacy
      * transaction that has shares but no splits -- those pre-date mandatory category selection
      * and are flagged pending for review. It does NOT include transfer spend, which
@@ -336,6 +341,19 @@ interface TransactionDao {
             WHERE t.refundsTransactionId IS NULL
               AND t.dateEpoch > :fromEpochExclusive
               AND t.dateEpoch <= :toEpochInclusive
+              AND (t.payerActorType = 'MERCHANT'
+                   OR t.payeeActorType = 'MERCHANT'
+                   OR t.ledgerEffect = 'NONE')
+              AND EXISTS (
+                  SELECT 1 FROM transaction_shares s
+                  WHERE s.transactionId = t.id
+                    AND s.participantType = 'ME'
+                    AND COALESCE(
+                          s.side,
+                          CASE WHEN t.payerActorType = 'ME' THEN 'PAYER'
+                               WHEN t.payeeActorType = 'ME' THEN 'PAYEE' END
+                        ) = CASE WHEN :kind = 'EXPENSE' THEN 'PAYER' ELSE 'PAYEE' END
+              )
 
             UNION ALL
 
