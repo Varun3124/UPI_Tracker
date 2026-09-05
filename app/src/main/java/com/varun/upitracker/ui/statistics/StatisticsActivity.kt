@@ -1,6 +1,5 @@
 package com.varun.upitracker.ui.statistics
 
-import android.app.AlertDialog
 import android.app.DatePickerDialog
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
@@ -41,6 +40,7 @@ class StatisticsActivity : AppCompatActivity() {
     private lateinit var cardWeekBars: View
     private lateinit var tvPeakDay: TextView
     private lateinit var weekBars: StackedBarChartView
+    private lateinit var swipeContainer: SwipeableFrameLayout
 
     private val pills = mutableListOf<Pair<StatsPeriod, TextView>>()
 
@@ -83,6 +83,8 @@ class StatisticsActivity : AppCompatActivity() {
         cardWeekBars = findViewById(R.id.cardWeekBars)
         tvPeakDay = findViewById(R.id.tvPeakDay)
         weekBars = findViewById(R.id.weekBars)
+        swipeContainer = findViewById(R.id.swipeContainer)
+        swipeContainer.onSwipe = { direction -> viewModel.step(direction) }
 
         findViewById<TextView>(R.id.btnBackStats).setOnClickListener { finish() }
         btnPrevPeriod.setOnClickListener { viewModel.step(-1) }
@@ -129,6 +131,8 @@ class StatisticsActivity : AppCompatActivity() {
         btnNextPeriod.visibility = btnPrevPeriod.visibility
         btnNextPeriod.isEnabled = state.canGoForward
         btnNextPeriod.alpha = if (state.canGoForward) 1f else DISABLED_ALPHA
+        swipeContainer.isSwipeEnabled = shiftable
+        swipeContainer.canSwipeForward = state.canGoForward
 
         val slices = state.breakdown.slices
         val total = state.breakdown.totalPaise

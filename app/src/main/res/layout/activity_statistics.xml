@@ -91,11 +91,18 @@
             android:textSize="18sp" />
     </LinearLayout>
 
-    <ScrollView
-        android:id="@+id/statsScroll"
+    <!-- Wraps the scroller so a horizontal drag anywhere over the charts steps the period,
+         while vertical drags still scroll. The pills and the header row stay outside it. -->
+    <com.varun.upitracker.ui.statistics.SwipeableFrameLayout
+        android:id="@+id/swipeContainer"
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1">
+
+    <ScrollView
+        android:id="@+id/statsScroll"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent">
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -218,4 +225,5 @@
             </androidx.cardview.widget.CardView>
         </LinearLayout>
     </ScrollView>
+    </com.varun.upitracker.ui.statistics.SwipeableFrameLayout>
 </LinearLayout>
