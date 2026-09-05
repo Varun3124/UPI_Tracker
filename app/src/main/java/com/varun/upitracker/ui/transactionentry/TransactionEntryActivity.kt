@@ -1207,6 +1207,20 @@ class TransactionEntryActivity : AppCompatActivity() {
         val trimmed = rawText.trim()
         val old = rows[rowIndex]
         rows[rowIndex] = ShareRow(old.key, old.participantType, old.friendId, trimmed, old.initials, old.amountPaise)
+
+        // The primary row is where a merchant is named. Resolving it here rather than only at
+        // save time is what lets the refund picker populate on the first pass: until this ran,
+        // payerMerchantId stayed null through the whole entry, so the picker saw a merchant with
+        // no history and you had to save and reopen before it listed anything.
+        //
+        // Cleared on a non-match on purpose: leaving the previous id behind would let a renamed
+        // merchant save against the merchant that was there before.
+        if (rowIndex == 0 && actorTypeFor(isPayer) == ActorType.MERCHANT) {
+            val merchant = allMerchants.firstOrNull { it.name.equals(trimmed, ignoreCase = true) }
+            if (isPayer) payerMerchantId = merchant?.id else payeeMerchantId = merchant?.id
+            refreshRefundCandidatesIfNeeded()
+        }
+
         val match = allFriends.firstOrNull { it.name == trimmed }
         if (match != null) {
             updateShareRowParticipant(rows, rowIndex, ActorType.FRIEND, match.id, match.name, match.avatarInitials)
@@ -1703,6 +1717,18 @@ class TransactionEntryActivity : AppCompatActivity() {
             .associate { it.category.id to it.myAmountPaise }
 
         refundsTransactionId?.let { originalId ->
+            val original = withContext(Dispatchers.IO) {
+                db.transactionDao().getTransactionById(originalId)
+            } ?: return ValidationResult.invalid("The purchase this refunds no longer exists.")
+            val merchantId = payerMerchantId
+            if (merchantId == null ||
+                (original.payerMerchantId != merchantId && original.payeeMerchantId != merchantId)
+            ) {
+                return ValidationResult.invalid(
+                    "That purchase is from a different merchant. Pick the refund again."
+                )
+            }
+
             val thisId = currentTransaction?.id ?: -1L
             val (originalSplits, otherRefunds) = withContext(Dispatchers.IO) {
                 db.categorySplitDao().getForTransaction(originalId) to
