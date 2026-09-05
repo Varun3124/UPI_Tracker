@@ -1,5 +1,6 @@
 package com.varun.upitracker.ui.statistics
 
+import android.app.AlertDialog
 import android.app.DatePickerDialog
 import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
@@ -29,7 +30,7 @@ class StatisticsActivity : AppCompatActivity() {
 
     private lateinit var viewModel: StatisticsViewModel
 
-    private lateinit var periodPills: LinearLayout
+    private lateinit var btnPickPeriod: TextView
     private lateinit var tvRangeLabel: TextView
     private lateinit var btnPrevPeriod: TextView
     private lateinit var btnNextPeriod: TextView
@@ -41,8 +42,6 @@ class StatisticsActivity : AppCompatActivity() {
     private lateinit var tvPeakDay: TextView
     private lateinit var weekBars: StackedBarChartView
     private lateinit var swipeContainer: SwipeableFrameLayout
-
-    private val pills = mutableListOf<Pair<StatsPeriod, TextView>>()
 
     private val dayFmt = SimpleDateFormat("d MMM yyyy", Locale.getDefault())
     private val monthFmt = SimpleDateFormat("MMMM yyyy", Locale.getDefault())
@@ -60,7 +59,6 @@ class StatisticsActivity : AppCompatActivity() {
         }
 
         bindViews()
-        buildPills()
 
         viewModel = ViewModelProvider(
             this,
@@ -72,7 +70,7 @@ class StatisticsActivity : AppCompatActivity() {
     }
 
     private fun bindViews() {
-        periodPills = findViewById(R.id.periodPills)
+        btnPickPeriod = findViewById(R.id.btnPickPeriod)
         tvRangeLabel = findViewById(R.id.tvRangeLabel)
         btnPrevPeriod = findViewById(R.id.btnPrevPeriod)
         btnNextPeriod = findViewById(R.id.btnNextPeriod)
@@ -86,44 +84,31 @@ class StatisticsActivity : AppCompatActivity() {
         swipeContainer = findViewById(R.id.swipeContainer)
         swipeContainer.onSwipe = { direction -> viewModel.step(direction) }
 
+        btnPickPeriod.setOnClickListener { showPeriodMenu() }
         findViewById<TextView>(R.id.btnBackStats).setOnClickListener { finish() }
         btnPrevPeriod.setOnClickListener { viewModel.step(-1) }
         btnNextPeriod.setOnClickListener { viewModel.step(1) }
     }
 
-    private fun buildPills() {
-        val labels = listOf(
-            StatsPeriod.DAILY to "Day",
-            StatsPeriod.WEEKLY to "Week",
-            StatsPeriod.MONTHLY to "Month",
-            StatsPeriod.QUARTERLY to "Quarter",
-            StatsPeriod.ALL_TIME to "All time",
-            StatsPeriod.CUSTOM to "Custom"
-        )
-        labels.forEach { (period, label) ->
-            val pill = TextView(this).apply {
-                text = label
-                textSize = 12f
-                setTypeface(typeface, android.graphics.Typeface.BOLD)
-                gravity = android.view.Gravity.CENTER
-                setPadding(dp(14), dp(7), dp(14), dp(7))
-                isClickable = true
-                isFocusable = true
-                setOnClickListener {
-                    if (period == StatsPeriod.CUSTOM) showRangePicker() else viewModel.selectPeriod(period)
-                }
+    /**
+     * One tap, one list. An AlertDialog rather than a PopupMenu because Custom has to chain into
+     * two DatePickerDialogs, which is the shape showRangeChoiceMenu already uses elsewhere.
+     */
+    private fun showPeriodMenu() {
+        val options = PERIOD_LABELS.map { it.second }.toTypedArray()
+        AlertDialog.Builder(this)
+            .setTitle("Show")
+            .setItems(options) { _, which ->
+                val period = PERIOD_LABELS[which].first
+                if (period == StatsPeriod.CUSTOM) showRangePicker() else viewModel.selectPeriod(period)
             }
-            val params = LinearLayout.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT,
-                LinearLayout.LayoutParams.WRAP_CONTENT
-            ).apply { marginEnd = dp(8) }
-            periodPills.addView(pill, params)
-            pills += period to pill
-        }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     private fun render(state: StatisticsUiState) {
-        pills.forEach { (period, view) -> stylePill(view, period == state.period) }
+        // The app has no chevron asset; every other glyph in it is a literal character.
+        btnPickPeriod.text = "${periodLabel(state.period)}  \u25BE"
         tvRangeLabel.text = rangeLabel(state)
 
         val shiftable = state.period.isShiftable
@@ -213,24 +198,26 @@ class StatisticsActivity : AppCompatActivity() {
         ).apply { setTitle(title) }.show()
     }
 
-    /** The app has no selector drawables; this is the same pill look All Transactions uses. */
-    private fun stylePill(view: TextView, active: Boolean) {
-        view.background = GradientDrawable().apply {
-            shape = GradientDrawable.RECTANGLE
-            cornerRadius = dp(16).toFloat()
-            setColor(if (active) Color.parseColor("#006064") else Color.parseColor("#EEEEEE"))
-            setStroke(dp(1), if (active) Color.parseColor("#006064") else Color.parseColor("#DDDDDD"))
-        }
-        view.setTextColor(if (active) Color.parseColor("#FFFFFF") else Color.parseColor("#212121"))
-    }
-
     private fun dp(value: Int): Int = TypedValue.applyDimension(
         TypedValue.COMPLEX_UNIT_DIP,
         value.toFloat(),
         resources.displayMetrics
     ).toInt()
 
+    private fun periodLabel(period: StatsPeriod): String =
+        PERIOD_LABELS.first { it.first == period }.second
+
     private companion object {
         const val DISABLED_ALPHA = 0.3f
+
+        /** Menu order, and the source of the button's label. */
+        val PERIOD_LABELS = listOf(
+            StatsPeriod.DAILY to "Day",
+            StatsPeriod.WEEKLY to "Week",
+            StatsPeriod.MONTHLY to "Month",
+            StatsPeriod.QUARTERLY to "Quarter",
+            StatsPeriod.ALL_TIME to "All time",
+            StatsPeriod.CUSTOM to "Custom"
+        )
     }
 }
