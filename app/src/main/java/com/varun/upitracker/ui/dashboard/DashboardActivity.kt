@@ -39,6 +39,7 @@ import java.util.Locale
 class DashboardActivity : AppCompatActivity() {
 
     private lateinit var tvDailySpend: TextView
+    private lateinit var tvWeeklySpend: TextView
     private lateinit var tvMonthlySpend: TextView
     private lateinit var recentRow: LinearLayout
     private lateinit var iouContainer: LinearLayout
@@ -62,6 +63,7 @@ class DashboardActivity : AppCompatActivity() {
         }
 
         tvDailySpend = findViewById(R.id.tvDailySpend)
+        tvWeeklySpend = findViewById(R.id.tvWeeklySpend)
         tvMonthlySpend = findViewById(R.id.tvMonthlySpend)
         recentRow = findViewById(R.id.recentTransactionsRow)
         iouContainer = findViewById(R.id.iouContainer)
@@ -82,6 +84,7 @@ class DashboardActivity : AppCompatActivity() {
         findViewById<Button>(R.id.btnAddManual).setOnClickListener { launchManualEntry() }
         viewModel.uiState.observe(this) { state ->
             tvDailySpend.text = "Rs${"%.0f".format(state.dailySpendPaise / 100.0)}"
+            tvWeeklySpend.text = "Rs${"%.0f".format(state.weeklySpendPaise / 100.0)}"
             tvMonthlySpend.text = "Rs${"%.0f".format(state.monthlySpendPaise / 100.0)}"
             buildRecentRow(state.recentEntries)
             latestIouSummaries = state.iouSummaries

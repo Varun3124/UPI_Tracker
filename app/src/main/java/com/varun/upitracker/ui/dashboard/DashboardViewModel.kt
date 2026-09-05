@@ -19,6 +19,7 @@ import kotlinx.coroutines.withContext
 
 data class DashboardUiState(
     val dailySpendPaise: Long = 0L,
+    val weeklySpendPaise: Long = 0L,
     val monthlySpendPaise: Long = 0L,
     val recentEntries: List<LedgerEntry> = emptyList(),
     val accountLabels: Map<String, String> = emptyMap(),
@@ -40,6 +41,7 @@ class DashboardViewModel(private val context: Context) : ViewModel() {
                 val transfers = db.accountTransferDao().getRecentTransfers(5).map(LedgerEntry::Transfer)
                 DashboardUiState(
                     dailySpendPaise = accountRepository.getSpendSince(spendFrom(StatsPeriod.DAILY, now)),
+                    weeklySpendPaise = accountRepository.getSpendSince(spendFrom(StatsPeriod.WEEKLY, now)),
                     monthlySpendPaise = accountRepository.getSpendSince(spendFrom(StatsPeriod.MONTHLY, now)),
                     recentEntries = (transactions + transfers)
                         .sortedByDescending { it.dateEpoch }
