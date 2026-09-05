@@ -37,6 +37,8 @@ class StatisticsActivity : AppCompatActivity() {
     private lateinit var pieChart: PieChartView
     private lateinit var tvPieTotal: TextView
     private lateinit var tvStatsEmpty: TextView
+    private lateinit var tvCategoryCardTitle: TextView
+    private lateinit var btnClearDrill: TextView
     private lateinit var legendContainer: LinearLayout
     private lateinit var cardWeekBars: View
     private lateinit var tvPeakDay: TextView
@@ -77,11 +79,21 @@ class StatisticsActivity : AppCompatActivity() {
         pieChart = findViewById(R.id.pieChart)
         tvPieTotal = findViewById(R.id.tvPieTotal)
         tvStatsEmpty = findViewById(R.id.tvStatsEmpty)
+        tvCategoryCardTitle = findViewById(R.id.tvCategoryCardTitle)
+        btnClearDrill = findViewById(R.id.btnClearDrill)
         legendContainer = findViewById(R.id.legendContainer)
         cardWeekBars = findViewById(R.id.cardWeekBars)
         tvPeakDay = findViewById(R.id.tvPeakDay)
         weekBars = findViewById(R.id.weekBars)
         swipeContainer = findViewById(R.id.swipeContainer)
+        btnClearDrill.setOnClickListener { viewModel.clearDrill() }
+        pieChart.onSliceTapped = { index ->
+            // Drilling only makes sense one level deep; a tap inside the merchant pie is inert.
+            val state = viewModel.uiState.value
+            if (state != null && state.drilledCategory == null) {
+                state.breakdown.slices.getOrNull(index)?.let { viewModel.drillInto(it) }
+            }
+        }
         weekBars.onDayTapped = { index ->
             viewModel.uiState.value?.breakdown?.days?.getOrNull(index)
                 ?.let { viewModel.selectDay(it.dayStartEpoch) }
@@ -123,32 +135,63 @@ class StatisticsActivity : AppCompatActivity() {
         swipeContainer.isSwipeEnabled = shiftable
         swipeContainer.canSwipeForward = state.canGoForward
 
-        val slices = state.breakdown.slices
-        val total = state.breakdown.totalPaise
+        val drilled = state.drilledCategory
+        val slices = if (drilled != null) state.payeeSlices else state.breakdown.slices
+        val total = slices.sumOf { it.paise }
+
+        tvCategoryCardTitle.text = if (drilled != null) "BY MERCHANT - ${drilled.name}" else "BY CATEGORY"
+        btnClearDrill.visibility = if (drilled != null) View.VISIBLE else View.GONE
+
         pieChart.setSlices(slices.map { it.paise }, slices.map { it.color })
         tvPieTotal.text = formatRupees(total)
         tvStatsEmpty.visibility = if (slices.isEmpty()) View.VISIBLE else View.GONE
-        buildLegend(slices, total)
-
-        val showBars = state.period == StatsPeriod.WEEKLY && state.breakdown.days.isNotEmpty()
-        cardWeekBars.visibility = if (showBars) View.VISIBLE else View.GONE
-        if (showBars) {
-            val days = state.breakdown.days
-            // Only the ends carry a date, so the week's span reads without labelling every column.
-            val dates = days.indices.map { index ->
-                if (index == 0 || index == days.lastIndex) shortFmt.format(Date(days[index].dayStartEpoch))
-                else null
-            }
-            weekBars.setColumns(
-                days.map { it.label }, dates, days.map { it.segments }, slices.map { it.color }
-            )
-            val peak = days.maxOf { it.totalPaise }
-            tvPeakDay.text =
-                if (peak > 0L) "Busiest day ${formatRupees(peak)}" else "Nothing spent this week"
+        tvStatsEmpty.text = if (drilled != null) {
+            "Nothing under ${drilled.name} in this period"
+        } else {
+            "No spending in this period"
         }
+        buildLegend(slices, total, drillable = drilled == null)
+
+        renderWeekBars(state, drilled)
     }
 
-    private fun buildLegend(slices: List<CategorySlice>, totalPaise: Long) {
+    /**
+     * While drilled, the bars narrow to that one category using the column already folded for it --
+     * no extra query, and the same numbers the pie was built from.
+     */
+    private fun renderWeekBars(state: StatisticsUiState, drilled: CategorySlice?) {
+        val days = state.breakdown.days
+        val showBars = state.period == StatsPeriod.WEEKLY && days.isNotEmpty()
+        cardWeekBars.visibility = if (showBars) View.VISIBLE else View.GONE
+        if (!showBars) return
+
+        val categoryIndex = drilled?.let { target ->
+            state.breakdown.slices.indexOfFirst { it.categoryId == target.categoryId }
+        } ?: -1
+
+        val columns: List<List<Long>>
+        val colors: List<Int>
+        if (drilled != null) {
+            // Absent from this period: draw an empty week rather than the whole breakdown.
+            columns = days.map { day -> listOf(day.segments.getOrElse(categoryIndex) { 0L }) }
+            colors = listOf(drilled.color)
+        } else {
+            columns = days.map { it.segments }
+            colors = state.breakdown.slices.map { it.color }
+        }
+
+        // Only the ends carry a date, so the week's span reads without labelling every column.
+        val dates = days.indices.map { index ->
+            if (index == 0 || index == days.lastIndex) shortFmt.format(Date(days[index].dayStartEpoch))
+            else null
+        }
+        weekBars.setColumns(days.map { it.label }, dates, columns, colors)
+
+        val peak = columns.maxOf { it.sum() }
+        tvPeakDay.text = if (peak > 0L) "Busiest day ${formatRupees(peak)}" else "Nothing spent this week"
+    }
+
+    private fun buildLegend(slices: List<CategorySlice>, totalPaise: Long, drillable: Boolean) {
         legendContainer.removeAllViews()
         val inflater = LayoutInflater.from(this)
         slices.forEach { slice ->
@@ -161,6 +204,10 @@ class StatisticsActivity : AppCompatActivity() {
             row.findViewById<TextView>(R.id.tvLegendAmount).text = formatRupees(slice.paise)
             row.findViewById<TextView>(R.id.tvLegendPercent).text =
                 if (totalPaise > 0L) "${(slice.paise * 100.0 / totalPaise).toInt()}%" else ""
+            if (drillable) {
+                row.isClickable = true
+                row.setOnClickListener { viewModel.drillInto(slice) }
+            }
             legendContainer.addView(row)
         }
     }

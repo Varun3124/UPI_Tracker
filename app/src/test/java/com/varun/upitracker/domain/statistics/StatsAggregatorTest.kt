@@ -1,6 +1,7 @@
 package com.varun.upitracker.domain.statistics
 
 import com.varun.upitracker.database.model.CategoryTotal
+import com.varun.upitracker.database.model.PayeeTotal
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
@@ -237,5 +238,58 @@ class BarAxisTest {
     fun labelsThinOutOnceTheAxisGrowsPastSixLines() {
         assertEquals(1, BarAxis.labelStride(BarAxis.gridlinesPaise(rupees(3000)).size))
         assertEquals(2, BarAxis.labelStride(BarAxis.gridlinesPaise(rupees(5000)).size))
+    }
+}
+class PayeeSliceTest {
+
+    private fun merchant(id: Long, name: String, paise: Long) = PayeeTotal(id, null, name, paise)
+    private fun friend(id: Long, name: String, paise: Long) = PayeeTotal(null, id, name, paise)
+
+    @Test
+    fun orderedLargestFirst() {
+        val slices = StatsAggregator.toPayeeSlices(
+            listOf(merchant(1, "Swiggy", 200), merchant(2, "Zomato", 900))
+        )
+        assertEquals(listOf("Zomato", "Swiggy"), slices.map { it.name })
+    }
+
+    @Test
+    fun nonPositivePayeesAreDropped() {
+        val slices = StatsAggregator.toPayeeSlices(
+            listOf(merchant(1, "Swiggy", 0), merchant(2, "Zomato", 400))
+        )
+        assertEquals(listOf("Zomato"), slices.map { it.name })
+    }
+
+    /**
+     * A gift has a friend where a purchase has a merchant. Negating one id space keeps the two
+     * from sharing a colour when the numeric ids happen to coincide.
+     */
+    @Test
+    fun aMerchantAndAFriendWithTheSameIdDoNotShareAColour() {
+        val slices = StatsAggregator.toPayeeSlices(
+            listOf(merchant(7, "Swiggy", 500), friend(7, "Asha", 400))
+        )
+        assertEquals(2, slices.map { it.color }.toSet().size)
+        assertEquals(listOf(7L, -7L), slices.map { it.categoryId })
+    }
+
+    @Test
+    fun colourIsStableAcrossDifferentSurroundingSets() {
+        val alone = StatsAggregator.toPayeeSlices(listOf(merchant(3, "Uber", 100))).single().color
+        val crowded = StatsAggregator.toPayeeSlices(
+            listOf(merchant(1, "A", 900), merchant(3, "Uber", 100), friend(2, "B", 500))
+        ).first { it.name == "Uber" }.color
+        assertEquals(alone, crowded)
+    }
+
+    /** A merchant that was never saved has neither id; it still needs a slice. */
+    @Test
+    fun anUnsavedPayeeStillGetsASlice() {
+        val slices = StatsAggregator.toPayeeSlices(
+            listOf(PayeeTotal(null, null, "Corner Shop", 300))
+        )
+        assertEquals(1, slices.size)
+        assertEquals(0L, slices.single().categoryId)
     }
 }

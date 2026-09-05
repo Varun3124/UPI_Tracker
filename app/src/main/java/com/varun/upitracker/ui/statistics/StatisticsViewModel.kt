@@ -10,6 +10,7 @@ import com.varun.upitracker.data.repository.AccountRepository
 import com.varun.upitracker.database.AppDatabase
 import com.varun.upitracker.database.entity.CategoryKind
 import com.varun.upitracker.domain.statistics.Breakdown
+import com.varun.upitracker.domain.statistics.CategorySlice
 import com.varun.upitracker.domain.statistics.DateRange
 import com.varun.upitracker.domain.statistics.StatisticsPeriods
 import com.varun.upitracker.domain.statistics.StatsAggregator
@@ -25,6 +26,9 @@ data class StatisticsUiState(
     val range: DateRange = DateRange(0L, 0L),
     val canGoForward: Boolean = false,
     val breakdown: Breakdown = Breakdown(emptyList()),
+    /** Non-null while drilled into one category; the screen then shows its counterparties. */
+    val drilledCategory: CategorySlice? = null,
+    val payeeSlices: List<CategorySlice> = emptyList(),
     val isLoading: Boolean = true
 )
 
@@ -40,7 +44,20 @@ class StatisticsViewModel(context: Context) : ViewModel() {
     private var anchor = System.currentTimeMillis()
     private var customFrom = 0L
     private var customTo = 0L
+    private var drilled: CategorySlice? = null
     private var loadJob: Job? = null
+
+    /** Scopes the screen to one category. Survives period changes and stepping. */
+    fun drillInto(slice: CategorySlice) {
+        drilled = slice
+        load()
+    }
+
+    fun clearDrill() {
+        if (drilled == null) return
+        drilled = null
+        load()
+    }
 
     fun selectPeriod(next: StatsPeriod) {
         period = next
@@ -78,14 +95,28 @@ class StatisticsViewModel(context: Context) : ViewModel() {
         val anchor = this.anchor
         val range = StatisticsPeriods.rangeFor(period, anchor, customFrom, customTo)
 
+        val drilled = this.drilled
+
         loadJob = viewModelScope.launch {
-            val breakdown = withContext(Dispatchers.IO) { loadBreakdown(period, anchor, range) }
+            val (breakdown, payees) = withContext(Dispatchers.IO) {
+                val result = loadBreakdown(period, anchor, range)
+                val payeeTotals = drilled?.let {
+                    repository.getPayeeTotalsForCategory(
+                        CategoryKind.EXPENSE, it.categoryId, range.fromExclusive, range.toInclusive
+                    )
+                }.orEmpty()
+                result to StatsAggregator.toPayeeSlices(payeeTotals)
+            }
             _uiState.value = StatisticsUiState(
                 period = period,
                 anchorEpoch = anchor,
                 range = range,
                 canGoForward = StatisticsPeriods.canShiftForward(period, anchor, System.currentTimeMillis()),
                 breakdown = breakdown,
+                // Re-priced against this window, so the header total follows a period change even
+                // when the category is absent from the new one.
+                drilledCategory = drilled?.copy(paise = payees.sumOf { it.paise }),
+                payeeSlices = payees,
                 isLoading = false
             )
         }

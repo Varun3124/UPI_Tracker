@@ -1,6 +1,7 @@
 package com.varun.upitracker.domain.statistics
 
 import com.varun.upitracker.database.model.CategoryTotal
+import com.varun.upitracker.database.model.PayeeTotal
 
 /** One category's share of a window, carrying the colour it is drawn in on both charts. */
 data class CategorySlice(
@@ -72,6 +73,23 @@ object StatsAggregator {
                     color = CategoryPalette.colorFor(it.categoryId)
                 )
             }
+            .toList()
+
+    /**
+     * The same shape as [toSlices], for the counterparties inside one category.
+     *
+     * [CategorySlice.categoryId] carries the **palette key** here rather than a category id:
+     * a merchant id, or a friend id negated so the two id spaces cannot collide. That keeps a
+     * payee's colour stable across periods for the same reason category colours are.
+     */
+    fun toPayeeSlices(totals: List<PayeeTotal>): List<CategorySlice> =
+        totals.asSequence()
+            .filter { it.netPaise > 0L }
+            .map { total ->
+                val key = total.merchantId ?: total.friendId?.let { -it } ?: 0L
+                CategorySlice(key, total.payeeName, total.netPaise, CategoryPalette.colorFor(key))
+            }
+            .sortedWith(compareByDescending<CategorySlice> { it.paise }.thenBy { it.categoryId })
             .toList()
 
     /**

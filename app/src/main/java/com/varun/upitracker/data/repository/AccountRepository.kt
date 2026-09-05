@@ -3,6 +3,7 @@ package com.varun.upitracker.data.repository
 import androidx.lifecycle.LiveData
 import androidx.room.withTransaction
 import com.varun.upitracker.database.model.CategoryTotal
+import com.varun.upitracker.database.model.PayeeTotal
 import com.varun.upitracker.database.AppDatabase
 import com.varun.upitracker.database.entity.CategoryKind
 import com.varun.upitracker.database.entity.Account
@@ -399,6 +400,18 @@ class AccountRepository private constructor(
         toEpoch: Long = Long.MAX_VALUE
     ): List<CategoryTotal> = database.transactionDao()
         .getTotalsByCategoryBetween(kind, fromEpoch, toEpoch)
+
+    /**
+     * Who was paid within [categoryId] over `(fromEpoch, toEpoch]`. Sums to that category's own
+     * total from [getTotalsByCategory] over the same window.
+     */
+    suspend fun getPayeeTotalsForCategory(
+        kind: CategoryKind,
+        categoryId: Long,
+        fromEpoch: Long,
+        toEpoch: Long = Long.MAX_VALUE
+    ): List<PayeeTotal> = database.transactionDao()
+        .getPayeeTotalsForCategoryBetween(kind, categoryId, fromEpoch, toEpoch)
 
     suspend fun bookFixedDeposit(
         accountId: String,

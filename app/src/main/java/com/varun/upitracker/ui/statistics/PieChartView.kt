@@ -7,7 +7,10 @@ import android.graphics.Paint
 import android.graphics.RectF
 import android.util.AttributeSet
 import android.util.TypedValue
+import android.view.MotionEvent
 import android.view.View
+import android.view.ViewConfiguration
+import kotlin.math.abs
 import com.varun.upitracker.domain.statistics.CategoryPalette
 import com.varun.upitracker.domain.statistics.PieGeometry
 
@@ -17,8 +20,9 @@ import com.varun.upitracker.domain.statistics.PieGeometry
  * The app's first custom View, so it is deliberately minimal: onMeasure and onDraw, no custom
  * attributes, no animation, no touch handling.
  *
- * No touch handling specifically because this sits inside [SwipeableFrameLayout] and covers the
- * largest target on the screen -- a chart that consumed drags would swallow the period swipe.
+ * Slices are tappable. Only the DOWN is claimed, which is enough for a tap and still leaves the
+ * swipe container first refusal on every MOVE, so a horizontal drag begun on the pie still steps
+ * the period rather than being swallowed.
  *
  * It draws no text either. The centre figure is a real TextView overlaid by the layout, so it can
  * be formatted the same way every other amount in the app is.
@@ -41,7 +45,12 @@ class PieChartView @JvmOverloads constructor(
         strokeWidth = dp(18f)
     }
 
+    /** Index into the slice list the values were set from. */
+    var onSliceTapped: ((Int) -> Unit)? = null
+
     private val oval = RectF()
+    private var downX = 0f
+    private var downY = 0f
     private var colors = IntArray(0)
     private var sweeps = FloatArray(0)
 
@@ -50,6 +59,7 @@ class PieChartView @JvmOverloads constructor(
         require(values.size == sliceColors.size) { "One colour per slice." }
         colors = sliceColors.toIntArray()
         sweeps = PieGeometry.sweeps(values).toFloatArray()
+        isClickable = onSliceTapped != null && sweeps.isNotEmpty()
         invalidate()
     }
 
@@ -60,15 +70,21 @@ class PieChartView @JvmOverloads constructor(
         setMeasuredDimension(w, resolveSize(h, heightMeasureSpec))
     }
 
-    override fun onDraw(canvas: Canvas) {
+    /**
+     * Centre and radius, derived once so hit-testing cannot drift from drawing. The view is not
+     * square -- match_parent wide, height capped -- so the diameter follows the smaller side while
+     * the centre follows the box, and cx != cy.
+     */
+    private fun geometry(): Triple<Float, Float, Float>? {
         val usableW = width - paddingLeft - paddingRight
         val usableH = height - paddingTop - paddingBottom
         val diameter = minOf(usableW, usableH).toFloat()
-        if (diameter <= 0f) return
+        if (diameter <= 0f) return null
+        return Triple(paddingLeft + usableW / 2f, paddingTop + usableH / 2f, diameter / 2f)
+    }
 
-        val cx = paddingLeft + usableW / 2f
-        val cy = paddingTop + usableH / 2f
-        val radius = diameter / 2f
+    override fun onDraw(canvas: Canvas) {
+        val (cx, cy, radius) = geometry() ?: return
         oval.set(cx - radius, cy - radius, cx + radius, cy + radius)
 
         if (sweeps.isEmpty()) {
@@ -90,6 +106,56 @@ class PieChartView @JvmOverloads constructor(
         }
 
         canvas.drawCircle(cx, cy, radius * HOLE_RATIO, holePaint)
+    }
+
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (onSliceTapped == null || sweeps.isEmpty()) return super.onTouchEvent(event)
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                downX = event.x
+                downY = event.y
+                return true
+            }
+            MotionEvent.ACTION_UP -> {
+                val slop = ViewConfiguration.get(context).scaledTouchSlop
+                if (abs(event.x - downX) <= slop && abs(event.y - downY) <= slop) {
+                    sliceAt(downX, downY)?.let {
+                        performClick()
+                        onSliceTapped?.invoke(it)
+                    }
+                }
+                return true
+            }
+            MotionEvent.ACTION_CANCEL -> return true
+        }
+        return super.onTouchEvent(event)
+    }
+
+    override fun performClick(): Boolean {
+        super.performClick()
+        return true
+    }
+
+    /**
+     * Walks the same sweep array the draw used rather than recomputing percentages -- its last
+     * element absorbs the rounding, so a recomputed one would disagree near twelve o'clock.
+     */
+    private fun sliceAt(x: Float, y: Float): Int? {
+        val (cx, cy, radius) = geometry() ?: return null
+        val dx = x - cx
+        val dy = y - cy
+        val distance = kotlin.math.sqrt(dx * dx + dy * dy)
+        if (distance < radius * HOLE_RATIO || distance > radius) return null
+
+        val degrees = Math.toDegrees(kotlin.math.atan2(dy.toDouble(), dx.toDouble())).toFloat()
+        val fromStart = ((degrees - PieGeometry.START_ANGLE) % 360f + 360f) % 360f
+
+        var accumulated = 0f
+        sweeps.forEachIndexed { index, sweep ->
+            accumulated += sweep
+            if (fromStart < accumulated) return index
+        }
+        return sweeps.lastIndex
     }
 
     private fun dp(value: Float) =

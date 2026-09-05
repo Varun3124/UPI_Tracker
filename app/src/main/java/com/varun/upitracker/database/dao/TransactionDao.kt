@@ -377,4 +377,77 @@ interface TransactionDao {
         fromEpochExclusive: Long,
         toEpochInclusive: Long
     ): List<com.varun.upitracker.database.model.CategoryTotal>
+
+    /**
+     * Net spend per counterparty within a single category over
+     * `(fromEpochExclusive, toEpochInclusive]` -- the breakdown behind a drilled-into pie slice.
+     *
+     * Mirrors [getTotalsByCategoryBetween] leg for leg with a category filter added, so summing
+     * this reproduces that category's own `netPaise` exactly.
+     *
+     * The **payee** side is the counterparty: an expense requires ME's share on the payer side, so
+     * whoever was paid is on the other one. The joins are LEFT because a ledger-neutral gift has a
+     * friend rather than a merchant, and an inner join would silently drop it -- leaving the
+     * breakdown short of the slice it is supposed to partition.
+     *
+     * The refund leg groups by the **original purchase's** payee, not the refund's. A refund has
+     * the merchant on its payer side, and it is the original's share of the slice being reduced.
+     */
+    @Query(
+        """
+        SELECT merchantId, friendId, payeeName, SUM(paise) AS netPaise FROM (
+            SELECT t.payeeMerchantId AS merchantId,
+                   t.payeeFriendId   AS friendId,
+                   COALESCE(m.name, f.name, t.payeeRawLabel, 'Unknown') AS payeeName,
+                   cs.myAmountPaise  AS paise
+            FROM transaction_category_splits cs
+            INNER JOIN transactions t ON t.id = cs.transactionId
+            INNER JOIN categories c ON c.id = cs.categoryId AND c.kind = :kind
+            LEFT JOIN merchants m ON m.id = t.payeeMerchantId
+            LEFT JOIN friends f ON f.id = t.payeeFriendId
+            WHERE cs.categoryId = :categoryId
+              AND t.refundsTransactionId IS NULL
+              AND t.dateEpoch > :fromEpochExclusive
+              AND t.dateEpoch <= :toEpochInclusive
+              AND (t.payerActorType = 'MERCHANT'
+                   OR t.payeeActorType = 'MERCHANT'
+                   OR t.ledgerEffect = 'NONE')
+              AND EXISTS (
+                  SELECT 1 FROM transaction_shares s
+                  WHERE s.transactionId = t.id
+                    AND s.participantType = 'ME'
+                    AND COALESCE(
+                          s.side,
+                          CASE WHEN t.payerActorType = 'ME' THEN 'PAYER'
+                               WHEN t.payeeActorType = 'ME' THEN 'PAYEE' END
+                        ) = CASE WHEN :kind = 'EXPENSE' THEN 'PAYER' ELSE 'PAYEE' END
+              )
+
+            UNION ALL
+
+            SELECT o.payeeMerchantId AS merchantId,
+                   o.payeeFriendId   AS friendId,
+                   COALESCE(m.name, f.name, o.payeeRawLabel, 'Unknown') AS payeeName,
+                   -cs.myAmountPaise AS paise
+            FROM transaction_category_splits cs
+            INNER JOIN transactions r ON r.id = cs.transactionId
+            INNER JOIN transactions o ON o.id = r.refundsTransactionId
+            INNER JOIN categories c ON c.id = cs.categoryId AND c.kind = :kind
+            LEFT JOIN merchants m ON m.id = o.payeeMerchantId
+            LEFT JOIN friends f ON f.id = o.payeeFriendId
+            WHERE cs.categoryId = :categoryId
+              AND o.dateEpoch > :fromEpochExclusive
+              AND o.dateEpoch <= :toEpochInclusive
+        )
+        GROUP BY merchantId, friendId, payeeName
+        HAVING SUM(paise) != 0
+        ORDER BY netPaise DESC
+        """
+    )
+    suspend fun getPayeeTotalsForCategoryBetween(
+        kind: CategoryKind,
+        categoryId: Long,
+        fromEpochExclusive: Long,
+        toEpochInclusive: Long
+    ): List<com.varun.upitracker.database.model.PayeeTotal>
 }
