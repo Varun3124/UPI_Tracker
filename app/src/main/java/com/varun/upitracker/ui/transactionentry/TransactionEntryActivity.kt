@@ -1454,14 +1454,10 @@ class TransactionEntryActivity : AppCompatActivity() {
 
     private suspend fun loadRefundCandidates(db: AppDatabase) {
         val merchantId = payerMerchantId
-        loadedRefundMerchantId = merchantId
-        if (merchantId == null) {
-            // A merchant typed but not yet saved has no purchase history to refund against.
-            refundCandidates = emptyList()
-            renderRefundTarget()
-            return
-        }
-        val rows = withContext(Dispatchers.IO) {
+        val previousMerchantId = loadedRefundMerchantId
+
+        // A merchant typed but not yet saved has no purchase history to refund against.
+        val rows = if (merchantId == null) emptyList() else withContext(Dispatchers.IO) {
             db.transactionDao().getRefundCandidates(
                 merchantId = merchantId,
                 refundDateEpoch = Long.MAX_VALUE,
@@ -1469,7 +1465,37 @@ class TransactionEntryActivity : AppCompatActivity() {
                 limit = REFUND_CANDIDATE_LIMIT
             )
         }
-        refundCandidates = rows.map { tx ->
+
+        // The merchant changed again while this query was in flight; that newer load owns the
+        // list now, and committing these rows would leave the wrong merchant's purchases on
+        // screen under a memo that says otherwise.
+        if (payerMerchantId != merchantId) return
+        loadedRefundMerchantId = merchantId
+
+        // A target picked for a different merchant must not survive the switch: the candidate
+        // list no longer contains it, so it would render as an unnamed "linked purchase" while
+        // still saving a refund against another merchant's transaction. Only when a merchant was
+        // genuinely loaded before -- the first load runs before an edit populates its merchant,
+        // and must not clear the link that transaction already carries.
+        if (previousMerchantId != null && previousMerchantId != merchantId &&
+            refundsTransactionId != null
+        ) {
+            clearRefundTarget()
+            rebuildCategoryEntries()
+            updateCategoryVisibility()
+        }
+
+        // An edited refund whose purchase is older than the candidate limit is still valid; keep
+        // it in the list so it renders by name and stays selectable.
+        val target = refundsTransactionId
+        val resolved = if (target != null && rows.none { it.id == target }) {
+            val original = withContext(Dispatchers.IO) { db.transactionDao().getTransactionById(target) }
+            listOfNotNull(original) + rows
+        } else {
+            rows
+        }
+
+        refundCandidates = resolved.map { tx ->
             val label = fmtDateTime(tx.dateEpoch) + " - " + tx.resolvePrimaryDisplay(db) +
                 " - Rs" + formatPlainAmount(tx.amountPaise)
             tx to label
