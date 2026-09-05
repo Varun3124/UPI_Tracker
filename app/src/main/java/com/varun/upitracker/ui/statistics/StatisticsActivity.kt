@@ -147,7 +147,8 @@ class StatisticsActivity : AppCompatActivity() {
             val days = state.breakdown.days
             weekBars.setColumns(days.map { it.label }, days.map { it.segments }, slices.map { it.color })
             val peak = days.maxOf { it.totalPaise }
-            tvPeakDay.text = if (peak > 0L) "Busiest day ${formatRupees(peak)}" else "Nothing spent this week"
+            tvPeakDay.text =
+                if (peak > 0L) "Busiest day ${formatRupees(peak)}" else "Nothing spent this week"
         }
     }
 

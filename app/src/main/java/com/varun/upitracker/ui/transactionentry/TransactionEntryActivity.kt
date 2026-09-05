@@ -1946,23 +1946,30 @@ class TransactionEntryActivity : AppCompatActivity() {
         payer: ActorRef,
         payee: ActorRef
     ) {
-        val merchantInvolved = payerActorType == ActorType.MERCHANT || payeeActorType == ActorType.MERCHANT
-        if (!merchantInvolved || meSharePaise <= 0L) return
+        if (meSharePaise <= 0L) return
         // Use the just-resolved actor refs, not the cached payerMerchantId/payeeMerchantId fields:
         // those are still null for a merchant newly created earlier in this same save.
+        //
+        // Null for a ledger-neutral gift, which has a friend on the other side. That must not stop
+        // the splits being written: the entry screen makes categories mandatory for those too, and
+        // persist() has already deleted the previous rows by the time this runs -- so returning
+        // early here silently dropped every category the user was just forced to pick.
         val merchantId = categorySplitManager.selectedMerchantId(
             payerActorType = payerActorType,
             payeeActorType = payeeActorType,
             payerMerchantId = payer.merchantId,
             payeeMerchantId = payee.merchantId
-        ) ?: return
+        )
         categoryEntries.filter { it.isChecked }.forEach { entry ->
-            db.categoryDao().linkMerchantCategory(
-                MerchantCategory(
-                    merchantId = merchantId,
-                    categoryId = entry.category.id
+            // Only a suggestion cache for next time; nothing that affects money reads it.
+            if (merchantId != null) {
+                db.categoryDao().linkMerchantCategory(
+                    MerchantCategory(
+                        merchantId = merchantId,
+                        categoryId = entry.category.id
+                    )
                 )
-            )
+            }
             val myAmount = entry.myAmountPaise
             if (myAmount > 0L) {
                 db.categorySplitDao().insert(

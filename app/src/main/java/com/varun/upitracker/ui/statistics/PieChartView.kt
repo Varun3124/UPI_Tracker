@@ -34,11 +34,6 @@ class PieChartView @JvmOverloads constructor(
         style = Paint.Style.FILL
         color = Color.WHITE // the card behind it is #FFFFFF
     }
-    private val dividerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.STROKE
-        color = Color.WHITE
-        strokeWidth = dp(2f)
-    }
     private val emptyPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         color = CategoryPalette.NEUTRAL
@@ -92,21 +87,6 @@ class PieChartView @JvmOverloads constructor(
             slicePaint.color = colors[i]
             canvas.drawArc(oval, angle, sweeps[i], true, slicePaint)
             angle += sweeps[i]
-        }
-
-        // Separators after every fill, so a later slice cannot paint over its neighbour's line.
-        if (sweeps.size > 1) {
-            angle = PieGeometry.START_ANGLE
-            for (sweep in sweeps) {
-                val radians = Math.toRadians(angle.toDouble())
-                canvas.drawLine(
-                    cx, cy,
-                    cx + (radius * Math.cos(radians)).toFloat(),
-                    cy + (radius * Math.sin(radians)).toFloat(),
-                    dividerPaint
-                )
-                angle += sweep
-            }
         }
 
         canvas.drawCircle(cx, cy, radius * HOLE_RATIO, holePaint)
