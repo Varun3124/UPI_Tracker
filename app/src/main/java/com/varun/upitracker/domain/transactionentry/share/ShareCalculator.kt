@@ -96,17 +96,31 @@ class ShareCalculator {
             return CategoryTargeting(0L, CategoryKind.EXPENSE)
         }
 
-        // A refund puts ME on the payee side, but it is a negative expense, not income: its pills
-        // are the original purchase's expense categories.
-        if (isLinkedRefund) return CategoryTargeting(payeeMeSharePaise, CategoryKind.EXPENSE)
+        // Direction comes from the transaction's shape, never from which side happens to carry a
+        // non-zero share. Amounts are typed after the actors are picked, so reading the direction
+        // off them made a fresh merchant purchase offer INCOME categories until the first
+        // keystroke, then silently swap them for EXPENSE ones.
+        val kind = when {
+            // A refund puts ME on the payee side, but it is an expense running backwards: its
+            // pills are the purchase's own expense categories.
+            isLinkedRefund -> CategoryKind.EXPENSE
+            payeeActorType == ActorType.MERCHANT -> CategoryKind.EXPENSE
+            payerActorType == ActorType.MERCHANT -> CategoryKind.INCOME
+            payerActorType == ActorType.ME -> CategoryKind.EXPENSE
+            payeeActorType == ActorType.ME -> CategoryKind.INCOME
+            // Neither side is ME or a merchant: ME is only a secondary sharer, so fall back to
+            // whichever side actually carries ME's money.
+            payerMeSharePaise > 0L -> CategoryKind.EXPENSE
+            else -> CategoryKind.INCOME
+        }
 
         // Pick a side rather than summing. ME can hold a share on both sides at once -- the "Me"
-        // option is offered per side -- and summing would both double-count and leave the
-        // direction ambiguous.
-        return if (payerMeSharePaise > 0L) {
-            CategoryTargeting(payerMeSharePaise, CategoryKind.EXPENSE)
+        // option is offered per side -- and summing would double-count.
+        val sharePaise = if (kind == CategoryKind.EXPENSE && !isLinkedRefund) {
+            payerMeSharePaise
         } else {
-            CategoryTargeting(payeeMeSharePaise, CategoryKind.INCOME)
+            payeeMeSharePaise
         }
+        return CategoryTargeting(sharePaise, kind)
     }
 }

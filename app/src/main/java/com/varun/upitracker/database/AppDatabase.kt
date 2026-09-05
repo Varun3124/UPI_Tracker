@@ -93,8 +93,8 @@ abstract class AppDatabase : RoomDatabase() {
             "Entertainment" to CategoryKind.EXPENSE,
             "Transport" to CategoryKind.EXPENSE,
             "Essentials" to CategoryKind.EXPENSE,
-            "Gift given" to CategoryKind.EXPENSE,
-            "Gift received" to CategoryKind.INCOME,
+            "Gift" to CategoryKind.EXPENSE,
+            "Gift" to CategoryKind.INCOME,
             "Refund" to CategoryKind.INCOME,
             "Dividend" to CategoryKind.INCOME
         )

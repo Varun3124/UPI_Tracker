@@ -89,4 +89,54 @@ class CategoryTargetingTest {
         assertFalse(hidden.showCategories)
         assertTrue(hidden.shouldClearSelections)
     }
+
+    /**
+     * The bug this guards: kind used to be read off which side carried a non-zero share, but
+     * amounts are typed after the actors are picked. A fresh merchant purchase therefore offered
+     * INCOME categories until the first keystroke, then swapped them for EXPENSE ones.
+     */
+    @Test
+    fun merchantPurchaseWithNoAmountYet_isStillExpense() {
+        val t = target(ActorType.ME, ActorType.MERCHANT)
+        assertEquals(0L, t.sharePaise)
+        assertEquals(CategoryKind.EXPENSE, t.kind)
+    }
+
+    @Test
+    fun kindIsStableAsTheAmountIsTypedIn() {
+        val kinds = listOf(0L, 5L, 500L, 60000L).map {
+            target(ActorType.ME, ActorType.MERCHANT, payerMe = it).kind
+        }
+        assertEquals(List(4) { CategoryKind.EXPENSE }, kinds)
+    }
+
+    @Test
+    fun giftGivenWithNoAmountYet_isStillExpense() {
+        val t = target(ActorType.ME, ActorType.FRIEND, LedgerEffect.NONE)
+        assertEquals(CategoryKind.EXPENSE, t.kind)
+    }
+
+    @Test
+    fun giftReceivedWithNoAmountYet_isStillIncome() {
+        val t = target(ActorType.FRIEND, ActorType.ME, LedgerEffect.NONE)
+        assertEquals(CategoryKind.INCOME, t.kind)
+    }
+
+    @Test
+    fun merchantCreditWithNoAmountYet_isStillIncome() {
+        assertEquals(CategoryKind.INCOME, target(ActorType.MERCHANT, ActorType.ME).kind)
+    }
+
+    /** ME as a secondary sharer on a friend-to-friend gift: no actor type settles it. */
+    @Test
+    fun neitherSideIsMeOrMerchant_fallsBackToTheShareSide() {
+        assertEquals(
+            CategoryKind.EXPENSE,
+            target(ActorType.FRIEND, ActorType.FRIEND, LedgerEffect.NONE, payerMe = 1000L).kind
+        )
+        assertEquals(
+            CategoryKind.INCOME,
+            target(ActorType.FRIEND, ActorType.FRIEND, LedgerEffect.NONE, payeeMe = 1000L).kind
+        )
+    }
 }

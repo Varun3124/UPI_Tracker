@@ -245,8 +245,11 @@ interface TransactionDao {
     suspend fun reassignPayeeMerchant(sourceId: Long, targetId: Long)
 
     /**
-     * Purchases [refundDateEpoch] can be a refund for: settled, categorised, not themselves a
-     * refund, and not this transaction.
+     * Purchases this refund could be reversing: from the same merchant, settled, categorised,
+     * not themselves a refund, and not this transaction.
+     *
+     * Scoped to [merchantId] because a refund comes back from whoever you bought from -- listing
+     * every past purchase would make the picker unusable and invite mislinking.
      *
      * Refunds of refunds are excluded so a chain can never form -- the aggregates resolve a
      * refund's period by following exactly one hop to its original.
@@ -258,12 +261,14 @@ interface TransactionDao {
           AND t.refundsTransactionId IS NULL
           AND t.id != :excludeTransactionId
           AND t.dateEpoch <= :refundDateEpoch
+          AND (t.payeeMerchantId = :merchantId OR t.payerMerchantId = :merchantId)
           AND EXISTS (SELECT 1 FROM transaction_category_splits cs WHERE cs.transactionId = t.id)
         ORDER BY t.dateEpoch DESC, t.id DESC
         LIMIT :limit
         """
     )
     suspend fun getRefundCandidates(
+        merchantId: Long,
         refundDateEpoch: Long,
         excludeTransactionId: Long,
         limit: Int

@@ -159,6 +159,8 @@ class TransactionEntryActivity : AppCompatActivity() {
      * these so a refund can only give money back to where the purchase actually put it.
      */
     private var refundAllowedCategoryIds: Set<Long>? = null
+    /** Merchant [refundCandidates] was built for, so the reload can be skipped when unchanged. */
+    private var loadedRefundMerchantId: Long? = null
 
     private val categoryEntries = mutableListOf<CategoryEntry>()
     /** The category whose split amount tracks ME's remaining share as it changes; null once cleared or unchecked. */
@@ -563,8 +565,10 @@ class TransactionEntryActivity : AppCompatActivity() {
     private fun applyTransferModeUi() {
         val transfer = isTransferMode()
 
-        btnAddPayerPerson.visibility = if (transfer) View.GONE else View.VISIBLE
-        btnAddPayeePerson.visibility = if (transfer) View.GONE else View.VISIBLE
+        btnAddPayerPerson.visibility =
+            if (transfer || payerActorType == ActorType.MERCHANT) View.GONE else View.VISIBLE
+        btnAddPayeePerson.visibility =
+            if (transfer || payeeActorType == ActorType.MERCHANT) View.GONE else View.VISIBLE
         // The whole amount row (Rs field + Equalize) is irrelevant in transfer mode: the
         // from/to amounts live on the share rows instead, previewed via tvBalance.
         amountRow.visibility = if (transfer) View.GONE else View.VISIBLE
@@ -1160,6 +1164,7 @@ class TransactionEntryActivity : AppCompatActivity() {
             ActorType.MERCHANT -> {
                 val match = allMerchants.firstOrNull { it.name == text.trim() }
                 if (isPayer) payerMerchantId = match?.id else payeeMerchantId = match?.id
+                refreshRefundCandidatesIfNeeded()
             }
         }
     }
@@ -1170,6 +1175,7 @@ class TransactionEntryActivity : AppCompatActivity() {
             ActorType.MERCHANT -> {
                 val merchant = allMerchants.find { it.name == selected }
                 if (isPayer) payerMerchantId = merchant?.id else payeeMerchantId = merchant?.id
+                refreshRefundCandidatesIfNeeded()
                 updateCategoryVisibility()
             }
             else -> {
@@ -1372,6 +1378,7 @@ class TransactionEntryActivity : AppCompatActivity() {
             rebuildCategoryEntries()
         }
         styleLedgerEffectTile()
+        refreshRefundCandidatesIfNeeded()
         renderRefundTarget()
     }
 
@@ -1436,9 +1443,27 @@ class TransactionEntryActivity : AppCompatActivity() {
         }
     }
 
+    /** No-op unless the payer merchant actually changed since the list was last built. */
+    private fun refreshRefundCandidatesIfNeeded() {
+        if (!isRefundApplicable()) return
+        if (payerMerchantId == loadedRefundMerchantId) return
+        lifecycleScope.launch {
+            loadRefundCandidates(AppDatabase.Companion.getInstance(applicationContext))
+        }
+    }
+
     private suspend fun loadRefundCandidates(db: AppDatabase) {
+        val merchantId = payerMerchantId
+        loadedRefundMerchantId = merchantId
+        if (merchantId == null) {
+            // A merchant typed but not yet saved has no purchase history to refund against.
+            refundCandidates = emptyList()
+            renderRefundTarget()
+            return
+        }
         val rows = withContext(Dispatchers.IO) {
             db.transactionDao().getRefundCandidates(
+                merchantId = merchantId,
                 refundDateEpoch = Long.MAX_VALUE,
                 excludeTransactionId = currentTransaction?.id ?: -1L,
                 limit = REFUND_CANDIDATE_LIMIT
@@ -1482,6 +1507,11 @@ class TransactionEntryActivity : AppCompatActivity() {
                 .map { CategoryEntry(category = it, isChecked = false, myAmountPaise = 0L) }
         )
         trackedCategoryId = null
+        // Render here rather than in updateCategoryVisibility: this is the only place the list
+        // actually changes, and updateCategoryVisibility is reached on every keystroke via
+        // CategoryAmountChanged -- re-rendering there would recreate the pill EditTexts mid-edit
+        // and steal focus. Guarded because the first rebuild runs before the views are laid out.
+        if (::categoryContainer.isInitialized) renderCategories()
     }
 
     private fun updateCategoryVisibility() {
