@@ -59,7 +59,11 @@ import androidx.room.PrimaryKey
         // Deliberately NOT unique: HDFC reuses filler ref numbers such as "000000000000000"
         // across unrelated rows, so a unique index would reject valid imports.
         Index("statementRefNo"),
-        Index("refundsTransactionId")
+        Index("refundsTransactionId"),
+        // Every date-range query filters on this alone. Without it, and with no ANALYZE to build
+        // sqlite_stat1, the planner reaches for index_transactions_refundsTransactionId instead --
+        // a nonsense choice for a date range, and measurably slower than a plain scan would be.
+        Index("dateEpoch")
     ]
 )
 data class Transaction(

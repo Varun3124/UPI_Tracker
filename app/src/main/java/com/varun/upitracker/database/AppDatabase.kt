@@ -61,7 +61,7 @@ import kotlinx.coroutines.launch
         AccountTransfer::class,
         BalanceSnapshot::class
     ],
-    version = 13,
+    version = 14,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -337,6 +337,18 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_13_14 = object : Migration(13, 14) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // The statistics screen made this worth paying for: it runs seven of these per
+                // weekly view, and `dateEpoch` had no index of its own -- only the composite
+                // (myAccountId, dateEpoch), whose leading column none of these queries constrain.
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_transactions_dateEpoch` " +
+                        "ON `transactions`(`dateEpoch`)"
+                )
+            }
+        }
+
         private fun hasColumn(db: SupportSQLiteDatabase, table: String, column: String): Boolean {
             db.query("PRAGMA table_info(`$table`)").use { cursor ->
                 val nameColumnIndex = cursor.getColumnIndex("name")
@@ -357,7 +369,7 @@ abstract class AppDatabase : RoomDatabase() {
                 )
                     .addMigrations(
                         MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12,
-                        MIGRATION_12_13
+                        MIGRATION_12_13, MIGRATION_13_14
                     )
                     .addCallback(object : Callback() {
                         override fun onCreate(db: SupportSQLiteDatabase) {
