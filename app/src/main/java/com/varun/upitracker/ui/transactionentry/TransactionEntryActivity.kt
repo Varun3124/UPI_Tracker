@@ -1080,14 +1080,6 @@ class TransactionEntryActivity : AppCompatActivity() {
                 onActorTypeSelected(isPayer, if (action.isMerchant) ActorType.MERCHANT else ActorType.ME)
             }
 
-            is TransactionEntryAction.AliasChanged -> {
-                applyPrimaryShareTypedText(action.side, action.text)
-            }
-
-            is TransactionEntryAction.AliasSelected -> {
-                applyPrimaryShareSelection(action.side, action.selection)
-            }
-
             is TransactionEntryAction.AddShare -> {
                 addShareRow(action.side == EntrySide.PAYER)
             }
@@ -1151,53 +1143,6 @@ class TransactionEntryActivity : AppCompatActivity() {
             TransactionEntryAction.CloseClicked -> finish()
             is TransactionEntryAction.ScreenLoaded -> Unit
         }
-    }
-
-    private fun applyPrimaryShareTypedText(side: EntrySide, text: String) {
-        val isPayer = side == EntrySide.PAYER
-        when (actorTypeFor(isPayer)) {
-            ActorType.FRIEND -> {
-                val match = allFriends.firstOrNull { it.name == text.trim() }
-                if (isPayer) payerFriendId = match?.id else payeeFriendId = match?.id
-            }
-
-            ActorType.MERCHANT -> {
-                val match = allMerchants.firstOrNull { it.name == text.trim() }
-                if (isPayer) payerMerchantId = match?.id else payeeMerchantId = match?.id
-                refreshRefundCandidatesIfNeeded()
-            }
-        }
-    }
-
-    private fun applyPrimaryShareSelection(side: EntrySide, selected: String) {
-        val isPayer = side == EntrySide.PAYER
-        when (actorTypeFor(isPayer)) {
-            ActorType.MERCHANT -> {
-                val merchant = allMerchants.find { it.name == selected }
-                if (isPayer) payerMerchantId = merchant?.id else payeeMerchantId = merchant?.id
-                refreshRefundCandidatesIfNeeded()
-                updateCategoryVisibility()
-            }
-            else -> {
-                if (selected == "Me") {
-                    if (!canSwitchTransferMode(isPayer, ActorType.ME)) return
-                    setActorType(isPayer, ActorType.ME)
-                    if (isPayer) payerFriendId = null else payeeFriendId = null
-                } else {
-                    if (!canSwitchTransferMode(isPayer, ActorType.FRIEND)) return
-                    val friend = allFriends.find { it.name == selected }
-                    setActorType(isPayer, ActorType.FRIEND)
-                    if (isPayer) payerFriendId = friend?.id else payeeFriendId = friend?.id
-                }
-                enforceTransferModeRows()
-                applyTransferModeUi()
-                buildShareSection(true)
-                buildShareSection(false)
-                updateCategoryVisibility()
-                updateLiveCalc()
-            }
-        }
-        hideKeyboard()
     }
 
     private fun applyShareNameTyped(side: EntrySide, rowIndex: Int, rawText: String) {
