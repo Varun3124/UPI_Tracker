@@ -26,6 +26,7 @@ import com.varun.upitracker.ui.color
 import com.varun.upitracker.ui.formatTransferAmount
 import com.varun.upitracker.ui.perspectiveColor
 import com.varun.upitracker.ui.settings.SettingsActivity
+import com.varun.upitracker.ui.statistics.StatisticsActivity
 import com.varun.upitracker.ui.transactionentry.TransactionEntryActivity
 import com.varun.upitracker.ui.formatPerspectiveAmount
 import com.varun.upitracker.ui.resolvePrimaryDisplay
@@ -79,6 +80,9 @@ class DashboardActivity : AppCompatActivity() {
 
         findViewById<TextView>(R.id.btnSettings).setOnClickListener {
             startActivity(Intent(this, SettingsActivity::class.java))
+        }
+        findViewById<View>(R.id.cardSpending).setOnClickListener {
+            startActivity(Intent(this, StatisticsActivity::class.java))
         }
 
         findViewById<Button>(R.id.btnAddManual).setOnClickListener { launchManualEntry() }
