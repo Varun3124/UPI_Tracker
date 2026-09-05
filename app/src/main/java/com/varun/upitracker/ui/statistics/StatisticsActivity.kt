@@ -82,6 +82,10 @@ class StatisticsActivity : AppCompatActivity() {
         tvPeakDay = findViewById(R.id.tvPeakDay)
         weekBars = findViewById(R.id.weekBars)
         swipeContainer = findViewById(R.id.swipeContainer)
+        weekBars.onDayTapped = { index ->
+            viewModel.uiState.value?.breakdown?.days?.getOrNull(index)
+                ?.let { viewModel.selectDay(it.dayStartEpoch) }
+        }
         swipeContainer.onSwipe = { direction -> viewModel.step(direction) }
 
         btnPickPeriod.setOnClickListener { showPeriodMenu() }
@@ -130,7 +134,14 @@ class StatisticsActivity : AppCompatActivity() {
         cardWeekBars.visibility = if (showBars) View.VISIBLE else View.GONE
         if (showBars) {
             val days = state.breakdown.days
-            weekBars.setColumns(days.map { it.label }, days.map { it.segments }, slices.map { it.color })
+            // Only the ends carry a date, so the week's span reads without labelling every column.
+            val dates = days.indices.map { index ->
+                if (index == 0 || index == days.lastIndex) shortFmt.format(Date(days[index].dayStartEpoch))
+                else null
+            }
+            weekBars.setColumns(
+                days.map { it.label }, dates, days.map { it.segments }, slices.map { it.color }
+            )
             val peak = days.maxOf { it.totalPaise }
             tvPeakDay.text =
                 if (peak > 0L) "Busiest day ${formatRupees(peak)}" else "Nothing spent this week"

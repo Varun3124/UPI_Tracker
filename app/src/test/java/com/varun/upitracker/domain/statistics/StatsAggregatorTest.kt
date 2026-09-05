@@ -119,18 +119,19 @@ class StatsAggregatorTest {
         emptyList()                                                    // Sun
     )
     private val labels = listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+    private val epochs = (0L until 7L).map { 1_700_000_000_000L + it * 86_400_000L }
 
     /** The guarantee the stacked bar exists to keep: the columns sum to the pie. */
     @Test
     fun dayTotalsSumToTheSliceTotals() {
-        val result = StatsAggregator.foldDays(labels, week)
+        val result = StatsAggregator.foldDays(epochs, labels, week)
         assertEquals(result.totalPaise, result.days.sumOf { it.totalPaise })
         assertEquals(143000L, result.totalPaise)
     }
 
     @Test
     fun eachCategorySumsAcrossDaysToItsSlice() {
-        val result = StatsAggregator.foldDays(labels, week)
+        val result = StatsAggregator.foldDays(epochs, labels, week)
         result.slices.forEachIndexed { index, slice ->
             assertEquals(slice.name, slice.paise, result.days.sumOf { it.segments[index] })
         }
@@ -139,13 +140,13 @@ class StatsAggregatorTest {
     /** Every column is expressed against the same ordered category list, so colours line up. */
     @Test
     fun everyDayHasOneSegmentPerSliceInSliceOrder() {
-        val result = StatsAggregator.foldDays(labels, week)
+        val result = StatsAggregator.foldDays(epochs, labels, week)
         result.days.forEach { assertEquals(result.slices.size, it.segments.size) }
     }
 
     @Test
     fun aCategoryAbsentOnADayGetsAZeroInItsSlotRatherThanAMissingSlot() {
-        val result = StatsAggregator.foldDays(labels, week)
+        val result = StatsAggregator.foldDays(epochs, labels, week)
         val foodIndex = result.slices.indexOfFirst { it.name == "Food" }
         assertEquals(0L, result.days[1].segments[foodIndex])   // Tuesday had nothing
         assertEquals(40000L, result.days[0].segments[foodIndex])
@@ -153,14 +154,14 @@ class StatsAggregatorTest {
 
     @Test
     fun emptyDaysStillOccupyTheirColumn() {
-        val result = StatsAggregator.foldDays(labels, week)
+        val result = StatsAggregator.foldDays(epochs, labels, week)
         assertEquals(7, result.days.size)
         assertEquals(0L, result.days[6].totalPaise)
     }
 
     @Test
     fun foldedSlicesCarryTheSameColoursAsADirectQuery() {
-        val folded = StatsAggregator.foldDays(labels, week).slices.associate { it.categoryId to it.color }
+        val folded = StatsAggregator.foldDays(epochs, labels, week).slices.associate { it.categoryId to it.color }
         val direct = StatsAggregator.toSlices(
             listOf(total(1, "Food", 60000), total(2, "Transport", 43000), total(3, "Gift", 40000))
         ).associate { it.categoryId to it.color }
@@ -169,7 +170,7 @@ class StatsAggregatorTest {
 
     @Test
     fun anEmptyWeekProducesNoSlicesButKeepsItsColumns() {
-        val result = StatsAggregator.foldDays(labels, List(7) { emptyList() })
+        val result = StatsAggregator.foldDays(epochs, labels, List(7) { emptyList() })
         assertTrue(result.slices.isEmpty())
         assertEquals(7, result.days.size)
         assertEquals(0L, result.totalPaise)
@@ -177,13 +178,64 @@ class StatsAggregatorTest {
 
     @Test
     fun mismatchedLabelCountIsRejected() {
-        val failed = runCatching { StatsAggregator.foldDays(listOf("Mon"), week) }.isFailure
+        val failed = runCatching { StatsAggregator.foldDays(epochs, listOf("Mon"), week) }.isFailure
         assertTrue(failed)
     }
 
     @Test
     fun differentCategoriesGetDifferentColours() {
-        val slices = StatsAggregator.foldDays(labels, week).slices
+        val slices = StatsAggregator.foldDays(epochs, labels, week).slices
         assertNotEquals(slices[0].color, slices[1].color)
+    }
+
+    /** The bar chart needs each column's day to open it on tap. */
+    @Test
+    fun eachDayCarriesItsOwnStartEpoch() {
+        val result = StatsAggregator.foldDays(epochs, labels, week)
+        assertEquals(epochs, result.days.map { it.dayStartEpoch })
+    }
+}
+
+class BarAxisTest {
+
+    private fun rupees(r: Long) = r * 100L
+
+    @Test
+    fun quietWeeksStillGetTheFullAxis() {
+        assertEquals(rupees(3000), BarAxis.axisMaxPaise(0L))
+        assertEquals(rupees(3000), BarAxis.axisMaxPaise(rupees(400)))
+    }
+
+    @Test
+    fun exactlyTheFloorDoesNotGrowTheAxis() {
+        assertEquals(rupees(3000), BarAxis.axisMaxPaise(rupees(3000)))
+    }
+
+    @Test
+    fun anUnusualDayGrowsTheAxisToTheNextFiveHundred() {
+        assertEquals(rupees(3500), BarAxis.axisMaxPaise(rupees(3200)))
+        assertEquals(rupees(3500), BarAxis.axisMaxPaise(rupees(3500)))
+        assertEquals(rupees(4000), BarAxis.axisMaxPaise(rupees(3501)))
+    }
+
+    /** Two different weeks under the floor must scale identically, or heights lie. */
+    @Test
+    fun weeksBelowTheFloorShareOneScale() {
+        assertEquals(BarAxis.axisMaxPaise(rupees(200)), BarAxis.axisMaxPaise(rupees(2900)))
+    }
+
+    @Test
+    fun gridlinesAreEveryFiveHundredUpToTheMax() {
+        val lines = BarAxis.gridlinesPaise(rupees(3000))
+        assertEquals(6, lines.size)
+        assertEquals(rupees(500), lines.first())
+        assertEquals(rupees(3000), lines.last())
+        lines.forEach { assertEquals(0L, it % BarAxis.STEP_PAISE) }
+    }
+
+    @Test
+    fun labelsThinOutOnceTheAxisGrowsPastSixLines() {
+        assertEquals(1, BarAxis.labelStride(BarAxis.gridlinesPaise(rupees(3000)).size))
+        assertEquals(2, BarAxis.labelStride(BarAxis.gridlinesPaise(rupees(5000)).size))
     }
 }

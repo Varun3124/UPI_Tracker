@@ -5,18 +5,20 @@ import android.graphics.Canvas
 import android.graphics.Paint
 import android.util.AttributeSet
 import android.util.TypedValue
+import android.view.MotionEvent
 import android.view.View
+import com.varun.upitracker.domain.statistics.BarAxis
 import com.varun.upitracker.domain.statistics.CategoryPalette
 
 /**
- * Day columns, each a stack of the same categories in the same order, scaled to the busiest day.
+ * Day columns, each a stack of the same categories in the same order, against a fixed Y axis.
  *
  * Takes its colours from [CategoryPalette] and its segments in the pie's own order, which is the
  * only reason the two charts read as one picture: a colour means the same category in both, and
  * the largest category is the base of every column so the eye can follow it across the week.
  *
- * Y is scaled to the tallest column rather than to a rounded maximum, because there is no axis to
- * label -- the peak is written above the chart as ordinary text.
+ * The axis is [BarAxis]-fixed rather than fitted to the week, so a bar of a given height means the
+ * same amount whichever week is on screen.
  */
 class StackedBarChartView @JvmOverloads constructor(
     context: Context,
@@ -24,14 +26,22 @@ class StackedBarChartView @JvmOverloads constructor(
     defStyleAttr: Int = 0
 ) : View(context, attrs, defStyleAttr) {
 
+    /** Column index of the tapped day. */
+    var onDayTapped: ((Int) -> Unit)? = null
+
     private val barPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
     private val stubPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
-        color = 0xFFEEEEEE.toInt() // the same inactive grey the pills use
+        color = 0xFFEEEEEE.toInt() // the same inactive grey the pickers use
     }
     private val baselinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         color = 0xFFE0E0E0.toInt()
+        strokeWidth = dp(1f)
+    }
+    private val gridPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        color = 0xFFF0F0F0.toInt()
         strokeWidth = dp(1f)
     }
     private val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -39,17 +49,37 @@ class StackedBarChartView @JvmOverloads constructor(
         textSize = sp(10f)
         textAlign = Paint.Align.CENTER
     }
+    private val axisLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        color = 0xFFAAAAAA.toInt()
+        textSize = sp(9f)
+        textAlign = Paint.Align.RIGHT
+    }
 
     private var labels: List<String> = emptyList()
+    private var dateLabels: List<String?> = emptyList()
     private var columns: List<List<Long>> = emptyList() // columns[day][segment]
     private var segmentColors = IntArray(0)
-    private var maxColumnPaise = 0L
+    private var axisMaxPaise = BarAxis.FLOOR_PAISE
 
-    fun setColumns(dayLabels: List<String>, dayColumns: List<List<Long>>, colors: List<Int>) {
+    private var downX = 0f
+    private var downY = 0f
+
+    /**
+     * [dateLabels] is parallel to [dayLabels]; a null entry draws no second line. Only the first
+     * and last carry one, so the week's span is readable without labelling every column.
+     */
+    fun setColumns(
+        dayLabels: List<String>,
+        dateLabels: List<String?>,
+        dayColumns: List<List<Long>>,
+        colors: List<Int>
+    ) {
         labels = dayLabels
+        this.dateLabels = dateLabels
         columns = dayColumns
         segmentColors = colors.toIntArray()
-        maxColumnPaise = dayColumns.maxOfOrNull { column -> column.sum() } ?: 0L
+        axisMaxPaise = BarAxis.axisMaxPaise(dayColumns.maxOfOrNull { column -> column.sum() } ?: 0L)
+        isClickable = onDayTapped != null
         invalidate()
     }
 
@@ -63,13 +93,27 @@ class StackedBarChartView @JvmOverloads constructor(
     override fun onDraw(canvas: Canvas) {
         if (labels.isEmpty()) return
 
-        val labelBand = sp(16f)
-        val left = paddingLeft.toFloat()
+        val gridlines = BarAxis.gridlinesPaise(axisMaxPaise)
+        val stride = BarAxis.labelStride(gridlines.size)
+
+        // Measured, not guessed: the axis grows past 3000 when a day does, and the gutter has to
+        // grow with the widest label rather than clipping it.
+        val gutter = gridlines.maxOf { axisLabelPaint.measureText(axisLabel(it)) } + dp(6f)
+
+        val labelBand = if (dateLabels.any { it != null }) sp(28f) else sp(16f)
+        val left = paddingLeft + gutter
         val right = (width - paddingRight).toFloat()
         val baseline = height - paddingBottom - labelBand
         val plotHeight = baseline - paddingTop
         if (plotHeight <= 0f || right <= left) return
 
+        gridlines.forEachIndexed { index, value ->
+            val y = baseline - plotHeight * (value / axisMaxPaise.toFloat())
+            canvas.drawLine(left, y, right, y, gridPaint)
+            if (index % stride == 0) {
+                canvas.drawText(axisLabel(value), left - dp(4f), y + sp(3f), axisLabelPaint)
+            }
+        }
         canvas.drawLine(left, baseline, right, baseline, baselinePaint)
 
         val slot = (right - left) / labels.size
@@ -82,7 +126,7 @@ class StackedBarChartView @JvmOverloads constructor(
             val barRight = centre + barWidth / 2f
             val segments = columns.getOrNull(day).orEmpty()
 
-            if (segments.sum() <= 0L || maxColumnPaise <= 0L) {
+            if (segments.sum() <= 0L) {
                 // A stub rather than nothing: an empty Tuesday still has to hold its slot, or the
                 // week silently reads as six days.
                 canvas.drawRect(barLeft, baseline - dp(2f), barRight, baseline, stubPaint)
@@ -93,9 +137,9 @@ class StackedBarChartView @JvmOverloads constructor(
                 var running = 0L
                 segments.forEachIndexed { index, value ->
                     if (value <= 0L) return@forEachIndexed
-                    val yBottom = baseline - plotHeight * (running / maxColumnPaise.toFloat())
+                    val yBottom = baseline - plotHeight * (running / axisMaxPaise.toFloat())
                     running += value
-                    val yTop = baseline - plotHeight * (running / maxColumnPaise.toFloat())
+                    val yTop = baseline - plotHeight * (running / axisMaxPaise.toFloat())
                     barPaint.color = segmentColors.getOrElse(index) { CategoryPalette.NEUTRAL }
                     // A sub-pixel segment is nudged to a visible sliver; drawing bottom-up means
                     // the next segment paints back over the overshoot.
@@ -105,9 +149,66 @@ class StackedBarChartView @JvmOverloads constructor(
                 }
             }
 
-            canvas.drawText(label, centre, height - paddingBottom - sp(3f), labelPaint)
+            val dayLabelY = baseline + sp(12f)
+            canvas.drawText(label, centre, dayLabelY, labelPaint)
+            dateLabels.getOrNull(day)?.let { canvas.drawText(it, centre, dayLabelY + sp(11f), labelPaint) }
         }
     }
+
+    /**
+     * Claiming the DOWN is what makes a tap reach [performClick]. The swipe container still gets
+     * first refusal on every MOVE, so a horizontal drag begun on a bar still changes period, and
+     * the ScrollView still steals a vertical one via ACTION_CANCEL.
+     */
+    override fun onTouchEvent(event: MotionEvent): Boolean {
+        if (onDayTapped == null) return super.onTouchEvent(event)
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                downX = event.x
+                downY = event.y
+                return true
+            }
+            MotionEvent.ACTION_UP -> {
+                val slop = ViewConfigurationSlop
+                if (kotlin.math.abs(event.x - downX) <= slop &&
+                    kotlin.math.abs(event.y - downY) <= slop
+                ) {
+                    columnAt(downX)?.let { index ->
+                        performClick()
+                        onDayTapped?.invoke(index)
+                    }
+                }
+                return true
+            }
+            MotionEvent.ACTION_CANCEL -> return true
+        }
+        return super.onTouchEvent(event)
+    }
+
+    override fun performClick(): Boolean {
+        super.performClick()
+        return true
+    }
+
+    /**
+     * Whole slots, not the drawn bar: slots tile the width with no gutter, and a 26dp-wide bar is
+     * a poor target when the row is 42dp wide.
+     */
+    private fun columnAt(x: Float): Int? {
+        if (labels.isEmpty()) return null
+        val gridlines = BarAxis.gridlinesPaise(axisMaxPaise)
+        val gutter = gridlines.maxOf { axisLabelPaint.measureText(axisLabel(it)) } + dp(6f)
+        val left = paddingLeft + gutter
+        val right = (width - paddingRight).toFloat()
+        if (x < left || x > right || right <= left) return null
+        val slot = (right - left) / labels.size
+        return ((x - left) / slot).toInt().coerceIn(0, labels.size - 1)
+    }
+
+    private fun axisLabel(paise: Long): String = (paise / 100L).toString()
+
+    private val ViewConfigurationSlop: Float
+        get() = android.view.ViewConfiguration.get(context).scaledTouchSlop.toFloat()
 
     private fun dp(value: Float) =
         TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, value, resources.displayMetrics)

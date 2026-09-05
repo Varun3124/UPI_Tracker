@@ -12,6 +12,7 @@ data class CategorySlice(
 
 /** One column of the weekly bar. [segments] is parallel to the slice list, in the same order. */
 data class DayStack(
+    val dayStartEpoch: Long,
     val label: String,
     val segments: List<Long>,
     val totalPaise: Long
@@ -83,8 +84,13 @@ object StatsAggregator {
      * the seven day windows tile the week exactly, a purchase is bucketed by its own date and a
      * refund by its original purchase's, so every counted row lands in exactly one bucket.
      */
-    fun foldDays(dayLabels: List<String>, perDay: List<List<CategoryTotal>>): Breakdown {
+    fun foldDays(
+        dayStartEpochs: List<Long>,
+        dayLabels: List<String>,
+        perDay: List<List<CategoryTotal>>
+    ): Breakdown {
         require(dayLabels.size == perDay.size) { "One label per day bucket." }
+        require(dayStartEpochs.size == perDay.size) { "One epoch per day bucket." }
 
         val weekTotals = perDay.flatten()
             .groupBy { it.categoryId }
@@ -98,8 +104,41 @@ object StatsAggregator {
         val days = perDay.mapIndexed { index, day ->
             val byId = day.associate { it.categoryId to it.netPaise }
             val segments = order.map { maxOf(byId[it] ?: 0L, 0L) }
-            DayStack(dayLabels[index], segments, segments.sum())
+            DayStack(dayStartEpochs[index], dayLabels[index], segments, segments.sum())
         }
         return Breakdown(slices, days)
     }
+}
+
+/**
+ * The weekly bar chart's Y axis.
+ *
+ * Fixed rather than fitted to each week: a quiet week and a heavy one otherwise draw identical
+ * bars, so height means nothing across weeks. Anchored at a rupee amount typical daily spending
+ * stays under, and grown only when a day actually exceeds it.
+ */
+object BarAxis {
+
+    /** Gridline spacing, in paise. */
+    const val STEP_PAISE = 50_000L
+
+    /** The axis top unless a day exceeds it. */
+    const val FLOOR_PAISE = 300_000L
+
+    /** Above this many lines, label every second one so they do not collide. */
+    private const val DENSE_LINE_COUNT = 6
+
+    fun axisMaxPaise(maxColumnPaise: Long): Long {
+        if (maxColumnPaise <= FLOOR_PAISE) return FLOOR_PAISE
+        return ((maxColumnPaise + STEP_PAISE - 1) / STEP_PAISE) * STEP_PAISE
+    }
+
+    /** Gridline values above zero, ascending. The baseline is drawn separately. */
+    fun gridlinesPaise(axisMaxPaise: Long): List<Long> =
+        generateSequence(STEP_PAISE) { it + STEP_PAISE }
+            .takeWhile { it <= axisMaxPaise }
+            .toList()
+
+    /** Label every nth gridline. */
+    fun labelStride(lineCount: Int): Int = if (lineCount > DENSE_LINE_COUNT) 2 else 1
 }

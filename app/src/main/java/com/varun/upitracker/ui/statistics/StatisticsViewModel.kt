@@ -48,6 +48,13 @@ class StatisticsViewModel(context: Context) : ViewModel() {
         load()
     }
 
+    /** Opens a single day, used when a bar column is tapped. */
+    fun selectDay(dayStartEpoch: Long) {
+        period = StatsPeriod.DAILY
+        anchor = dayStartEpoch
+        load()
+    }
+
     fun selectCustomRange(fromEpoch: Long, toEpoch: Long) {
         period = StatsPeriod.CUSTOM
         customFrom = fromEpoch
@@ -112,7 +119,7 @@ class StatisticsViewModel(context: Context) : ViewModel() {
                 CategoryKind.EXPENSE, dayRange.fromExclusive, dayRange.toInclusive
             )
         }
-        return StatsAggregator.foldDays(days.map(::dayLabel), perDay)
+        return StatsAggregator.foldDays(days, days.map(::dayLabel), perDay)
     }
 
     private fun dayLabel(dayStartEpoch: Long): String =
