@@ -61,6 +61,36 @@ object TrendsBuckets {
     }
 
     /**
+     * The visible window for any period, including the two that carry their own range.
+     *
+     * `ALL_TIME` is bounded by [earliestEpoch] rather than by the epoch itself: month buckets from
+     * 1970 would be six hundred columns of nothing, and the left edge must never be
+     * `Long.MIN_VALUE`, which [StatisticsPeriods.rangeFor] answers and which overflows the moment
+     * an opening balance is taken one millisecond earlier.
+     *
+     * @param earliestEpoch the oldest thing the scope knows about; null when it knows nothing, and
+     *   `ALL_TIME` then shows the current month alone rather than an empty span.
+     */
+    fun visibleWindow(
+        period: StatsPeriod,
+        anchorEpoch: Long,
+        customFromInclusive: Long,
+        customToInclusive: Long,
+        earliestEpoch: Long?,
+        nowEpoch: Long
+    ): TrendWindow = when (period) {
+        StatsPeriod.ALL_TIME -> TrendWindow(
+            StatisticsPeriods.startOfMonth(earliestEpoch ?: nowEpoch),
+            StatisticsPeriods.addMonths(StatisticsPeriods.startOfMonth(nowEpoch), 1)
+        )
+        StatsPeriod.CUSTOM -> TrendWindow(
+            StatisticsPeriods.startOfDay(customFromInclusive),
+            StatisticsPeriods.addDays(StatisticsPeriods.startOfDay(customToInclusive), 1)
+        )
+        else -> windowFor(period, anchorEpoch)
+    }
+
+    /**
      * How finely to divide [window] for [period].
      *
      * [window] is only read for `CUSTOM`, whose span is the user's choice rather than the period's.

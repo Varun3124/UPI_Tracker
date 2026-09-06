@@ -20,6 +20,8 @@ import com.varun.upitracker.R
 import com.varun.upitracker.domain.statistics.CategorySlice
 import com.varun.upitracker.domain.statistics.StatisticsPeriods
 import com.varun.upitracker.domain.statistics.StatsPeriod
+import com.varun.upitracker.domain.statistics.TrendBucket
+import com.varun.upitracker.domain.statistics.TrendsBuckets
 import com.varun.upitracker.ui.formatRupees
 import java.text.SimpleDateFormat
 import java.util.Calendar
@@ -47,6 +49,10 @@ class StatisticsActivity : AppCompatActivity() {
     private lateinit var trendsScroll: View
     private lateinit var btnSectionCategories: TextView
     private lateinit var btnSectionTrends: TextView
+    private lateinit var balanceLine: LineChartView
+    private lateinit var tvBalanceLatest: TextView
+    private lateinit var tvBalanceChange: TextView
+    private lateinit var tvTrendsEmpty: TextView
 
     private val dayFmt = SimpleDateFormat("d MMM yyyy", Locale.getDefault())
     private val monthFmt = SimpleDateFormat("MMMM yyyy", Locale.getDefault())
@@ -92,6 +98,10 @@ class StatisticsActivity : AppCompatActivity() {
         trendsScroll = findViewById(R.id.trendsScroll)
         btnSectionCategories = findViewById(R.id.btnSectionCategories)
         btnSectionTrends = findViewById(R.id.btnSectionTrends)
+        balanceLine = findViewById(R.id.balanceLine)
+        tvBalanceLatest = findViewById(R.id.tvBalanceLatest)
+        tvBalanceChange = findViewById(R.id.tvBalanceChange)
+        tvTrendsEmpty = findViewById(R.id.tvTrendsEmpty)
         btnSectionCategories.setOnClickListener { viewModel.selectSection(StatsSection.CATEGORIES) }
         btnSectionTrends.setOnClickListener { viewModel.selectSection(StatsSection.TRENDS) }
         btnClearDrill.setOnClickListener { viewModel.clearDrill() }
@@ -135,6 +145,7 @@ class StatisticsActivity : AppCompatActivity() {
         btnPickPeriod.text = "${periodLabel(state.period)}  \u25BE"
         tvRangeLabel.text = rangeLabel(state)
         renderSection(state)
+        if (state.section == StatsSection.TRENDS) renderTrends(state.trends)
 
         val drilled = state.drilledCategory
         val slices = if (drilled != null) state.payeeSlices else state.breakdown.slices
@@ -178,6 +189,57 @@ class StatisticsActivity : AppCompatActivity() {
         btnNextPeriod.alpha = if (state.canGoForward) 1f else DISABLED_ALPHA
         swipeContainer.isSwipeEnabled = steppable
         swipeContainer.canSwipeForward = state.canGoForward
+    }
+
+    /**
+     * The balance line, plus the two figures beside it.
+     *
+     * Drawn only while Trends is showing: the series is loaded lazily, so on Categories there is
+     * nothing to draw and setting an empty one would clear a chart nobody is looking at.
+     */
+    private fun renderTrends(trends: TrendsUiState) {
+        val series = trends.balanceSeries
+        val empty = series.isEmpty()
+
+        balanceLine.visibility = if (empty) View.GONE else View.VISIBLE
+        tvTrendsEmpty.visibility = if (empty) View.VISIBLE else View.GONE
+        tvTrendsEmpty.text = when {
+            trends.isLoading -> "Loading"
+            !trends.hasAccounts -> "No accounts in this scope"
+            else -> "Nothing to chart in this period"
+        }
+
+        tvBalanceLatest.text = if (empty) "" else formatRupees(trends.latestBalancePaise)
+        tvBalanceChange.text = if (empty) "" else changeLabel(trends.changePaise)
+        if (empty) return
+
+        val stride = TrendsBuckets.labelStride(series.size)
+        val format = bucketFormat(trends.bucket)
+        balanceLine.setSeries(
+            series,
+            trends.bucketStarts.mapIndexed { index, start ->
+                if (index % stride == 0) format.format(Date(start)) else null
+            }
+        )
+    }
+
+    /**
+     * Movement across the window, not the balance itself. Signed with a literal character, as the
+     * rest of the app does -- there are no drawable arrows anywhere in it.
+     */
+    private fun changeLabel(delta: Long): String {
+        val direction = when {
+            delta > 0L -> "\u25B2 "
+            delta < 0L -> "\u25BC "
+            else -> ""
+        }
+        return if (delta == 0L) "No change this period" else "$direction${formatRupees(kotlin.math.abs(delta))}"
+    }
+
+    private fun bucketFormat(bucket: TrendBucket): SimpleDateFormat = when (bucket) {
+        TrendBucket.HOUR -> SimpleDateFormat("h a", Locale.getDefault())
+        TrendBucket.DAY, TrendBucket.WEEK -> shortFmt
+        TrendBucket.MONTH -> SimpleDateFormat("MMM", Locale.getDefault())
     }
 
     /** The pill styling from All Transactions, the app's only mutually-exclusive selection idiom. */

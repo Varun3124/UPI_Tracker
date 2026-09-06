@@ -183,6 +183,83 @@ class TrendsBucketsTest {
         assertEquals(at(2026, Calendar.MARCH, 13), window.endExclusive)
     }
 
+    // --- the two periods that carry their own range -----------------------
+
+    @Test
+    fun allTimeStartsAtTheMonthTheDataDoes() {
+        val window = TrendsBuckets.visibleWindow(
+            StatsPeriod.ALL_TIME,
+            anchorEpoch = 0L,
+            customFromInclusive = 0L,
+            customToInclusive = 0L,
+            earliestEpoch = at(2024, Calendar.JULY, 19, 14),
+            nowEpoch = at(2026, Calendar.MARCH, 12, 15)
+        )
+        assertEquals(at(2024, Calendar.JULY, 1), window.startInclusive)
+        assertEquals(at(2026, Calendar.APRIL, 1), window.endExclusive)
+    }
+
+    /** Never the epoch: month buckets from 1970 would be six hundred columns of nothing. */
+    @Test
+    fun allTimeWithNoDataShowsTheCurrentMonthAlone() {
+        val window = TrendsBuckets.visibleWindow(
+            StatsPeriod.ALL_TIME, 0L, 0L, 0L, null, at(2026, Calendar.MARCH, 12, 15)
+        )
+        assertEquals(at(2026, Calendar.MARCH, 1), window.startInclusive)
+        assertEquals(at(2026, Calendar.APRIL, 1), window.endExclusive)
+        assertEquals(1, TrendsBuckets.bucketStarts(TrendBucket.MONTH, window).size)
+    }
+
+    @Test
+    fun aCustomRangeCoversBothPickedDaysWhole() {
+        val window = TrendsBuckets.visibleWindow(
+            StatsPeriod.CUSTOM,
+            anchorEpoch = 0L,
+            customFromInclusive = at(2026, Calendar.MARCH, 3, 9),
+            customToInclusive = at(2026, Calendar.MARCH, 5, 21),
+            earliestEpoch = null,
+            nowEpoch = at(2026, Calendar.MARCH, 12)
+        )
+        assertEquals(at(2026, Calendar.MARCH, 3), window.startInclusive)
+        assertEquals(at(2026, Calendar.MARCH, 6), window.endExclusive)
+        assertEquals(3, TrendsBuckets.bucketStarts(TrendBucket.DAY, window).size)
+    }
+
+    @Test
+    fun aShiftablePeriodGetsTheSameWindowEitherWay() {
+        val anchor = at(2026, Calendar.MARCH, 12)
+        StatsPeriod.entries.filter { it.isShiftable }.forEach { period ->
+            assertEquals(
+                "$period",
+                TrendsBuckets.windowFor(period, anchor),
+                TrendsBuckets.visibleWindow(period, anchor, 0L, 0L, null, anchor)
+            )
+        }
+    }
+
+    /**
+     * Why the loaded span has to begin at the first *bucket* rather than at the window.
+     *
+     * A quarter starts on the 1st of a month, which is almost never a Monday, so its first week
+     * bucket snaps back before the window opens. Loading from the window would leave the opening
+     * balance days late and silently drop the movements in between.
+     */
+    @Test
+    fun aQuartersFirstWeekBucketBeginsBeforeTheQuarterDoes() {
+        val window = TrendsBuckets.windowFor(StatsPeriod.QUARTERLY, at(2026, Calendar.MAY, 4))
+        val starts = TrendsBuckets.bucketStarts(TrendBucket.WEEK, window)
+
+        assertEquals(at(2026, Calendar.APRIL, 1), window.startInclusive)
+        assertTrue(
+            "the first bucket starts at ${starts.first()}, not before the window",
+            starts.first() < window.startInclusive
+        )
+        assertEquals(Calendar.MONDAY, dayOfWeek(starts.first()))
+    }
+
+    private fun dayOfWeek(epoch: Long): Int =
+        Calendar.getInstance().apply { timeInMillis = epoch }.get(Calendar.DAY_OF_WEEK)
+
     // --- labels -----------------------------------------------------------
 
     @Test

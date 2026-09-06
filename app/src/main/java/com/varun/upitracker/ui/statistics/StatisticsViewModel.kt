@@ -7,14 +7,20 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.varun.upitracker.data.repository.AccountRepository
+import com.varun.upitracker.data.repository.TrendsRepository
 import com.varun.upitracker.database.AppDatabase
 import com.varun.upitracker.database.entity.CategoryKind
 import com.varun.upitracker.domain.statistics.Breakdown
 import com.varun.upitracker.domain.statistics.CategorySlice
 import com.varun.upitracker.domain.statistics.DateRange
 import com.varun.upitracker.domain.statistics.StatisticsPeriods
+import com.varun.upitracker.domain.statistics.AccountScope
+import com.varun.upitracker.domain.statistics.BalanceTimeline
 import com.varun.upitracker.domain.statistics.StatsAggregator
 import com.varun.upitracker.domain.statistics.StatsPeriod
+import com.varun.upitracker.domain.statistics.TrendBucket
+import com.varun.upitracker.domain.statistics.TrendsBuckets
+import com.varun.upitracker.domain.statistics.resolve
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
@@ -28,6 +34,33 @@ import kotlinx.coroutines.withContext
  */
 enum class StatsSection { CATEGORIES, TRENDS }
 
+/**
+ * The trends half, loaded separately from the categories half.
+ *
+ * Separate because it is far more expensive and most visits never open it: the pie needs one query,
+ * this needs a range of them plus an opening balance per account.
+ */
+data class TrendsUiState(
+    val bucket: TrendBucket = TrendBucket.DAY,
+    /** Ascending, parallel to [balanceSeries]. */
+    val bucketStarts: List<Long> = emptyList(),
+    /** The combined balance at the end of each bucket. */
+    val balanceSeries: List<Long> = emptyList(),
+    /**
+     * The combined balance immediately *before* the first bucket.
+     *
+     * The window's change is measured from here, not from the first point: that one already
+     * carries its own bucket's movement, so the first day of the window would go uncounted.
+     */
+    val openingPaise: Long = 0L,
+    /** False when the scope resolves to nothing, where a flat zero line would be a lie. */
+    val hasAccounts: Boolean = true,
+    val isLoading: Boolean = true
+) {
+    val latestBalancePaise: Long get() = balanceSeries.lastOrNull() ?: 0L
+    val changePaise: Long get() = latestBalancePaise - openingPaise
+}
+
 data class StatisticsUiState(
     val section: StatsSection = StatsSection.CATEGORIES,
     val period: StatsPeriod = StatsPeriod.WEEKLY,
@@ -38,6 +71,7 @@ data class StatisticsUiState(
     /** Non-null while drilled into one category; the screen then shows its counterparties. */
     val drilledCategory: CategorySlice? = null,
     val payeeSlices: List<CategorySlice> = emptyList(),
+    val trends: TrendsUiState = TrendsUiState(),
     val isLoading: Boolean = true
 )
 
@@ -45,6 +79,7 @@ class StatisticsViewModel(context: Context) : ViewModel() {
 
     private val db = AppDatabase.getInstance(context.applicationContext)
     private val repository = AccountRepository(db)
+    private val trendsRepository = TrendsRepository(db)
 
     private val _uiState = MutableLiveData(StatisticsUiState())
     val uiState: LiveData<StatisticsUiState> = _uiState
@@ -55,7 +90,12 @@ class StatisticsViewModel(context: Context) : ViewModel() {
     private var customTo = 0L
     private var drilled: CategorySlice? = null
     private var section = StatsSection.CATEGORIES
+    private var accountScope: AccountScope = AccountScope.Liquid
     private var loadJob: Job? = null
+    private var trendsJob: Job? = null
+
+    /** What the loaded series covers, so switching back to Trends does not reload it. */
+    private var loadedTrendsKey: String? = null
 
     /**
      * Swaps the visible section without reloading: both are drawn from the same period and range,
@@ -65,6 +105,7 @@ class StatisticsViewModel(context: Context) : ViewModel() {
         if (next == section) return
         section = next
         _uiState.value = _uiState.value?.copy(section = next)
+        if (next == StatsSection.TRENDS) loadTrends()
     }
 
     /** Scopes the screen to one category. Survives period changes and stepping. */
@@ -138,9 +179,76 @@ class StatisticsViewModel(context: Context) : ViewModel() {
                 // when the category is absent from the new one.
                 drilledCategory = drilled?.copy(paise = payees.sumOf { it.paise }),
                 payeeSlices = payees,
+                // Carried across rather than reset: drilling into a category reloads this screen
+                // but changes nothing the balance line is drawn from, and rebuilding the state
+                // wholesale would otherwise strand Trends on a spinner the cache never clears.
+                trends = _uiState.value?.trends ?: TrendsUiState(),
                 isLoading = false
             )
+            if (section == StatsSection.TRENDS) loadTrends()
         }
+    }
+
+    /**
+     * The balance line, for whatever window the current period puts on screen.
+     *
+     * Skipped when the window and scope are the ones already drawn, so toggling between the two
+     * sections costs nothing and does not flash an empty chart on the way back.
+     */
+    private fun loadTrends() {
+        val period = this.period
+        val anchor = this.anchor
+        val scope = this.accountScope
+        val key = "$period/$anchor/$customFrom/$customTo/$scope"
+        if (key == loadedTrendsKey) return
+
+        trendsJob?.cancel()
+        loadedTrendsKey = null
+        _uiState.value = _uiState.value?.copy(trends = TrendsUiState(isLoading = true))
+
+        trendsJob = viewModelScope.launch {
+            val computed = withContext(Dispatchers.IO) { buildTrends(period, anchor, scope) }
+            loadedTrendsKey = key
+            _uiState.value = _uiState.value?.copy(trends = computed)
+        }
+    }
+
+    private suspend fun buildTrends(
+        period: StatsPeriod,
+        anchor: Long,
+        scope: AccountScope
+    ): TrendsUiState {
+        val ids = scope.resolve(db.accountDao().getAllSync())
+        val earliest = trendsRepository.earliestDataEpoch(ids)
+        val window = TrendsBuckets.visibleWindow(
+            period, anchor, customFrom, customTo, earliest, System.currentTimeMillis()
+        )
+        val bucket = TrendsBuckets.bucketFor(period, window)
+        val starts = TrendsBuckets.bucketStarts(bucket, window)
+        if (starts.isEmpty() || ids.isEmpty()) {
+            return TrendsUiState(bucket = bucket, hasAccounts = ids.isNotEmpty(), isLoading = false)
+        }
+
+        // The span starts at the first BUCKET, not at the window: a week bucket snaps back before
+        // the window's own start whenever a quarter does not begin on a Monday, which is almost
+        // always. Loading from the window would then leave the opening balance a few days late and
+        // silently drop the movements in between.
+        val inputs = trendsRepository.loadBalanceInputs(starts.first(), window.endExclusive, ids)
+        return TrendsUiState(
+            bucket = bucket,
+            bucketStarts = starts,
+            openingPaise = inputs.openingByAccount.values.sum(),
+            balanceSeries = BalanceTimeline.build(
+                bucketStarts = starts,
+                windowEndExclusive = window.endExclusive,
+                accountIds = ids,
+                openingByAccount = inputs.openingByAccount,
+                movements = inputs.movements,
+                anchorsByAccount = inputs.anchorsByAccount
+            ),
+            hasAccounts = true,
+            isLoading = false
+        )
     }
 
     /**
