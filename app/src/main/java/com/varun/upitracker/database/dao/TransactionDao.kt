@@ -145,6 +145,46 @@ interface TransactionDao {
         toEpochInclusive: Long
     ): Long?
 
+    /**
+     * What moved in and out of [accountIds] over `(fromEpochExclusive, toEpochInclusive]`.
+     *
+     * The **same** CASE arms as [getAccountBalanceDeltaBetween], split in two rather than netted,
+     * so `inPaise - outPaise` is exactly the figure that query returns for the same window and the
+     * same accounts. That is the property the trends charts rest on: the in-and-out card sits
+     * directly under the balance line, and the two have to reconcile or the card contradicts the
+     * chart above it.
+     *
+     * Rows, not shares or category splits. Those are only ever written by the entry screen, so an
+     * SMS-imported credit carries neither and would count as nothing at all -- which is what left
+     * the income bars empty. Money that arrived is money that arrived, reviewed or not.
+     *
+     * ME on both sides nets to zero, matching the balance query: it moved nothing.
+     *
+     * Transfers between own accounts live in `account_transfer` and never reach this, so moving
+     * money between two of your own accounts is not counted as either direction.
+     */
+    @Query(
+        """
+        SELECT
+            COALESCE(SUM(
+                CASE WHEN payeeActorType = 'ME' AND payerActorType != 'ME' THEN amountPaise ELSE 0 END
+            ), 0) AS inPaise,
+            COALESCE(SUM(
+                CASE WHEN payerActorType = 'ME' AND payeeActorType != 'ME' THEN amountPaise ELSE 0 END
+            ), 0) AS outPaise
+        FROM transactions
+        WHERE myAccountId IN (:accountIds)
+          AND dateEpoch > :fromEpochExclusive
+          AND dateEpoch <= :toEpochInclusive
+        """
+    )
+    suspend fun getFlowBetween(
+        accountIds: List<String>,
+        fromEpochExclusive: Long,
+        toEpochInclusive: Long
+    ): com.varun.upitracker.database.model.FlowTotal
+
+
     @Query(
         """
         SELECT * FROM transactions

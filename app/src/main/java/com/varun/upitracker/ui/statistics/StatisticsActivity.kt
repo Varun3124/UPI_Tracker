@@ -199,6 +199,7 @@ class StatisticsActivity : AppCompatActivity() {
 
         swipeContainer.visibility = if (categories) View.VISIBLE else View.GONE
         trendsScroll.visibility = if (categories) View.GONE else View.VISIBLE
+        btnPickScope.visibility = if (categories) View.GONE else View.VISIBLE
 
         val steppable = categories && state.period.isShiftable
         btnPrevPeriod.visibility = if (steppable) View.VISIBLE else View.INVISIBLE

@@ -86,6 +86,25 @@
             android:text="Trends"
             android:textSize="12sp"
             android:textStyle="bold" />
+
+        <!-- Beside the section pills, because it scopes everything under Trends: both the balance
+             line and the in-and-out figures read the same accounts. Hidden on Categories, whose
+             totals are per category and carry no account. Same flat shape as the period control. -->
+        <TextView
+            android:id="@+id/btnPickScope"
+            android:layout_width="wrap_content"
+            android:layout_height="30dp"
+            android:layout_marginStart="12dp"
+            android:background="#EEEEEE"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:textColor="#212121"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:visibility="gone" />
     </LinearLayout>
 
     <LinearLayout
@@ -318,39 +337,13 @@
                     android:orientation="vertical"
                     android:padding="16dp">
 
-                    <!-- The scope sits on this card rather than in the header, because it scopes
-                         this chart alone: the in-and-out figures below come from category totals,
-                         which carry no account. -->
-                    <LinearLayout
-                        android:layout_width="match_parent"
+                    <TextView
+                        android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:gravity="center_vertical"
-                        android:orientation="horizontal">
-
-                        <TextView
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:letterSpacing="0.1"
-                            android:text="BALANCE"
-                            android:textColor="#888888"
-                            android:textSize="11sp" />
-
-                        <!-- Same flat shape as the period control in the header, not a pill. -->
-                        <TextView
-                            android:id="@+id/btnPickScope"
-                            android:layout_width="wrap_content"
-                            android:layout_height="30dp"
-                            android:background="#EEEEEE"
-                            android:clickable="true"
-                            android:focusable="true"
-                            android:gravity="center"
-                            android:paddingStart="12dp"
-                            android:paddingEnd="12dp"
-                            android:textColor="#212121"
-                            android:textSize="12sp"
-                            android:textStyle="bold" />
-                    </LinearLayout>
+                        android:letterSpacing="0.1"
+                        android:text="BALANCE"
+                        android:textColor="#888888"
+                        android:textSize="11sp" />
 
                     <!-- The figure is a real TextView so it formats like every other amount in the
                          app; the chart draws no text but its own axis. -->

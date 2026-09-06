@@ -11,6 +11,7 @@ import com.varun.upitracker.data.repository.AccountRepository
 import com.varun.upitracker.data.repository.TrendsRepository
 import com.varun.upitracker.database.AppDatabase
 import com.varun.upitracker.database.entity.CategoryKind
+import com.varun.upitracker.database.model.FlowTotal
 import com.varun.upitracker.domain.statistics.Breakdown
 import com.varun.upitracker.domain.statistics.CategorySlice
 import com.varun.upitracker.domain.statistics.DateRange
@@ -116,15 +117,14 @@ class StatisticsViewModel(context: Context) : ViewModel() {
     /** What the loaded series covers, so switching back to Trends does not reload it. */
     private var loadedTrendsKey: String? = null
 
-    /**
-     * One bucket's totals, keyed by kind and window.
+/**
+     * One bucket's flow, keyed by window.
      *
-     * Bucket boundaries are deterministic, so a window revisited at a different period -- or, once
-     * panning lands, slid back over ground already covered -- reuses what was fetched rather than
-     * asking again. Held for the life of the screen, which is exactly as fresh as everything else
-     * on it: nothing here reloads on resume.
+     * Bucket boundaries are deterministic, so a window slid back over ground already covered reuses
+     * what was fetched rather than asking again -- which is what keeps a drag to a couple of new
+     * queries per step. Cleared when the scope changes, since the totals are scoped.
      */
-    private val bucketTotals = HashMap<String, Long>()
+    private val bucketFlows = HashMap<String, FlowTotal>()
 
     /**
      * Where the panned window starts, or null while it sits on the period's own range.
@@ -153,6 +153,8 @@ class StatisticsViewModel(context: Context) : ViewModel() {
         if (next == accountScope) return
         accountScope = next
         prefs.edit().putString(PREF_TRENDS_SCOPE, next.serialise()).apply()
+        // The flow totals are scoped, so what is cached describes the old scope.
+        bucketFlows.clear()
         loadTrends()
     }
 
@@ -354,14 +356,16 @@ class StatisticsViewModel(context: Context) : ViewModel() {
         // always. Loading from the window would then leave the opening balance a few days late and
         // silently drop the movements in between.
         val inputs = trendsRepository.loadBalanceInputs(starts.first(), window.endExclusive, ids)
-        // Clipped to the window: the first and last buckets otherwise reach outside the period,
-        // and the chart would total more than the pie does for the same period.
+
+        // Clipped to the window: the first and last buckets otherwise reach outside the period, so
+        // a quarter's opening week would count days from the month before it.
         val windows = starts.map { TrendsBuckets.bucketWindow(bucket, it).within(window) }
+        val flows = windows.map { bucketFlow(it, ids) }
         return TrendsUiState(
             bucket = bucket,
             bucketStarts = starts,
-            incomeSeries = windows.map { bucketTotal(CategoryKind.INCOME, it) },
-            expenseSeries = windows.map { bucketTotal(CategoryKind.EXPENSE, it) },
+            incomeSeries = flows.map { it.inPaise },
+            expenseSeries = flows.map { it.outPaise },
             openingPaise = inputs.openingByAccount.values.sum(),
             windowStart = window.startInclusive,
             windowEndExclusive = window.endExclusive,
@@ -432,22 +436,25 @@ class StatisticsViewModel(context: Context) : ViewModel() {
     private fun earliestForScope(): Long? = resolvedScopes["$accountScope"]?.second
 
     /**
-     * One bucket, one kind.
+     * One bucket's money in and out.
      *
-     * The same two-leg query the pie is built from rather than new bucketing SQL, so Trends and
-     * Categories cannot disagree -- and so the refund leg keeps being dated by the purchase it
-     * reverses without that rule having to be written a second time. Verified against a SQLite
-     * fixture: these per-bucket totals sum to exactly what one call over the whole window returns,
-     * including when a refund's original purchase falls outside it.
+     * Read from the transaction rows, **not** from the category totals the pie is built from. Those
+     * count only what has been reviewed: category splits and shares are written by the entry screen
+     * alone, so an SMS-imported credit carries neither and read as no income at all. That is not a
+     * quirk of one database -- it is every unreviewed credit in any of them.
+     *
+     * The cost is that this no longer ties out to the pie, which is why the card is titled for cash
+     * rather than for categories. What it ties out to instead is the balance line directly above
+     * it, which is the more useful agreement of the two: both count what actually moved.
      */
-    private suspend fun bucketTotal(kind: CategoryKind, window: TrendWindow): Long {
-        val key = "$kind/${window.startInclusive}/${window.endExclusive}"
-        bucketTotals[key]?.let { return it }
+    private suspend fun bucketFlow(window: TrendWindow, accountIds: Set<String>): FlowTotal {
+        val key = "${window.startInclusive}/${window.endExclusive}"
+        bucketFlows[key]?.let { return it }
         val range = window.asDateRange()
-        val total = repository.getTotalsByCategory(kind, range.fromExclusive, range.toInclusive)
-            .sumOf { it.netPaise }
-        bucketTotals[key] = total
-        return total
+        val flow = db.transactionDao()
+            .getFlowBetween(accountIds.toList(), range.fromExclusive, range.toInclusive)
+        bucketFlows[key] = flow
+        return flow
     }
 
     private companion object {
