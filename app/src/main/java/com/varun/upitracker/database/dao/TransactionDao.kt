@@ -178,6 +178,15 @@ interface TransactionDao {
     )
     suspend fun getTransactionsBetweenSync(fromEpoch: Long, toEpoch: Long): List<Transaction>
 
+    /**
+     * The oldest transaction touching any scoped account, or null if there is none.
+     *
+     * Bounds how far the trends charts can be panned back. Rows with no account move no balance and
+     * are excluded for free -- `NULL IN (...)` is never true.
+     */
+    @Query("SELECT MIN(dateEpoch) FROM transactions WHERE myAccountId IN (:accountIds)")
+    suspend fun getEarliestDateEpochForAccounts(accountIds: List<String>): Long?
+
     @Query("DELETE FROM transactions WHERE id = :id")
     suspend fun deleteById(id: Long)
 

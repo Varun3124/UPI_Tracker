@@ -50,7 +50,7 @@ class PanMathTest {
     }
 
     @Test
-    fun adragShorterThanHalfABucketMovesNothing() {
+    fun aDragShorterThanHalfABucketMovesNothing() {
         assertEquals(0, PanMath.bucketDeltaFor(40f, 700f, 7))
     }
 
