@@ -115,6 +115,56 @@ class PanMathTest {
         assertEquals(at(2026, Calendar.APRIL, 1), window.endExclusive)
     }
 
+    /**
+     * The invariant panning rests on: the window never changes width as it slides.
+     *
+     * The chart maps a drag to buckets using the count it is currently drawing, and the view model
+     * rebuilds the next window from that same count. If a slid window ever tiled to a different
+     * number, the two would disagree and the drag would accelerate or stall.
+     */
+    @Test
+    fun aSlidWindowAlwaysHoldsTheSameNumberOfBuckets() {
+        listOf(TrendBucket.HOUR to 24, TrendBucket.DAY to 7, TrendBucket.WEEK to 13, TrendBucket.MONTH to 6)
+            .forEach { (bucket, count) ->
+                var start = TrendsBuckets.startOfBucket(bucket, now)
+                repeat(40) {
+                    start = TrendsBuckets.addBuckets(bucket, start, -1)
+                    // Offset into the bucket, which is what makes this catch a missing snap:
+                    // adding two months to the 31st is not adding one twice.
+                    val window = PanMath.windowFrom(start + 3_600_000L, bucket, count)
+                    assertEquals(
+                        "$bucket at $start",
+                        count,
+                        TrendsBuckets.bucketStarts(bucket, window).size
+                    )
+                }
+            }
+    }
+
+    /** Including across the two days of the year that are not 24 hours long. */
+    @Test
+    fun aSlidWindowKeepsItsWidthAcrossADaylightSavingChange() {
+        TimeZone.setDefault(TimeZone.getTimeZone("America/New_York"))
+        listOf(
+            TrendBucket.HOUR to 24,
+            TrendBucket.DAY to 7
+        ).forEach { (bucket, count) ->
+            // Walk a window across the spring forward and the autumn back.
+            listOf(at(2026, Calendar.MARCH, 6), at(2026, Calendar.OCTOBER, 30)).forEach { from ->
+                var start = TrendsBuckets.startOfBucket(bucket, from)
+                repeat(8) {
+                    val window = PanMath.windowFrom(start, bucket, count)
+                    assertEquals(
+                        "$bucket at $start",
+                        count,
+                        TrendsBuckets.bucketStarts(bucket, window).size
+                    )
+                    start = TrendsBuckets.addBuckets(bucket, start, 1)
+                }
+            }
+        }
+    }
+
     // --- whether panning is possible at all -------------------------------
 
     @Test

@@ -6,7 +6,6 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.util.AttributeSet
 import android.util.TypedValue
-import android.view.View
 import com.varun.upitracker.domain.statistics.TrendAxis
 import com.varun.upitracker.domain.statistics.ValueAxis
 
@@ -25,7 +24,7 @@ class LineChartView @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null,
     defStyleAttr: Int = 0
-) : View(context, attrs, defStyleAttr) {
+) : PannableChartView(context, attrs, defStyleAttr) {
 
     private val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
@@ -69,6 +68,7 @@ class LineChartView @JvmOverloads constructor(
         this.values = values
         this.labels = labels
         axis = if (values.isEmpty()) null else axisFor(values)
+        panBucketCount = values.size
         invalidate()
     }
 
@@ -109,6 +109,7 @@ class LineChartView @JvmOverloads constructor(
         val top = paddingTop + DOT_RADIUS_DP.let { dp(it) }
         val plotHeight = bottom - top
         if (plotHeight <= 0f || right <= left) return
+        panPlotWidthPx = right - left
 
         gridlines.forEach { value ->
             val y = bottom - plotHeight * axis.fractionOf(value)

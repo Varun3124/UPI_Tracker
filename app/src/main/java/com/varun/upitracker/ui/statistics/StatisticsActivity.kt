@@ -108,6 +108,13 @@ class StatisticsActivity : AppCompatActivity() {
         flowChart = findViewById(R.id.flowChart)
         tvFlowSummary = findViewById(R.id.tvFlowSummary)
         cardFlowTrend = findViewById(R.id.cardFlowTrend)
+        // Both charts drive the same window, which is what keeps them in step: whichever one the
+        // finger is on, the other redraws from the state the first one moved.
+        listOf(balanceLine, flowChart).forEach { chart ->
+            chart.onPanStart = { viewModel.beginPan() }
+            chart.onPan = { buckets -> viewModel.panBy(buckets) }
+            chart.onPanEnd = { viewModel.endPan() }
+        }
         btnSectionCategories.setOnClickListener { viewModel.selectSection(StatsSection.CATEGORIES) }
         btnSectionTrends.setOnClickListener { viewModel.selectSection(StatsSection.TRENDS) }
         btnClearDrill.setOnClickListener { viewModel.clearDrill() }
@@ -225,6 +232,8 @@ class StatisticsActivity : AppCompatActivity() {
         val labels = trends.bucketStarts.mapIndexed { index, start ->
             if (index % stride == 0) format.format(Date(start)) else null
         }
+        balanceLine.isPanEnabled = trends.canPan
+        flowChart.isPanEnabled = trends.canPan
         balanceLine.setSeries(series, labels)
 
         // The same labels on both, because the two charts share a bucket layout so that a peak in
@@ -336,7 +345,22 @@ class StatisticsActivity : AppCompatActivity() {
         }
     }
 
-    private fun rangeLabel(state: StatisticsUiState): String = when (state.period) {
+    /**
+     * On Trends the label names the panned window rather than the period, because that is what is
+     * actually on screen once a drag has moved it -- and the chevrons are hidden there, so nothing
+     * else says where in history the charts are sitting.
+     */
+    private fun rangeLabel(state: StatisticsUiState): String {
+        val trends = state.trends
+        if (state.section == StatsSection.TRENDS && trends.balanceSeries.isNotEmpty()) {
+            val first = shortFmt.format(Date(trends.windowStart))
+            val last = shortFmt.format(Date(trends.windowEndExclusive - 1))
+            return if (first == last) dayFmt.format(Date(trends.windowStart)) else "$first - $last"
+        }
+        return periodRangeLabel(state)
+    }
+
+    private fun periodRangeLabel(state: StatisticsUiState): String = when (state.period) {
         StatsPeriod.ALL_TIME -> "All time"
         StatsPeriod.DAILY -> dayFmt.format(Date(state.range.toInclusive))
         StatsPeriod.MONTHLY -> monthFmt.format(Date(state.range.toInclusive))

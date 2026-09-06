@@ -16,6 +16,7 @@ import com.varun.upitracker.domain.statistics.DateRange
 import com.varun.upitracker.domain.statistics.StatisticsPeriods
 import com.varun.upitracker.domain.statistics.AccountScope
 import com.varun.upitracker.domain.statistics.BalanceTimeline
+import com.varun.upitracker.domain.statistics.PanMath
 import com.varun.upitracker.domain.statistics.StatsAggregator
 import com.varun.upitracker.domain.statistics.StatsPeriod
 import com.varun.upitracker.domain.statistics.TrendBucket
@@ -59,6 +60,11 @@ data class TrendsUiState(
     val openingPaise: Long = 0L,
     /** False when the scope resolves to nothing, where a flat zero line would be a lie. */
     val hasAccounts: Boolean = true,
+    /** The span on screen, which panning slides and the range label names. */
+    val windowStart: Long = 0L,
+    val windowEndExclusive: Long = 0L,
+    /** False for the periods that already show their whole range. */
+    val canPan: Boolean = false,
     val isLoading: Boolean = true
 ) {
     val latestBalancePaise: Long get() = balanceSeries.lastOrNull() ?: 0L
@@ -112,6 +118,25 @@ class StatisticsViewModel(context: Context) : ViewModel() {
     private val bucketTotals = HashMap<String, Long>()
 
     /**
+     * Where the panned window starts, or null while it sits on the period's own range.
+     *
+     * Null is not the same as "at the period's start": the period's window is the exact range the
+     * pie covers, edge buckets clipped, while a panned one is always a whole number of buckets.
+     * Resetting to null on any period change is what puts the two sections back in step.
+     */
+    private var panWindowStart: Long? = null
+
+    /** Captured when a drag begins, so the window is always computed from where it stood. */
+    private var panDragOrigin: Long? = null
+
+    /**
+     * The scope's account ids and oldest epoch, which four queries would otherwise re-answer on
+     * every step of a drag. Neither changes while this screen is open -- nothing here reloads on
+     * resume, so an account added elsewhere is already invisible to the rest of it.
+     */
+    private val resolvedScopes = HashMap<String, Pair<Set<String>, Long?>>()
+
+    /**
      * Swaps the visible section without reloading: both are drawn from the same period and range,
      * so a round trip would only redraw what is already on screen.
      */
@@ -136,6 +161,7 @@ class StatisticsViewModel(context: Context) : ViewModel() {
 
     fun selectPeriod(next: StatsPeriod) {
         period = next
+        panWindowStart = null
         anchor = System.currentTimeMillis()
         load()
     }
@@ -143,21 +169,56 @@ class StatisticsViewModel(context: Context) : ViewModel() {
     /** Opens a single day, used when a bar column is tapped. */
     fun selectDay(dayStartEpoch: Long) {
         period = StatsPeriod.DAILY
+        panWindowStart = null
         anchor = dayStartEpoch
         load()
     }
 
     fun selectCustomRange(fromEpoch: Long, toEpoch: Long) {
         period = StatsPeriod.CUSTOM
+        panWindowStart = null
         customFrom = fromEpoch
         customTo = toEpoch
         load()
+    }
+
+    /** The finger has taken the horizontal axis. */
+    fun beginPan() {
+        panDragOrigin = _uiState.value?.trends?.windowStart ?: return
+    }
+
+    /**
+     * @param bucketDelta buckets moved since [beginPan], not since the last call.
+     *
+     * Recomputed from the drag's origin every time, so running into the end of the data and coming
+     * back moves again at once rather than first unwinding the steps the clamp refused.
+     */
+    fun panBy(bucketDelta: Int) {
+        val origin = panDragOrigin ?: return
+        val trends = _uiState.value?.trends ?: return
+        if (!trends.canPan || trends.bucketStarts.isEmpty()) return
+
+        val next = PanMath.clampStart(
+            proposedStart = TrendsBuckets.addBuckets(trends.bucket, origin, bucketDelta),
+            bucket = trends.bucket,
+            visibleBuckets = trends.bucketStarts.size,
+            earliestEpoch = earliestForScope() ?: origin,
+            nowEpoch = System.currentTimeMillis()
+        )
+        if (next == trends.windowStart) return
+        panWindowStart = next
+        loadTrends()
+    }
+
+    fun endPan() {
+        panDragOrigin = null
     }
 
     /** [delta] is -1 for the previous period, +1 for the next. Guarded against the future. */
     fun step(delta: Int) {
         if (!period.isShiftable) return
         if (delta > 0 && !StatisticsPeriods.canShiftForward(period, anchor, System.currentTimeMillis())) return
+        panWindowStart = null
         anchor = StatisticsPeriods.shift(period, anchor, delta)
         load()
     }
@@ -213,12 +274,14 @@ class StatisticsViewModel(context: Context) : ViewModel() {
         val period = this.period
         val anchor = this.anchor
         val scope = this.accountScope
-        val key = "$period/$anchor/$customFrom/$customTo/$scope"
+        val key = "$period/$anchor/$customFrom/$customTo/$scope/$panWindowStart"
         if (key == loadedTrendsKey) return
 
         trendsJob?.cancel()
         loadedTrendsKey = null
-        _uiState.value = _uiState.value?.copy(trends = TrendsUiState(isLoading = true))
+        // Marked loading rather than emptied. A drag reloads on every bucket it crosses, and
+        // clearing the series each time would strobe the charts between drawn and blank.
+        _uiState.value = _uiState.value?.let { it.copy(trends = it.trends.copy(isLoading = true)) }
 
         trendsJob = viewModelScope.launch {
             val computed = withContext(Dispatchers.IO) { buildTrends(period, anchor, scope) }
@@ -232,16 +295,32 @@ class StatisticsViewModel(context: Context) : ViewModel() {
         anchor: Long,
         scope: AccountScope
     ): TrendsUiState {
-        val ids = scope.resolve(db.accountDao().getAllSync())
-        val earliest = trendsRepository.earliestDataEpoch(ids)
-        val window = TrendsBuckets.visibleWindow(
+        val (ids, earliest) = resolveScope(scope)
+        val baseWindow = TrendsBuckets.visibleWindow(
             period, anchor, customFrom, customTo, earliest, System.currentTimeMillis()
         )
-        val bucket = TrendsBuckets.bucketFor(period, window)
-        val starts = TrendsBuckets.bucketStarts(bucket, window)
-        if (starts.isEmpty() || ids.isEmpty()) {
+        val bucket = TrendsBuckets.bucketFor(period, baseWindow)
+        val baseStarts = TrendsBuckets.bucketStarts(bucket, baseWindow)
+        if (baseStarts.isEmpty() || ids.isEmpty()) {
             return TrendsUiState(bucket = bucket, hasAccounts = ids.isNotEmpty(), isLoading = false)
         }
+
+        // The period fixes how much is on screen; panning only moves where that sits. A panned
+        // window is whole buckets, while the period's own is the exact range the pie covers.
+        val panned = panWindowStart
+        val window = if (panned == null) {
+            baseWindow
+        } else {
+            PanMath.windowFrom(panned, bucket, baseStarts.size)
+        }
+        val starts = TrendsBuckets.bucketStarts(bucket, window)
+        val canPan = period.isShiftable && PanMath.canPan(
+            startEpoch = window.startInclusive,
+            bucket = bucket,
+            visibleBuckets = starts.size,
+            earliestEpoch = earliest ?: window.startInclusive,
+            nowEpoch = System.currentTimeMillis()
+        )
 
         // The span starts at the first BUCKET, not at the window: a week bucket snaps back before
         // the window's own start whenever a quarter does not begin on a Monday, which is almost
@@ -257,6 +336,9 @@ class StatisticsViewModel(context: Context) : ViewModel() {
             incomeSeries = windows.map { bucketTotal(CategoryKind.INCOME, it) },
             expenseSeries = windows.map { bucketTotal(CategoryKind.EXPENSE, it) },
             openingPaise = inputs.openingByAccount.values.sum(),
+            windowStart = window.startInclusive,
+            windowEndExclusive = window.endExclusive,
+            canPan = canPan,
             balanceSeries = BalanceTimeline.build(
                 bucketStarts = starts,
                 windowEndExclusive = window.endExclusive,
@@ -300,6 +382,22 @@ class StatisticsViewModel(context: Context) : ViewModel() {
         }
         return StatsAggregator.foldDays(days, days.map(::dayLabel), perDay)
     }
+
+    /**
+     * The scope's ids and oldest epoch, answered once per scope.
+     *
+     * Four queries otherwise, on every step of a drag.
+     */
+    private suspend fun resolveScope(scope: AccountScope): Pair<Set<String>, Long?> {
+        resolvedScopes["$scope"]?.let { return it }
+        val ids = scope.resolve(db.accountDao().getAllSync())
+        val resolved = ids to trendsRepository.earliestDataEpoch(ids)
+        resolvedScopes["$scope"] = resolved
+        return resolved
+    }
+
+    /** Only meaningful once a scope has been resolved, which is always true by the time it is read. */
+    private fun earliestForScope(): Long? = resolvedScopes["$accountScope"]?.second
 
     /**
      * One bucket, one kind.

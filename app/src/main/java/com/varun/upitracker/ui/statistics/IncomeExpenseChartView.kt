@@ -6,7 +6,6 @@ import android.graphics.Paint
 import android.graphics.Path
 import android.util.AttributeSet
 import android.util.TypedValue
-import android.view.View
 import com.varun.upitracker.domain.statistics.TrendAxis
 import com.varun.upitracker.domain.statistics.ValueAxis
 
@@ -24,7 +23,7 @@ class IncomeExpenseChartView @JvmOverloads constructor(
     context: Context,
     attrs: AttributeSet? = null,
     defStyleAttr: Int = 0
-) : View(context, attrs, defStyleAttr) {
+) : PannableChartView(context, attrs, defStyleAttr) {
 
     private val barPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
@@ -87,6 +86,7 @@ class IncomeExpenseChartView @JvmOverloads constructor(
         } else {
             TrendAxis.fit(minOf(0L, all.min()), maxOf(0L, all.max()))
         }
+        panBucketCount = maxOf(income.size, expense.size)
         invalidate()
     }
 
@@ -111,6 +111,7 @@ class IncomeExpenseChartView @JvmOverloads constructor(
         val top = paddingTop + dp(DOT_RADIUS_DP)
         val plotHeight = bottom - top
         if (plotHeight <= 0f || right <= left) return
+        panPlotWidthPx = right - left
 
         fun yOf(value: Long) = bottom - plotHeight * axis.fractionOf(value)
 
