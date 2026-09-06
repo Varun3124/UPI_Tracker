@@ -104,7 +104,10 @@ class SwipeableFrameLayout @JvmOverloads constructor(
      * the swipe -- so the guard lives here rather than in a comment.
      */
     override fun requestDisallowInterceptTouchEvent(disallowIntercept: Boolean) {
-        if (!axisDecided) return
+        // Disabled means fully transparent to gestures -- onInterceptTouchEvent already declines
+        // outright, so there is no axis decision left to protect and dropping the request would
+        // only strand a child that legitimately needs the horizontal axis.
+        if (isSwipeEnabled && !axisDecided) return
         super.requestDisallowInterceptTouchEvent(disallowIntercept)
     }
 

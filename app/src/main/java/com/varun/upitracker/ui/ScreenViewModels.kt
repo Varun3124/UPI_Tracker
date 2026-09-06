@@ -15,6 +15,7 @@ import com.varun.upitracker.database.AppDatabase
 import com.varun.upitracker.database.entity.Account
 import com.varun.upitracker.database.entity.AccountTransfer
 import com.varun.upitracker.database.entity.AccountType
+import com.varun.upitracker.domain.AccountTypes
 import com.varun.upitracker.database.entity.Category
 import com.varun.upitracker.database.entity.Friend
 import com.varun.upitracker.database.entity.Merchant
@@ -86,7 +87,7 @@ class TransactionEntryViewModel(context: Context) : ViewModel() {
                     friends = db.friendDao().getAllFriendsByFrequency(),
                     merchants = db.merchantDao().getAllMerchantsSync(),
                     categories = db.categoryDao().getAllCategoriesSync(),
-                    accounts = db.accountDao().getActiveByTypes(listOf(AccountType.CASH, AccountType.SAVINGS)),
+                    accounts = db.accountDao().getActiveByTypes(AccountTypes.LIQUID),
                     transferAccounts = db.accountDao().getActiveSync(),
                     transaction = transactionId?.let { db.transactionDao().getTransactionById(it) },
                     transfer = transferId?.let { db.accountTransferDao().getById(it) }
@@ -249,7 +250,7 @@ class AllTransactionsViewModel(context: Context) : ViewModel() {
         val accountId = selectedAccountId
         if (accountId != null) return setOf(accountId)
         return loadedAccounts
-            .filter { it.type == AccountType.CASH || it.type == AccountType.SAVINGS }
+            .filter { AccountTypes.isLiquid(it.type) }
             .map { it.id }
             .toSet()
     }

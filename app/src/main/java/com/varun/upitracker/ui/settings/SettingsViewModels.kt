@@ -16,6 +16,7 @@ import com.varun.upitracker.data.repository.SettingsRepository
 import com.varun.upitracker.database.AppDatabase
 import com.varun.upitracker.database.entity.Account
 import com.varun.upitracker.database.entity.AccountType
+import com.varun.upitracker.domain.AccountTypes
 import com.varun.upitracker.database.entity.BalanceSnapshot
 import com.varun.upitracker.database.entity.BalanceSnapshotSource
 import com.varun.upitracker.database.entity.CategoryKind
@@ -96,7 +97,7 @@ class AccountsViewModel(context: Context) : ViewModel() {
                         )
                     },
                     sourceAccounts = accounts.filter {
-                        !it.isArchived && (it.type == AccountType.CASH || it.type == AccountType.SAVINGS)
+                        !it.isArchived && AccountTypes.isLiquid(it.type)
                     }
                 )
             }

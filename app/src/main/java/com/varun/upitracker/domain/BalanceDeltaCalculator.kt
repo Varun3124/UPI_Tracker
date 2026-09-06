@@ -24,8 +24,8 @@ object BalanceDeltaCalculator {
      *
      * The whole amount counts, whoever the counterparty was and whether or not the transaction has
      * been reviewed: this answers "what left my bank", not "what did I consume". A split debits the
-     * full amount here and the IOU ledger separately tracks what comes back, which is the split
-     * [com.varun.upitracker.domain.GetNetWorthSummaryUseCase] assumes with `withMe + unsettledIou`.
+     * full amount here and the IOU ledger separately tracks what comes back, so a net-worth
+     * figure is this plus the unsettled IOU balance, not this alone.
      *
      * Mirrored in SQL by `TransactionDao.getAccountBalanceDeltaBetween`. The two must agree — the
      * balance row is summed in SQL while the per-card running balance accumulates here.

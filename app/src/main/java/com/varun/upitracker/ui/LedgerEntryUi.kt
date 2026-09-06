@@ -29,30 +29,39 @@ fun LedgerEntry.stableId(): String = when (this) {
     is LedgerEntry.Transfer -> "X:${transfer.id}"
 }
 
-/**
- * How much this entry moved the combined balance of [accountIds]. A transfer between two accounts
- * that are both in scope nets to zero, which is what makes a combined CASH + SAVINGS balance behave.
- */
-fun LedgerEntry.balanceDelta(accountIds: Set<String>): Long = when (this) {
-    is LedgerEntry.Tx -> {
-        val input = TransactionDeltaInput(
+/** How much this entry moved [accountId] alone. The primitive [balanceDelta] sums over. */
+fun LedgerEntry.balanceDeltaFor(accountId: String): Long = when (this) {
+    is LedgerEntry.Tx -> BalanceDeltaCalculator.transactionDelta(
+        accountId,
+        TransactionDeltaInput(
             myAccountId = transaction.myAccountId,
             payerActorType = transaction.payerActorType,
             payeeActorType = transaction.payeeActorType,
             amountPaise = transaction.amountPaise
         )
-        accountIds.sumOf { BalanceDeltaCalculator.transactionDelta(it, input) }
-    }
-    is LedgerEntry.Transfer -> {
-        val input = TransferDeltaInput(
+    )
+    is LedgerEntry.Transfer -> BalanceDeltaCalculator.transferDelta(
+        accountId,
+        TransferDeltaInput(
             fromAccountId = transfer.fromAccountId,
             toAccountId = transfer.toAccountId,
             amountFromPaise = transfer.amountFromPaise,
             amountToPaise = transfer.amountToPaise
         )
-        accountIds.sumOf { BalanceDeltaCalculator.transferDelta(it, input) }
-    }
+    )
 }
+
+/**
+ * How much this entry moved the combined balance of [accountIds]. A transfer between two accounts
+ * that are both in scope nets to zero, which is what makes a combined CASH + SAVINGS balance behave.
+ *
+ * Additive over [accountIds] by construction rather than by comment, which is what lets a balance
+ * timeline decompose a combined line into per-account running totals -- necessary because a
+ * reconciliation snapshot re-anchors one account without touching the others -- and reassemble it
+ * by summing.
+ */
+fun LedgerEntry.balanceDelta(accountIds: Set<String>): Long =
+    accountIds.sumOf { balanceDeltaFor(it) }
 
 /**
  * The balance standing after each entry, keyed by [stableId].

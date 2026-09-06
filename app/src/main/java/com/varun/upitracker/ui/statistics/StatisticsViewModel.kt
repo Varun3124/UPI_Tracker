@@ -21,7 +21,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 data class StatisticsUiState(
-    val period: StatsPeriod = StatsPeriod.MONTHLY,
+    val period: StatsPeriod = StatsPeriod.WEEKLY,
     val anchorEpoch: Long = 0L,
     val range: DateRange = DateRange(0L, 0L),
     val canGoForward: Boolean = false,
@@ -40,7 +40,7 @@ class StatisticsViewModel(context: Context) : ViewModel() {
     private val _uiState = MutableLiveData(StatisticsUiState())
     val uiState: LiveData<StatisticsUiState> = _uiState
 
-    private var period = StatsPeriod.MONTHLY
+    private var period = StatsPeriod.WEEKLY
     private var anchor = System.currentTimeMillis()
     private var customFrom = 0L
     private var customTo = 0L

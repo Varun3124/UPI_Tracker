@@ -2,6 +2,7 @@ package com.varun.upitracker.data.repository
 
 import androidx.lifecycle.LiveData
 import androidx.room.withTransaction
+import com.varun.upitracker.domain.AccountTypes
 import com.varun.upitracker.database.model.CategoryTotal
 import com.varun.upitracker.database.model.PayeeTotal
 import com.varun.upitracker.database.AppDatabase
@@ -80,7 +81,7 @@ class AccountRepository private constructor(
     }
 
     suspend fun getTransactionAccounts(): List<Account> {
-        return database.accountDao().getActiveByTypes(listOf(AccountType.CASH, AccountType.SAVINGS))
+        return database.accountDao().getActiveByTypes(AccountTypes.LIQUID)
     }
 
     suspend fun setDefault(accountId: String) {
