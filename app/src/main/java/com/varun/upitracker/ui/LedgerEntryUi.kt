@@ -4,6 +4,7 @@ import com.varun.upitracker.database.entity.AccountTransfer
 import com.varun.upitracker.database.entity.AccountTransferType
 import com.varun.upitracker.database.entity.Transaction
 import com.varun.upitracker.domain.BalanceDeltaCalculator
+import com.varun.upitracker.domain.statistics.BalanceMovement
 import com.varun.upitracker.domain.TransactionDeltaInput
 import com.varun.upitracker.domain.TransferDeltaInput
 
@@ -62,6 +63,22 @@ fun LedgerEntry.balanceDeltaFor(accountId: String): Long = when (this) {
  */
 fun LedgerEntry.balanceDelta(accountIds: Set<String>): Long =
     accountIds.sumOf { balanceDeltaFor(it) }
+
+/**
+ * One movement per account this entry actually moved.
+ *
+ * A transfer between two in-scope accounts yields **two** movements rather than the netted zero
+ * [balanceDelta] would give, because a balance timeline has to be able to re-anchor one of those
+ * accounts on a reconciliation snapshot without disturbing the other. Zero deltas are dropped: they
+ * are the common case, since most entries touch one account out of the scope.
+ */
+fun List<LedgerEntry>.toBalanceMovements(accountIds: Set<String>): List<BalanceMovement> =
+    flatMap { entry ->
+        accountIds.mapNotNull { id ->
+            val delta = entry.balanceDeltaFor(id)
+            if (delta == 0L) null else BalanceMovement(entry.dateEpoch, id, delta)
+        }
+    }
 
 /**
  * The balance standing after each entry, keyed by [stableId].

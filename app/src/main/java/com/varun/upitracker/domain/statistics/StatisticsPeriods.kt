@@ -42,6 +42,13 @@ object StatisticsPeriods {
 
     fun startOfDay(epoch: Long): Long = calendarAt(epoch).also(::zeroTime).timeInMillis
 
+    /** Only the trends X axis buckets this finely, but the rule belongs with the other boundaries. */
+    fun startOfHour(epoch: Long): Long = calendarAt(epoch).apply {
+        set(Calendar.MINUTE, 0)
+        set(Calendar.SECOND, 0)
+        set(Calendar.MILLISECOND, 0)
+    }.timeInMillis
+
     fun startOfWeek(epoch: Long): Long {
         val cal = calendarAt(epoch).also(::zeroTime)
         val daysFromWeekStart = (cal.get(Calendar.DAY_OF_WEEK) - WEEK_START + 7) % 7
@@ -143,13 +150,24 @@ object StatisticsPeriods {
         return startOf(period, shift(period, anchorEpoch, 1)) <= now
     }
 
-    private fun addDays(epoch: Long, days: Int): Long =
+    /**
+     * Field arithmetic rather than a fixed 86_400_000ms stride: a DST day is 23 or 25 hours long,
+     * and a stride would slide every later boundary off midnight.
+     *
+     * Public because [TrendsBuckets] tiles the same calendar and duplicating this is how the two
+     * would drift apart.
+     */
+    fun addDays(epoch: Long, days: Int): Long =
         calendarAt(epoch).apply { add(Calendar.DAY_OF_MONTH, days) }.timeInMillis
 
     // Calendar.add, not millisecond arithmetic: month and quarter lengths vary, and adding a month
     // to the 31st has to land on the last day of a short month rather than overflowing into the next.
-    private fun addMonths(epoch: Long, months: Int): Long =
+    fun addMonths(epoch: Long, months: Int): Long =
         calendarAt(epoch).apply { add(Calendar.MONTH, months) }.timeInMillis
+
+    /** Field arithmetic again: the DST hour is repeated or skipped, and a stride would miscount it. */
+    fun addHours(epoch: Long, hours: Int): Long =
+        calendarAt(epoch).apply { add(Calendar.HOUR_OF_DAY, hours) }.timeInMillis
 
     private fun calendarAt(epoch: Long): Calendar =
         Calendar.getInstance().apply { timeInMillis = epoch }
