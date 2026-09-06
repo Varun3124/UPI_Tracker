@@ -20,7 +20,16 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
+/**
+ * Which half of the screen is showing.
+ *
+ * One activity rather than two: the period control, the range and the loaded breakdown are shared,
+ * and a second activity would have to duplicate all of it and then keep the two in step.
+ */
+enum class StatsSection { CATEGORIES, TRENDS }
+
 data class StatisticsUiState(
+    val section: StatsSection = StatsSection.CATEGORIES,
     val period: StatsPeriod = StatsPeriod.WEEKLY,
     val anchorEpoch: Long = 0L,
     val range: DateRange = DateRange(0L, 0L),
@@ -45,7 +54,18 @@ class StatisticsViewModel(context: Context) : ViewModel() {
     private var customFrom = 0L
     private var customTo = 0L
     private var drilled: CategorySlice? = null
+    private var section = StatsSection.CATEGORIES
     private var loadJob: Job? = null
+
+    /**
+     * Swaps the visible section without reloading: both are drawn from the same period and range,
+     * so a round trip would only redraw what is already on screen.
+     */
+    fun selectSection(next: StatsSection) {
+        if (next == section) return
+        section = next
+        _uiState.value = _uiState.value?.copy(section = next)
+    }
 
     /** Scopes the screen to one category. Survives period changes and stepping. */
     fun drillInto(slice: CategorySlice) {
@@ -108,6 +128,7 @@ class StatisticsViewModel(context: Context) : ViewModel() {
                 result to StatsAggregator.toPayeeSlices(payeeTotals)
             }
             _uiState.value = StatisticsUiState(
+                section = section,
                 period = period,
                 anchorEpoch = anchor,
                 range = range,

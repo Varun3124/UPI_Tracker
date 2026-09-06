@@ -44,6 +44,9 @@ class StatisticsActivity : AppCompatActivity() {
     private lateinit var tvPeakDay: TextView
     private lateinit var weekBars: StackedBarChartView
     private lateinit var swipeContainer: SwipeableFrameLayout
+    private lateinit var trendsScroll: View
+    private lateinit var btnSectionCategories: TextView
+    private lateinit var btnSectionTrends: TextView
 
     private val dayFmt = SimpleDateFormat("d MMM yyyy", Locale.getDefault())
     private val monthFmt = SimpleDateFormat("MMMM yyyy", Locale.getDefault())
@@ -86,6 +89,11 @@ class StatisticsActivity : AppCompatActivity() {
         tvPeakDay = findViewById(R.id.tvPeakDay)
         weekBars = findViewById(R.id.weekBars)
         swipeContainer = findViewById(R.id.swipeContainer)
+        trendsScroll = findViewById(R.id.trendsScroll)
+        btnSectionCategories = findViewById(R.id.btnSectionCategories)
+        btnSectionTrends = findViewById(R.id.btnSectionTrends)
+        btnSectionCategories.setOnClickListener { viewModel.selectSection(StatsSection.CATEGORIES) }
+        btnSectionTrends.setOnClickListener { viewModel.selectSection(StatsSection.TRENDS) }
         btnClearDrill.setOnClickListener { viewModel.clearDrill() }
         pieChart.onSliceTapped = { index ->
             // Drilling only makes sense one level deep; a tap inside the merchant pie is inert.
@@ -126,14 +134,7 @@ class StatisticsActivity : AppCompatActivity() {
         // The app has no chevron asset; every other glyph in it is a literal character.
         btnPickPeriod.text = "${periodLabel(state.period)}  \u25BE"
         tvRangeLabel.text = rangeLabel(state)
-
-        val shiftable = state.period.isShiftable
-        btnPrevPeriod.visibility = if (shiftable) View.VISIBLE else View.INVISIBLE
-        btnNextPeriod.visibility = btnPrevPeriod.visibility
-        btnNextPeriod.isEnabled = state.canGoForward
-        btnNextPeriod.alpha = if (state.canGoForward) 1f else DISABLED_ALPHA
-        swipeContainer.isSwipeEnabled = shiftable
-        swipeContainer.canSwipeForward = state.canGoForward
+        renderSection(state)
 
         val drilled = state.drilledCategory
         val slices = if (drilled != null) state.payeeSlices else state.breakdown.slices
@@ -153,6 +154,41 @@ class StatisticsActivity : AppCompatActivity() {
         buildLegend(slices, total, drillable = drilled == null)
 
         renderWeekBars(state, drilled)
+    }
+
+    /**
+     * The two sections share the header, the period control and the range label -- only the content
+     * and the stepping controls differ.
+     *
+     * Trends steps by panning rather than by the chevrons, so those hide there. The range label
+     * stays: Trends has a visible window of its own, and this is the only thing that names it.
+     */
+    private fun renderSection(state: StatisticsUiState) {
+        val categories = state.section == StatsSection.CATEGORIES
+        stylePill(btnSectionCategories, categories)
+        stylePill(btnSectionTrends, !categories)
+
+        swipeContainer.visibility = if (categories) View.VISIBLE else View.GONE
+        trendsScroll.visibility = if (categories) View.GONE else View.VISIBLE
+
+        val steppable = categories && state.period.isShiftable
+        btnPrevPeriod.visibility = if (steppable) View.VISIBLE else View.INVISIBLE
+        btnNextPeriod.visibility = btnPrevPeriod.visibility
+        btnNextPeriod.isEnabled = state.canGoForward
+        btnNextPeriod.alpha = if (state.canGoForward) 1f else DISABLED_ALPHA
+        swipeContainer.isSwipeEnabled = steppable
+        swipeContainer.canSwipeForward = state.canGoForward
+    }
+
+    /** The pill styling from All Transactions, the app's only mutually-exclusive selection idiom. */
+    private fun stylePill(view: TextView, active: Boolean) {
+        view.background = GradientDrawable().apply {
+            shape = GradientDrawable.RECTANGLE
+            cornerRadius = dp(16).toFloat()
+            setColor(if (active) Color.parseColor("#006064") else Color.parseColor("#EEEEEE"))
+            setStroke(dp(1), if (active) Color.parseColor("#006064") else Color.parseColor("#DDDDDD"))
+        }
+        view.setTextColor(if (active) Color.WHITE else Color.parseColor("#212121"))
     }
 
     /**

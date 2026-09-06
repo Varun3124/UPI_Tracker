@@ -48,6 +48,46 @@
             android:textStyle="bold" />
     </LinearLayout>
 
+    <!-- Two pills rather than a TabLayout: the app has none, and the closest existing idiom for a
+         mutually exclusive choice is the pill row on All Transactions. -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="#FFFFFF"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:paddingBottom="10dp">
+
+        <TextView
+            android:id="@+id/btnSectionCategories"
+            android:layout_width="wrap_content"
+            android:layout_height="32dp"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center"
+            android:paddingStart="14dp"
+            android:paddingEnd="14dp"
+            android:text="Categories"
+            android:textSize="12sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:id="@+id/btnSectionTrends"
+            android:layout_width="wrap_content"
+            android:layout_height="32dp"
+            android:layout_marginStart="8dp"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center"
+            android:paddingStart="14dp"
+            android:paddingEnd="14dp"
+            android:text="Trends"
+            android:textSize="12sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
@@ -87,8 +127,10 @@
             android:textSize="18sp" />
     </LinearLayout>
 
-    <!-- Wraps the scroller so a horizontal drag anywhere over the charts steps the period,
-         while vertical drags still scroll. The pills and the header row stay outside it. -->
+    <!-- Wraps the Categories scroller only, so a horizontal drag anywhere over its charts steps
+         the period while vertical drags still scroll. Trends is a SIBLING of this rather than a
+         child: this container decides the gesture axis in onInterceptTouchEvent, and a chart that
+         pans horizontally could never win a drag from inside it. -->
     <com.varun.upitracker.ui.statistics.SwipeableFrameLayout
         android:id="@+id/swipeContainer"
         android:layout_width="match_parent"
@@ -247,4 +289,30 @@
         </LinearLayout>
     </ScrollView>
     </com.varun.upitracker.ui.statistics.SwipeableFrameLayout>
+
+    <!-- Only one of the two sections is ever visible, so whichever it is takes the whole weight. -->
+    <ScrollView
+        android:id="@+id/trendsScroll"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <TextView
+                android:id="@+id/tvTrendsPlaceholder"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="48dp"
+                android:gravity="center"
+                android:text="Balance and income charts arrive here"
+                android:textColor="#888888"
+                android:textSize="13sp" />
+        </LinearLayout>
+    </ScrollView>
 </LinearLayout>
