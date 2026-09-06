@@ -19,6 +19,8 @@ import androidx.lifecycle.ViewModelProvider
 import com.varun.upitracker.R
 import com.varun.upitracker.domain.statistics.CategorySlice
 import com.varun.upitracker.domain.statistics.StatisticsPeriods
+import com.varun.upitracker.database.entity.Account
+import com.varun.upitracker.domain.statistics.AccountScope
 import com.varun.upitracker.domain.statistics.StatsPeriod
 import com.varun.upitracker.domain.statistics.TrendBucket
 import com.varun.upitracker.domain.statistics.TrendsBuckets
@@ -56,6 +58,7 @@ class StatisticsActivity : AppCompatActivity() {
     private lateinit var flowChart: IncomeExpenseChartView
     private lateinit var tvFlowSummary: TextView
     private lateinit var cardFlowTrend: View
+    private lateinit var btnPickScope: TextView
 
     private val dayFmt = SimpleDateFormat("d MMM yyyy", Locale.getDefault())
     private val monthFmt = SimpleDateFormat("MMMM yyyy", Locale.getDefault())
@@ -108,6 +111,8 @@ class StatisticsActivity : AppCompatActivity() {
         flowChart = findViewById(R.id.flowChart)
         tvFlowSummary = findViewById(R.id.tvFlowSummary)
         cardFlowTrend = findViewById(R.id.cardFlowTrend)
+        btnPickScope = findViewById(R.id.btnPickScope)
+        btnPickScope.setOnClickListener { showScopeMenu() }
         // Both charts drive the same window, which is what keeps them in step: whichever one the
         // finger is on, the other redraws from the state the first one moved.
         listOf(balanceLine, flowChart).forEach { chart ->
@@ -213,6 +218,7 @@ class StatisticsActivity : AppCompatActivity() {
     private fun renderTrends(trends: TrendsUiState) {
         val series = trends.balanceSeries
         val empty = series.isEmpty()
+        btnPickScope.text = "${scopeLabel(trends.scope, trends.accounts)}  \u25BE"
 
         balanceLine.visibility = if (empty) View.GONE else View.VISIBLE
         cardFlowTrend.visibility = if (empty) View.GONE else View.VISIBLE
@@ -256,6 +262,73 @@ class StatisticsActivity : AppCompatActivity() {
             else -> "level"
         }
         return "In ${formatRupees(income)} · Out ${formatRupees(expense)} · $verdict"
+    }
+
+    /**
+     * Liquid / All accounts / each account / Choose accounts.
+     *
+     * An AlertDialog list, matching the period menu beside it, with the multi-select chained off the
+     * last row. The app has no multi-select anywhere else, and setMultiChoiceItems is the cheapest
+     * thing that still looks like the rest of it.
+     */
+    private fun showScopeMenu() {
+        val state = viewModel.uiState.value ?: return
+        val accounts = state.trends.accounts
+        val labels = listOf("Liquid (cash and savings)", "All accounts") +
+            accounts.map { accountLabel(it) } +
+            listOf("Choose accounts\u2026")
+
+        AlertDialog.Builder(this)
+            .setTitle("Balance for")
+            .setItems(labels.toTypedArray()) { _, which ->
+                when (which) {
+                    0 -> viewModel.selectScope(AccountScope.Liquid)
+                    1 -> viewModel.selectScope(AccountScope.Total)
+                    labels.lastIndex -> showCustomScopePicker(accounts, state.trends.scope)
+                    else -> viewModel.selectScope(AccountScope.Single(accounts[which - 2].id))
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun showCustomScopePicker(accounts: List<Account>, current: AccountScope) {
+        if (accounts.isEmpty()) return
+        val alreadyIn = when (current) {
+            is AccountScope.Custom -> current.ids
+            is AccountScope.Single -> setOf(current.id)
+            else -> emptySet()
+        }
+        val checked = accounts.map { it.id in alreadyIn }.toBooleanArray()
+
+        AlertDialog.Builder(this)
+            .setTitle("Choose accounts")
+            .setMultiChoiceItems(
+                accounts.map { accountLabel(it) }.toTypedArray(),
+                checked
+            ) { _, index, isChecked -> checked[index] = isChecked }
+            .setPositiveButton("Done") { _, _ ->
+                val picked = accounts.filterIndexed { index, _ -> checked[index] }.map { it.id }.toSet()
+                // An empty pick would draw a flat zero line; treat it as "never mind".
+                if (picked.isNotEmpty()) viewModel.selectScope(AccountScope.Custom(picked))
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun accountLabel(account: Account): String =
+        if (account.isArchived) "${account.label} (archived)" else account.label
+
+    /** Named scopes keep their name; a hand-picked set is counted rather than listed. */
+    private fun scopeLabel(scope: AccountScope, accounts: List<Account>): String = when (scope) {
+        AccountScope.Liquid -> "Liquid"
+        AccountScope.Total -> "All accounts"
+        is AccountScope.Single ->
+            accounts.firstOrNull { it.id == scope.id }?.label ?: "1 account"
+        is AccountScope.Custom -> {
+            val known = accounts.count { it.id in scope.ids }
+            if (known == 1) accounts.first { it.id in scope.ids }.label else "$known accounts"
+        }
     }
 
     /**

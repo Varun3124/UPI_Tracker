@@ -24,6 +24,39 @@ sealed interface AccountScope {
 }
 
 /**
+ * A form that survives a restart.
+ *
+ * The two policy scopes store no ids at all, which is the point of naming them: "Liquid" still
+ * means every cash and savings account after a new one is opened, where a stored id set would
+ * quietly go on describing the old ones.
+ *
+ * Account ids are UUIDs, so neither delimiter can appear inside one.
+ */
+fun AccountScope.serialise(): String = when (this) {
+    AccountScope.Liquid -> "LIQUID"
+    AccountScope.Total -> "TOTAL"
+    is AccountScope.Single -> "SINGLE:$id"
+    is AccountScope.Custom -> "CUSTOM:" + ids.sorted().joinToString(",")
+}
+
+/**
+ * Total: anything unrecognised reads as [AccountScope.Liquid].
+ *
+ * A stored scope outlives the accounts it names and the release that wrote it, and neither is worth
+ * a crash on a statistics screen -- resolving drops unknown ids anyway.
+ */
+fun parseAccountScope(stored: String?): AccountScope {
+    val text = stored?.trim().orEmpty()
+    val ids = text.substringAfter(':', "").split(',').map { it.trim() }.filter { it.isNotEmpty() }
+    return when {
+        text == "TOTAL" -> AccountScope.Total
+        text.startsWith("SINGLE:") && ids.size == 1 -> AccountScope.Single(ids.first())
+        text.startsWith("CUSTOM:") && ids.isNotEmpty() -> AccountScope.Custom(ids.toSet())
+        else -> AccountScope.Liquid
+    }
+}
+
+/**
  * The account ids [this] scope covers, given the full account list.
  *
  * **Archived accounts are excluded from the two policy scopes and kept in the two explicit ones.**

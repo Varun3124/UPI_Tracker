@@ -1,6 +1,7 @@
 package com.varun.upitracker.ui.statistics
 
 import android.content.Context
+import com.varun.upitracker.database.entity.Account
 import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
@@ -17,6 +18,9 @@ import com.varun.upitracker.domain.statistics.StatisticsPeriods
 import com.varun.upitracker.domain.statistics.AccountScope
 import com.varun.upitracker.domain.statistics.BalanceTimeline
 import com.varun.upitracker.domain.statistics.PanMath
+import com.varun.upitracker.domain.statistics.parseAccountScope
+import com.varun.upitracker.domain.statistics.serialise
+import com.varun.upitracker.sms.SmsBacklogScanner
 import com.varun.upitracker.domain.statistics.StatsAggregator
 import com.varun.upitracker.domain.statistics.StatsPeriod
 import com.varun.upitracker.domain.statistics.TrendBucket
@@ -65,6 +69,9 @@ data class TrendsUiState(
     val windowEndExclusive: Long = 0L,
     /** False for the periods that already show their whole range. */
     val canPan: Boolean = false,
+    val scope: AccountScope = AccountScope.Liquid,
+    /** Every account, for the scope picker -- archived ones included, since one can be named. */
+    val accounts: List<Account> = emptyList(),
     val isLoading: Boolean = true
 ) {
     val latestBalancePaise: Long get() = balanceSeries.lastOrNull() ?: 0L
@@ -87,6 +94,8 @@ data class StatisticsUiState(
 
 class StatisticsViewModel(context: Context) : ViewModel() {
 
+    private val prefs = context.applicationContext
+        .getSharedPreferences(SmsBacklogScanner.PREF_NAME, Context.MODE_PRIVATE)
     private val db = AppDatabase.getInstance(context.applicationContext)
     private val repository = AccountRepository(db)
     private val trendsRepository = TrendsRepository(db)
@@ -100,7 +109,7 @@ class StatisticsViewModel(context: Context) : ViewModel() {
     private var customTo = 0L
     private var drilled: CategorySlice? = null
     private var section = StatsSection.CATEGORIES
-    private var accountScope: AccountScope = AccountScope.Liquid
+    private var accountScope: AccountScope = parseAccountScope(prefs.getString(PREF_TRENDS_SCOPE, null))
     private var loadJob: Job? = null
     private var trendsJob: Job? = null
 
@@ -135,6 +144,17 @@ class StatisticsViewModel(context: Context) : ViewModel() {
      * resume, so an account added elsewhere is already invisible to the rest of it.
      */
     private val resolvedScopes = HashMap<String, Pair<Set<String>, Long?>>()
+
+    /** Read once. An account added elsewhere is already invisible to the rest of this screen. */
+    private var loadedAccounts: List<Account>? = null
+
+    /** Persisted, so a hand-picked set is still there next time rather than silently reset. */
+    fun selectScope(next: AccountScope) {
+        if (next == accountScope) return
+        accountScope = next
+        prefs.edit().putString(PREF_TRENDS_SCOPE, next.serialise()).apply()
+        loadTrends()
+    }
 
     /**
      * Swaps the visible section without reloading: both are drawn from the same period and range,
@@ -295,6 +315,7 @@ class StatisticsViewModel(context: Context) : ViewModel() {
         anchor: Long,
         scope: AccountScope
     ): TrendsUiState {
+        val accounts = accounts()
         val (ids, earliest) = resolveScope(scope)
         val baseWindow = TrendsBuckets.visibleWindow(
             period, anchor, customFrom, customTo, earliest, System.currentTimeMillis()
@@ -302,7 +323,13 @@ class StatisticsViewModel(context: Context) : ViewModel() {
         val bucket = TrendsBuckets.bucketFor(period, baseWindow)
         val baseStarts = TrendsBuckets.bucketStarts(bucket, baseWindow)
         if (baseStarts.isEmpty() || ids.isEmpty()) {
-            return TrendsUiState(bucket = bucket, hasAccounts = ids.isNotEmpty(), isLoading = false)
+            return TrendsUiState(
+                bucket = bucket,
+                hasAccounts = ids.isNotEmpty(),
+                scope = scope,
+                accounts = accounts,
+                isLoading = false
+            )
         }
 
         // The period fixes how much is on screen; panning only moves where that sits. A panned
@@ -339,6 +366,8 @@ class StatisticsViewModel(context: Context) : ViewModel() {
             windowStart = window.startInclusive,
             windowEndExclusive = window.endExclusive,
             canPan = canPan,
+            scope = scope,
+            accounts = accounts,
             balanceSeries = BalanceTimeline.build(
                 bucketStarts = starts,
                 windowEndExclusive = window.endExclusive,
@@ -388,9 +417,12 @@ class StatisticsViewModel(context: Context) : ViewModel() {
      *
      * Four queries otherwise, on every step of a drag.
      */
+    private suspend fun accounts(): List<Account> =
+        loadedAccounts ?: db.accountDao().getAllSync().also { loadedAccounts = it }
+
     private suspend fun resolveScope(scope: AccountScope): Pair<Set<String>, Long?> {
         resolvedScopes["$scope"]?.let { return it }
-        val ids = scope.resolve(db.accountDao().getAllSync())
+        val ids = scope.resolve(accounts())
         val resolved = ids to trendsRepository.earliestDataEpoch(ids)
         resolvedScopes["$scope"] = resolved
         return resolved
@@ -416,6 +448,10 @@ class StatisticsViewModel(context: Context) : ViewModel() {
             .sumOf { it.netPaise }
         bucketTotals[key] = total
         return total
+    }
+
+    private companion object {
+        const val PREF_TRENDS_SCOPE = "trends_account_scope"
     }
 
     private fun dayLabel(dayStartEpoch: Long): String =

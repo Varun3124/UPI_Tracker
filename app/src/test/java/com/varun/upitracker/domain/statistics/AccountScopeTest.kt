@@ -61,6 +61,50 @@ class AccountScopeTest {
         assertEquals(emptySet<String>(), AccountScope.Custom(emptySet()).resolve(accounts))
     }
 
+    // --- surviving a restart ----------------------------------------------
+
+    @Test
+    fun everyScopeSurvivesTheRoundTrip() {
+        listOf(
+            AccountScope.Liquid,
+            AccountScope.Total,
+            AccountScope.Single("savings"),
+            AccountScope.Custom(setOf("cash")),
+            AccountScope.Custom(setOf("cash", "savings", "fd"))
+        ).forEach { scope ->
+            assertEquals("$scope", scope, parseAccountScope(scope.serialise()))
+        }
+    }
+
+    /**
+     * The point of naming a scope rather than storing what it resolved to: open a new savings
+     * account and Liquid still means every one of them.
+     */
+    @Test
+    fun aPolicyScopeStoresNoIdsAtAll() {
+        assertEquals("LIQUID", AccountScope.Liquid.serialise())
+        assertEquals("TOTAL", AccountScope.Total.serialise())
+    }
+
+    /** A stored scope outlives the release that wrote it, and this screen is not worth a crash. */
+    @Test
+    fun anythingUnreadableFallsBackToLiquid() {
+        listOf(
+            null, "", "   ", "GARBAGE", "CUSTOM:", "CUSTOM", "SINGLE:", "SINGLE:a,b",
+            "LIQUID:oops", "custom:cash", ":", ","
+        ).forEach { stored ->
+            assertEquals("$stored", AccountScope.Liquid, parseAccountScope(stored))
+        }
+    }
+
+    @Test
+    fun aStoredSetIsUnchangedByTheOrderItWasPickedIn() {
+        assertEquals(
+            AccountScope.Custom(setOf("cash", "savings")).serialise(),
+            AccountScope.Custom(setOf("savings", "cash")).serialise()
+        )
+    }
+
     @Test
     fun noAccountsAtAllResolvesEmptyForEveryScope() {
         listOf(
