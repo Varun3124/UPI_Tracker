@@ -260,6 +260,55 @@ class TrendsBucketsTest {
     private fun dayOfWeek(epoch: Long): Int =
         Calendar.getInstance().apply { timeInMillis = epoch }.get(Calendar.DAY_OF_WEEK)
 
+    // --- bucket windows tile the period -----------------------------------
+
+    /**
+     * The Kotlin half of what makes the income and expense chart add up: clipped bucket windows
+     * tile the period exactly, so the DAO called once per bucket returns the same total as one call
+     * over the whole window. The SQL half is checked against a fixture.
+     */
+    @Test
+    fun clippedBucketWindowsTileThePeriodInTheDaosOwnConvention() {
+        listOf(
+            StatsPeriod.DAILY to TrendBucket.HOUR,
+            StatsPeriod.WEEKLY to TrendBucket.DAY,
+            StatsPeriod.MONTHLY to TrendBucket.DAY,
+            StatsPeriod.QUARTERLY to TrendBucket.WEEK
+        ).forEach { (period, bucket) ->
+            val window = TrendsBuckets.windowFor(period, at(2026, Calendar.MAY, 4, 15))
+            val ranges = TrendsBuckets.bucketStarts(bucket, window)
+                .map { TrendsBuckets.bucketWindow(bucket, it).within(window).asDateRange() }
+
+            assertEquals("$period first", window.asDateRange().fromExclusive, ranges.first().fromExclusive)
+            assertEquals("$period last", window.asDateRange().toInclusive, ranges.last().toInclusive)
+            ranges.zipWithNext { a, b ->
+                assertEquals("$period: gap or overlap at ${a.toInclusive}", a.toInclusive, b.fromExclusive)
+            }
+        }
+    }
+
+    /** A quarter's edge weeks are the case that needs the clip. */
+    @Test
+    fun aQuartersEdgeWeeksAreClippedToTheQuarter() {
+        val window = TrendsBuckets.windowFor(StatsPeriod.QUARTERLY, at(2026, Calendar.MAY, 4))
+        val starts = TrendsBuckets.bucketStarts(TrendBucket.WEEK, window)
+
+        val first = TrendsBuckets.bucketWindow(TrendBucket.WEEK, starts.first())
+        assertTrue("the raw week reaches before the quarter", first.startInclusive < window.startInclusive)
+        assertEquals(window.startInclusive, first.within(window).startInclusive)
+
+        val last = TrendsBuckets.bucketWindow(TrendBucket.WEEK, starts.last())
+        assertTrue("the raw week reaches past the quarter", last.endExclusive > window.endExclusive)
+        assertEquals(window.endExclusive, last.within(window).endExclusive)
+    }
+
+    @Test
+    fun aWindowThatDoesNotOverlapClipsToNothing() {
+        val a = TrendWindow(at(2026, Calendar.MARCH, 1), at(2026, Calendar.MARCH, 5))
+        val b = TrendWindow(at(2026, Calendar.APRIL, 1), at(2026, Calendar.APRIL, 5))
+        assertTrue(a.within(b).isEmpty)
+    }
+
     // --- labels -----------------------------------------------------------
 
     @Test

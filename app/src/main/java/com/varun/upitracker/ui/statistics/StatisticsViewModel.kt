@@ -19,6 +19,7 @@ import com.varun.upitracker.domain.statistics.BalanceTimeline
 import com.varun.upitracker.domain.statistics.StatsAggregator
 import com.varun.upitracker.domain.statistics.StatsPeriod
 import com.varun.upitracker.domain.statistics.TrendBucket
+import com.varun.upitracker.domain.statistics.TrendWindow
 import com.varun.upitracker.domain.statistics.TrendsBuckets
 import com.varun.upitracker.domain.statistics.resolve
 import kotlinx.coroutines.Dispatchers
@@ -46,6 +47,9 @@ data class TrendsUiState(
     val bucketStarts: List<Long> = emptyList(),
     /** The combined balance at the end of each bucket. */
     val balanceSeries: List<Long> = emptyList(),
+    /** What came in per bucket. Parallel to [bucketStarts], as [expenseSeries] is. */
+    val incomeSeries: List<Long> = emptyList(),
+    val expenseSeries: List<Long> = emptyList(),
     /**
      * The combined balance immediately *before* the first bucket.
      *
@@ -96,6 +100,16 @@ class StatisticsViewModel(context: Context) : ViewModel() {
 
     /** What the loaded series covers, so switching back to Trends does not reload it. */
     private var loadedTrendsKey: String? = null
+
+    /**
+     * One bucket's totals, keyed by kind and window.
+     *
+     * Bucket boundaries are deterministic, so a window revisited at a different period -- or, once
+     * panning lands, slid back over ground already covered -- reuses what was fetched rather than
+     * asking again. Held for the life of the screen, which is exactly as fresh as everything else
+     * on it: nothing here reloads on resume.
+     */
+    private val bucketTotals = HashMap<String, Long>()
 
     /**
      * Swaps the visible section without reloading: both are drawn from the same period and range,
@@ -234,9 +248,14 @@ class StatisticsViewModel(context: Context) : ViewModel() {
         // always. Loading from the window would then leave the opening balance a few days late and
         // silently drop the movements in between.
         val inputs = trendsRepository.loadBalanceInputs(starts.first(), window.endExclusive, ids)
+        // Clipped to the window: the first and last buckets otherwise reach outside the period,
+        // and the chart would total more than the pie does for the same period.
+        val windows = starts.map { TrendsBuckets.bucketWindow(bucket, it).within(window) }
         return TrendsUiState(
             bucket = bucket,
             bucketStarts = starts,
+            incomeSeries = windows.map { bucketTotal(CategoryKind.INCOME, it) },
+            expenseSeries = windows.map { bucketTotal(CategoryKind.EXPENSE, it) },
             openingPaise = inputs.openingByAccount.values.sum(),
             balanceSeries = BalanceTimeline.build(
                 bucketStarts = starts,
@@ -280,6 +299,25 @@ class StatisticsViewModel(context: Context) : ViewModel() {
             )
         }
         return StatsAggregator.foldDays(days, days.map(::dayLabel), perDay)
+    }
+
+    /**
+     * One bucket, one kind.
+     *
+     * The same two-leg query the pie is built from rather than new bucketing SQL, so Trends and
+     * Categories cannot disagree -- and so the refund leg keeps being dated by the purchase it
+     * reverses without that rule having to be written a second time. Verified against a SQLite
+     * fixture: these per-bucket totals sum to exactly what one call over the whole window returns,
+     * including when a refund's original purchase falls outside it.
+     */
+    private suspend fun bucketTotal(kind: CategoryKind, window: TrendWindow): Long {
+        val key = "$kind/${window.startInclusive}/${window.endExclusive}"
+        bucketTotals[key]?.let { return it }
+        val range = window.asDateRange()
+        val total = repository.getTotalsByCategory(kind, range.fromExclusive, range.toInclusive)
+            .sumOf { it.netPaise }
+        bucketTotals[key] = total
+        return total
     }
 
     private fun dayLabel(dayStartEpoch: Long): String =

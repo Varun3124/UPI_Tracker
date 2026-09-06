@@ -118,10 +118,12 @@ class LineChartView @JvmOverloads constructor(
             canvas.drawText(axisLabel(value), left - dp(4f), y + sp(3f), axisLabelPaint)
         }
 
-        // A single bucket has no span to spread across, so it sits in the middle rather than
-        // collapsing onto the left edge.
-        val step = if (values.size > 1) (right - left) / (values.size - 1) else 0f
-        fun xAt(index: Int) = if (values.size > 1) left + step * index else (left + right) / 2f
+        // Slot centres rather than edge to edge, because this chart is read against the income and
+        // expense one below it, whose bars can only sit in slots. Aligning them is what lets a peak
+        // in one be read directly above the peak in the other. It costs half a slot of inset at
+        // each end, and a lone bucket lands in the middle instead of collapsing onto the left edge.
+        val slot = (right - left) / values.size
+        fun xAt(index: Int) = left + slot * (index + 0.5f)
         fun yAt(index: Int) = bottom - plotHeight * axis.fractionOf(values[index])
 
         if (values.size > 1) {

@@ -12,6 +12,21 @@ data class TrendWindow(val startInclusive: Long, val endExclusive: Long) {
 
     val spanMillis: Long get() = endExclusive - startInclusive
 
+    val isEmpty: Boolean get() = endExclusive <= startInclusive
+
+    /**
+     * This window clipped to [bounds].
+     *
+     * An edge bucket reaches outside the period it belongs to -- a quarter's first week begins in
+     * the previous month, its last ends in the next -- and a bar drawn over the whole of one would
+     * count days the period does not contain, leaving the chart's total above the pie's for the
+     * same period. Clipping keeps the buckets tiling exactly the window and nothing more.
+     */
+    fun within(bounds: TrendWindow): TrendWindow = TrendWindow(
+        maxOf(startInclusive, bounds.startInclusive),
+        minOf(endExclusive, bounds.endExclusive)
+    )
+
     fun asDateRange(): DateRange = DateRange(startInclusive - 1, endExclusive - 1)
 }
 

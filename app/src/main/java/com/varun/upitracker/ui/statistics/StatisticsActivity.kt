@@ -53,6 +53,9 @@ class StatisticsActivity : AppCompatActivity() {
     private lateinit var tvBalanceLatest: TextView
     private lateinit var tvBalanceChange: TextView
     private lateinit var tvTrendsEmpty: TextView
+    private lateinit var flowChart: IncomeExpenseChartView
+    private lateinit var tvFlowSummary: TextView
+    private lateinit var cardFlowTrend: View
 
     private val dayFmt = SimpleDateFormat("d MMM yyyy", Locale.getDefault())
     private val monthFmt = SimpleDateFormat("MMMM yyyy", Locale.getDefault())
@@ -102,6 +105,9 @@ class StatisticsActivity : AppCompatActivity() {
         tvBalanceLatest = findViewById(R.id.tvBalanceLatest)
         tvBalanceChange = findViewById(R.id.tvBalanceChange)
         tvTrendsEmpty = findViewById(R.id.tvTrendsEmpty)
+        flowChart = findViewById(R.id.flowChart)
+        tvFlowSummary = findViewById(R.id.tvFlowSummary)
+        cardFlowTrend = findViewById(R.id.cardFlowTrend)
         btnSectionCategories.setOnClickListener { viewModel.selectSection(StatsSection.CATEGORIES) }
         btnSectionTrends.setOnClickListener { viewModel.selectSection(StatsSection.TRENDS) }
         btnClearDrill.setOnClickListener { viewModel.clearDrill() }
@@ -202,6 +208,7 @@ class StatisticsActivity : AppCompatActivity() {
         val empty = series.isEmpty()
 
         balanceLine.visibility = if (empty) View.GONE else View.VISIBLE
+        cardFlowTrend.visibility = if (empty) View.GONE else View.VISIBLE
         tvTrendsEmpty.visibility = if (empty) View.VISIBLE else View.GONE
         tvTrendsEmpty.text = when {
             trends.isLoading -> "Loading"
@@ -215,12 +222,31 @@ class StatisticsActivity : AppCompatActivity() {
 
         val stride = TrendsBuckets.labelStride(series.size)
         val format = bucketFormat(trends.bucket)
-        balanceLine.setSeries(
-            series,
-            trends.bucketStarts.mapIndexed { index, start ->
-                if (index % stride == 0) format.format(Date(start)) else null
-            }
-        )
+        val labels = trends.bucketStarts.mapIndexed { index, start ->
+            if (index % stride == 0) format.format(Date(start)) else null
+        }
+        balanceLine.setSeries(series, labels)
+
+        // The same labels on both, because the two charts share a bucket layout so that a peak in
+        // one can be read directly above the peak in the other.
+        flowChart.setSeries(trends.incomeSeries, trends.expenseSeries, labels)
+        tvFlowSummary.text = flowSummary(trends)
+    }
+
+    /**
+     * Both totals and the difference, since the bars and the line answer "which was bigger" only
+     * roughly. Phrased as "kept" or "over" rather than signed, which reads at a glance.
+     */
+    private fun flowSummary(trends: TrendsUiState): String {
+        val income = trends.incomeSeries.sum()
+        val expense = trends.expenseSeries.sum()
+        val net = income - expense
+        val verdict = when {
+            net > 0L -> "kept ${formatRupees(net)}"
+            net < 0L -> "${formatRupees(-net)} over"
+            else -> "level"
+        }
+        return "In ${formatRupees(income)} · Out ${formatRupees(expense)} · $verdict"
     }
 
     /**
