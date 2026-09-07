@@ -45,6 +45,32 @@ class SmsParserTest {
     }
 
     @Test
+    fun parse_iciciCredit() {
+        val body = "Dear Customer, Acct XX458 is credited with Rs 691.00 on 16-Jul-26 from HET RASHMINKUMA. UPI:619720049955-ICICI Bank."
+
+        val parsed = SmsParser.parse("XX-ICICIT-X", body, 6000L)
+
+        assertEquals(69100L, parsed?.amountPaise)
+        assertEquals("CREDIT", parsed?.direction)
+        assertEquals("HET RASHMINKUMA", parsed?.payeeRaw)
+        assertEquals("619720049955", parsed?.upiRefId)
+        assertEquals(6000L, parsed?.dateEpoch)
+    }
+
+    @Test
+    fun parse_iciciDebit() {
+        val body = "ICICI Bank Acct XX458 debited for Rs 1117.00 on 17-Aug-26; EKLINGJI ENTERP credited. UPI:659555777792. Call 18002662 for dispute. SMS BLOCK 458 to 9215676766."
+
+        val parsed = SmsParser.parse("XX-ICICIT-X", body, 7000L)
+
+        assertEquals(111700L, parsed?.amountPaise)
+        assertEquals("DEBIT", parsed?.direction)
+        assertEquals("EKLINGJI ENTERP", parsed?.payeeRaw)
+        assertEquals("659555777792", parsed?.upiRefId)
+        assertEquals(7000L, parsed?.dateEpoch)
+    }
+
+    @Test
     fun parse_unknownSender_returnsNull() {
         val parsed = SmsParser.parse("VM-ICICIB-S", "INR 100.00 debited UPI/P2A/123/SOMEONE", 4000L)
 
