@@ -2,17 +2,18 @@ package com.varun.upitracker.ui.statistics
 
 import android.content.Context
 import android.graphics.Canvas
-import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.RectF
 import android.util.AttributeSet
-import android.util.TypedValue
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewConfiguration
 import kotlin.math.abs
-import com.varun.upitracker.domain.statistics.CategoryPalette
 import com.varun.upitracker.domain.statistics.PieGeometry
+import com.varun.upitracker.R
+import com.varun.upitracker.ui.theme.themeColor
+import com.varun.upitracker.ui.theme.ThemeAttr
+import com.varun.upitracker.ui.theme.dpF
 
 /**
  * A donut of expense by category.
@@ -36,13 +37,13 @@ class PieChartView @JvmOverloads constructor(
     private val slicePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
     private val holePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
-        color = Color.WHITE // the card behind it is #FFFFFF
+        color = context.themeColor(ThemeAttr.surface) // punches through to the card behind
     }
     private val emptyPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        color = CategoryPalette.NEUTRAL
+        color = context.themeColor(ThemeAttr.chartNeutral)
         alpha = 70
-        strokeWidth = dp(18f)
+        strokeWidth = dpF(18f)
     }
 
     /** Index into the slice list the values were set from. */
@@ -64,9 +65,9 @@ class PieChartView @JvmOverloads constructor(
     }
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
-        val w = resolveSize(dp(DEFAULT_DIAMETER_DP).toInt(), widthMeasureSpec)
+        val w = resolveSize(dpF(DEFAULT_DIAMETER_DP).toInt(), widthMeasureSpec)
         // Square, but capped: a match_parent pie on a tablet would be half a screen tall.
-        val h = minOf(w, dp(MAX_DIAMETER_DP).toInt())
+        val h = minOf(w, dpF(MAX_DIAMETER_DP).toInt())
         setMeasuredDimension(w, resolveSize(h, heightMeasureSpec))
     }
 
@@ -158,8 +159,6 @@ class PieChartView @JvmOverloads constructor(
         return sweeps.lastIndex
     }
 
-    private fun dp(value: Float) =
-        TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, value, resources.displayMetrics)
 
     private companion object {
         const val DEFAULT_DIAMETER_DP = 220f

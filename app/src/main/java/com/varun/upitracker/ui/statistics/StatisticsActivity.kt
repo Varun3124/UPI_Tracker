@@ -3,9 +3,7 @@ package com.varun.upitracker.ui.statistics
 import android.app.AlertDialog
 import android.app.DatePickerDialog
 import android.graphics.Color
-import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
-import android.util.TypedValue
 import android.view.LayoutInflater
 import android.view.View
 import android.widget.LinearLayout
@@ -13,8 +11,6 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.view.ViewCompat
-import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.ViewModelProvider
 import com.varun.upitracker.R
 import com.varun.upitracker.domain.statistics.CategorySlice
@@ -29,6 +25,14 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
+import com.varun.upitracker.ui.theme.ChartColors
+import android.widget.ImageButton
+import com.varun.upitracker.ui.theme.padRootForSystemBars
+import android.content.res.ColorStateList
+import androidx.core.widget.TextViewCompat
+import com.varun.upitracker.ui.theme.themeColor
+import com.varun.upitracker.ui.theme.ThemeAttr
+import com.varun.upitracker.ui.theme.dp
 
 class StatisticsActivity : AppCompatActivity() {
 
@@ -36,8 +40,8 @@ class StatisticsActivity : AppCompatActivity() {
 
     private lateinit var btnPickPeriod: TextView
     private lateinit var tvRangeLabel: TextView
-    private lateinit var btnPrevPeriod: TextView
-    private lateinit var btnNextPeriod: TextView
+    private lateinit var btnPrevPeriod: ImageButton
+    private lateinit var btnNextPeriod: ImageButton
     private lateinit var pieChart: PieChartView
     private lateinit var tvPieTotal: TextView
     private lateinit var tvStatsEmpty: TextView
@@ -69,11 +73,7 @@ class StatisticsActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_statistics)
 
-        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main)) { view, insets ->
-            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
-            insets
-        }
+        padRootForSystemBars(R.id.main)
 
         bindViews()
 
@@ -137,7 +137,7 @@ class StatisticsActivity : AppCompatActivity() {
         swipeContainer.onSwipe = { direction -> viewModel.step(direction) }
 
         btnPickPeriod.setOnClickListener { showPeriodMenu() }
-        findViewById<TextView>(R.id.btnBackStats).setOnClickListener { finish() }
+        findViewById<ImageButton>(R.id.btnBackStats).setOnClickListener { finish() }
         btnPrevPeriod.setOnClickListener { viewModel.step(-1) }
         btnNextPeriod.setOnClickListener { viewModel.step(1) }
     }
@@ -172,7 +172,7 @@ class StatisticsActivity : AppCompatActivity() {
         tvCategoryCardTitle.text = if (drilled != null) "BY MERCHANT - ${drilled.name}" else "BY CATEGORY"
         btnClearDrill.visibility = if (drilled != null) View.VISIBLE else View.GONE
 
-        pieChart.setSlices(slices.map { it.paise }, slices.map { it.color })
+        pieChart.setSlices(slices.map { it.paise }, slices.map { categoryColor(it) })
         tvPieTotal.text = formatRupees(total)
         tvStatsEmpty.visibility = if (slices.isEmpty()) View.VISIBLE else View.GONE
         tvStatsEmpty.text = if (drilled != null) {
@@ -194,8 +194,8 @@ class StatisticsActivity : AppCompatActivity() {
      */
     private fun renderSection(state: StatisticsUiState) {
         val categories = state.section == StatsSection.CATEGORIES
-        stylePill(btnSectionCategories, categories)
-        stylePill(btnSectionTrends, !categories)
+        btnSectionCategories.isSelected = categories
+        btnSectionTrends.isSelected = !categories
 
         swipeContainer.visibility = if (categories) View.VISIBLE else View.GONE
         trendsScroll.visibility = if (categories) View.GONE else View.VISIBLE
@@ -231,7 +231,12 @@ class StatisticsActivity : AppCompatActivity() {
         }
 
         tvBalanceLatest.text = if (empty) "" else formatRupees(trends.latestBalancePaise)
-        tvBalanceChange.text = if (empty) "" else changeLabel(trends.changePaise)
+        if (empty) {
+            tvBalanceChange.text = ""
+            tvBalanceChange.setCompoundDrawablesRelativeWithIntrinsicBounds(0, 0, 0, 0)
+        } else {
+            renderBalanceChange(trends.changePaise)
+        }
         if (empty) return
 
         val stride = TrendsBuckets.labelStride(series.size)
@@ -333,16 +338,25 @@ class StatisticsActivity : AppCompatActivity() {
     }
 
     /**
-     * Movement across the window, not the balance itself. Signed with a literal character, as the
-     * rest of the app does -- there are no drawable arrows anywhere in it.
+     * Movement across the window, not the balance itself. The direction is a real tinted drawable on
+     * the label rather than the black-triangle character it used to be, so it follows the theme and
+     * carries the same positive/negative colours as every other amount in the app.
      */
-    private fun changeLabel(delta: Long): String {
-        val direction = when {
-            delta > 0L -> "\u25B2 "
-            delta < 0L -> "\u25BC "
-            else -> ""
+    private fun renderBalanceChange(delta: Long) {
+        if (delta == 0L) {
+            tvBalanceChange.text = "No change this period"
+            tvBalanceChange.setCompoundDrawablesRelativeWithIntrinsicBounds(0, 0, 0, 0)
+            tvBalanceChange.setTextColor(themeColor(ThemeAttr.amountNeutral))
+            return
         }
-        return if (delta == 0L) "No change this period" else "$direction${formatRupees(kotlin.math.abs(delta))}"
+        val up = delta > 0L
+        val tint = themeColor(if (up) ThemeAttr.positive else ThemeAttr.negative)
+        tvBalanceChange.text = formatRupees(kotlin.math.abs(delta))
+        tvBalanceChange.setTextColor(tint)
+        tvBalanceChange.setCompoundDrawablesRelativeWithIntrinsicBounds(
+            if (up) R.drawable.ic_arrow_upward else R.drawable.ic_arrow_downward, 0, 0, 0
+        )
+        TextViewCompat.setCompoundDrawableTintList(tvBalanceChange, ColorStateList.valueOf(tint))
     }
 
     private fun bucketFormat(bucket: TrendBucket): SimpleDateFormat = when (bucket) {
@@ -351,16 +365,6 @@ class StatisticsActivity : AppCompatActivity() {
         TrendBucket.MONTH -> SimpleDateFormat("MMM", Locale.getDefault())
     }
 
-    /** The pill styling from All Transactions, the app's only mutually-exclusive selection idiom. */
-    private fun stylePill(view: TextView, active: Boolean) {
-        view.background = GradientDrawable().apply {
-            shape = GradientDrawable.RECTANGLE
-            cornerRadius = dp(16).toFloat()
-            setColor(if (active) Color.parseColor("#006064") else Color.parseColor("#EEEEEE"))
-            setStroke(dp(1), if (active) Color.parseColor("#006064") else Color.parseColor("#DDDDDD"))
-        }
-        view.setTextColor(if (active) Color.WHITE else Color.parseColor("#212121"))
-    }
 
     /**
      * While drilled, the bars narrow to that one category using the column already folded for it --
@@ -381,10 +385,10 @@ class StatisticsActivity : AppCompatActivity() {
         if (drilled != null) {
             // Absent from this period: draw an empty week rather than the whole breakdown.
             columns = days.map { day -> listOf(day.segments.getOrElse(categoryIndex) { 0L }) }
-            colors = listOf(drilled.color)
+            colors = listOf(categoryColor(drilled))
         } else {
             columns = days.map { it.segments }
-            colors = state.breakdown.slices.map { it.color }
+            colors = state.breakdown.slices.map { categoryColor(it) }
         }
 
         // Only the ends carry a date, so the week's span reads without labelling every column.
@@ -398,15 +402,20 @@ class StatisticsActivity : AppCompatActivity() {
         tvPeakDay.text = if (peak > 0L) "Busiest day ${formatRupees(peak)}" else "Nothing spent this week"
     }
 
+    /**
+     * A slice's colour, resolved for the current mode. [CategorySlice] carries only the palette key;
+     * see ChartColors for why the two halves are separate.
+     */
+    private fun categoryColor(slice: CategorySlice): Int =
+        ChartColors.forCategory(this, slice.categoryId)
+
     private fun buildLegend(slices: List<CategorySlice>, totalPaise: Long, drillable: Boolean) {
         legendContainer.removeAllViews()
         val inflater = LayoutInflater.from(this)
         slices.forEach { slice ->
             val row = inflater.inflate(R.layout.item_stat_legend, legendContainer, false)
-            row.findViewById<View>(R.id.viewLegendSwatch).background = GradientDrawable().apply {
-                shape = GradientDrawable.OVAL
-                setColor(slice.color)
-            }
+            row.findViewById<View>(R.id.viewLegendSwatch).backgroundTintList =
+                ColorStateList.valueOf(categoryColor(slice))
             row.findViewById<TextView>(R.id.tvLegendName).text = slice.name
             row.findViewById<TextView>(R.id.tvLegendAmount).text = formatRupees(slice.paise)
             row.findViewById<TextView>(R.id.tvLegendPercent).text =
@@ -477,12 +486,6 @@ class StatisticsActivity : AppCompatActivity() {
             calendar.get(Calendar.DAY_OF_MONTH)
         ).apply { setTitle(title) }.show()
     }
-
-    private fun dp(value: Int): Int = TypedValue.applyDimension(
-        TypedValue.COMPLEX_UNIT_DIP,
-        value.toFloat(),
-        resources.displayMetrics
-    ).toInt()
 
     private fun periodLabel(period: StatsPeriod): String =
         PERIOD_LABELS.first { it.first == period }.second

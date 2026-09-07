@@ -26,8 +26,6 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.view.ViewCompat
-import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import com.google.android.flexbox.FlexboxLayout
@@ -91,6 +89,14 @@ import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 import java.util.UUID
+import com.varun.upitracker.util.AmountFormat
+import com.varun.upitracker.ui.theme.Avatars
+import com.varun.upitracker.ui.theme.ThemeAttr
+import com.varun.upitracker.ui.theme.themeColor
+import com.varun.upitracker.ui.theme.padRootForSystemBars
+import android.widget.ImageButton
+import com.varun.upitracker.util.initialsOf
+import com.varun.upitracker.ui.theme.dp
 
 class TransactionEntryActivity : AppCompatActivity() {
 
@@ -191,7 +197,7 @@ class TransactionEntryActivity : AppCompatActivity() {
     private lateinit var categoryScrollView: View
     private lateinit var formScroll: ScrollView
     private lateinit var etDescription: EditText
-    private lateinit var ledgerOptionsCard: LinearLayout
+    private lateinit var ledgerOptionsCard: View
     private lateinit var ledgerEffectSection: LinearLayout
     private lateinit var tvLedgerEffectToggle: TextView
     private lateinit var refundSection: LinearLayout
@@ -206,11 +212,7 @@ class TransactionEntryActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.overlay_transaction)
 
-        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main)) { view, insets ->
-            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
-            insets
-        }
+        padRootForSystemBars(R.id.main)
 
         bindViews()
         val transactionId = intent.getLongExtra(EXTRA_TRANSACTION_ID, -1L).takeIf { it != -1L }
@@ -304,7 +306,7 @@ class TransactionEntryActivity : AppCompatActivity() {
             else -> "Manual Entry - ${fmtDateTime(selectedDateEpoch)}"
         }
 
-        findViewById<TextView>(R.id.btnClose).setOnClickListener {
+        findViewById<ImageButton>(R.id.btnClose).setOnClickListener {
             viewModel.onAction(TransactionEntryAction.CloseClicked)
         }
         setupEndpointControls()
@@ -626,7 +628,7 @@ class TransactionEntryActivity : AppCompatActivity() {
     private fun setupCategories() = rebuildCategoryEntries()
 
     private suspend fun populateExistingTransaction(tx: Transaction, db: AppDatabase) {
-        if (tx.amountPaise > 0) etAmount.setText("%.2f".format(tx.amountPaise / 100.0))
+        if (tx.amountPaise > 0) etAmount.setText(AmountFormat.forInput(tx.amountPaise))
 
         payerActorType = tx.payerActorType
         payeeActorType = tx.payeeActorType
@@ -745,24 +747,11 @@ class TransactionEntryActivity : AppCompatActivity() {
     }
 
     private fun styleActorTiles(isPayer: Boolean, selectedType: String, lockedToMe: Boolean) {
-        val tiles = actorTilesFor(isPayer)
-        tiles.forEach { (type, view) ->
-            val selected = type == selectedType
-            val enabled = !lockedToMe || type == ActorType.ME
-            val fill = when {
-                selected -> Color.parseColor("#00BCD4")
-                lockedToMe && type != ActorType.ME -> Color.parseColor("#1F3E45")
-                else -> Color.parseColor("#262626")
-            }
-            view.background = GradientDrawable().apply {
-                shape = GradientDrawable.RECTANGLE
-                cornerRadius = dp(10).toFloat()
-                setColor(fill)
-                setStroke(dp(1), if (selected) Color.parseColor("#62EFFF") else Color.parseColor("#3A3A3A"))
-            }
-            view.setTextColor(if (enabled) Color.WHITE else Color.parseColor("#777777"))
-            view.alpha = if (enabled) 1f else 0.65f
-            view.isEnabled = enabled
+        actorTilesFor(isPayer).forEach { (type, view) ->
+            view.isSelected = type == selectedType
+            // An SMS-derived transaction pins the "Me" endpoint; the other two tiles are genuinely
+            // disabled, which is a state the pill selector already draws.
+            view.isEnabled = !lockedToMe || type == ActorType.ME
         }
     }
 
@@ -782,24 +771,29 @@ class TransactionEntryActivity : AppCompatActivity() {
         }
     }
 
+    /** The first row is the one that must balance, so it is tinted rather than left plain. */
     private fun stylePrimaryShareRow(card: View) {
         card.background = GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
             cornerRadius = dp(8).toFloat()
-            setColor(Color.parseColor("#252015"))
-            setStroke(dp(1), Color.parseColor("#8B7355"))
+            setColor(themeColor(ThemeAttr.primaryContainer))
+            setStroke(dp(1), themeColor(ThemeAttr.primary))
         }
     }
 
+    /**
+     * Not a real Chip: the pill hosts an inline EditText for the split amount, which a Chip cannot
+     * contain. The look still comes from the theme.
+     */
     private fun styleCategoryPill(pillRoot: View, checked: Boolean) {
         pillRoot.background = GradientDrawable().apply {
             shape = GradientDrawable.RECTANGLE
             cornerRadius = dp(16).toFloat()
             if (checked) {
-                setColor(Color.parseColor("#252015"))
-                setStroke(dp(1), Color.parseColor("#8B7355"))
+                setColor(themeColor(ThemeAttr.primaryContainer))
+                setStroke(dp(1), themeColor(ThemeAttr.primary))
             } else {
-                setColor(Color.parseColor("#2A2A2A"))
+                setColor(themeColor(ThemeAttr.surfaceVariant))
             }
         }
     }
@@ -929,26 +923,15 @@ class TransactionEntryActivity : AppCompatActivity() {
             val tvAvatar = rowView.findViewById<TextView>(R.id.tvShareAvatar)
             val etName = rowView.findViewById<AutoCompleteTextView>(R.id.etShareName)
             val etShareAmount = rowView.findViewById<EditText>(R.id.etShareAmount)
-            val btnRemove = rowView.findViewById<TextView>(R.id.btnRemoveShare)
+            val btnRemove = rowView.findViewById<ImageButton>(R.id.btnRemoveShare)
 
             if (index == 0) {
                 stylePrimaryShareRow(shareRowCard)
                 btnRemove.visibility = View.GONE
             }
 
-            val avatarSize = dp(36)
-            tvAvatar.layoutParams.width = avatarSize
-            tvAvatar.layoutParams.height = avatarSize
             tvAvatar.text = row.initials
-            tvAvatar.background = circleDrawable(
-                when (row.participantType) {
-                    ActorType.ME -> Color.parseColor("#00897B")
-                    ActorType.MERCHANT -> Color.parseColor("#00BCD4")
-                    else -> Color.parseColor("#5C6BC0")
-                },
-                Color.TRANSPARENT,
-                0
-            )
+            Avatars.paint(tvAvatar, row.participantType)
 
             val isPrimary = index == 0
             val isLockedPrimaryMe = isPrimary && isSmsLockedMeEndpoint(isPayer) && actorTypeFor(isPayer) == ActorType.ME
@@ -1013,7 +996,7 @@ class TransactionEntryActivity : AppCompatActivity() {
             }
 
             if (row.amountPaise > 0) {
-                etShareAmount.setText(formatPlainAmount(row.amountPaise))
+                etShareAmount.setText(AmountFormat.forInput(row.amountPaise))
             }
             etShareAmount.addTextChangedListener(simpleWatcher {
                 viewModel.onAction(
@@ -1250,8 +1233,8 @@ class TransactionEntryActivity : AppCompatActivity() {
         val result = shareCalculator.computeSectionBalance(total, summed)
         tv.text = when (result.state) {
             SectionBalanceState.BALANCED -> "✓ Balanced"
-            SectionBalanceState.OVER -> "Over by Rs${formatPlainAmount(result.deltaPaise)}"
-            SectionBalanceState.REMAINING -> "Remaining: Rs${formatPlainAmount(result.deltaPaise)}"
+            SectionBalanceState.OVER -> "Over by ${AmountFormat.rupeesExact(result.deltaPaise)}"
+            SectionBalanceState.REMAINING -> "Remaining: ${AmountFormat.rupeesExact(result.deltaPaise)}"
         }
     }
 
@@ -1277,9 +1260,9 @@ class TransactionEntryActivity : AppCompatActivity() {
         )
 
         tvBalance.text = when (allocation.state) {
-            OverallAllocationState.OVER_ALLOCATED -> "Over-allocated: Rs${formatPlainAmount(allocation.deltaPaise)}"
-            OverallAllocationState.PAYER_UNALLOCATED -> "Payer unallocated: Rs${formatPlainAmount(allocation.deltaPaise)}"
-            OverallAllocationState.PAYEE_UNALLOCATED -> "Payee unallocated: Rs${formatPlainAmount(allocation.deltaPaise)}"
+            OverallAllocationState.OVER_ALLOCATED -> "Over-allocated: ${AmountFormat.rupeesExact(allocation.deltaPaise)}"
+            OverallAllocationState.PAYER_UNALLOCATED -> "Payer unallocated: ${AmountFormat.rupeesExact(allocation.deltaPaise)}"
+            OverallAllocationState.PAYEE_UNALLOCATED -> "Payee unallocated: ${AmountFormat.rupeesExact(allocation.deltaPaise)}"
             OverallAllocationState.UNALLOCATED -> "Unallocated"
             OverallAllocationState.BALANCED -> ""
         }
@@ -1292,16 +1275,16 @@ class TransactionEntryActivity : AppCompatActivity() {
         val to = payeeShareRows.firstOrNull()?.amountPaise ?: 0L
         if (from <= 0L && to <= 0L) return "Enter a transfer amount"
         // A single populated leg is a credit or charge against the account, not a movement.
-        if (from <= 0L) return "Credit Rs${formatPlainAmount(to)}"
-        if (to <= 0L) return "Charge Rs${formatPlainAmount(from)}"
+        if (from <= 0L) return "Credit ${AmountFormat.rupeesExact(to)}"
+        if (to <= 0L) return "Charge ${AmountFormat.rupeesExact(from)}"
 
         val delta = BalanceDeltaCalculator.expenseDelta(
             TransferDeltaInput(payerAccountId, payeeAccountId, from, to)
         )
         return when {
-            delta > 0L -> "Transfer Rs${formatPlainAmount(from)} - fee Rs${formatPlainAmount(delta)}"
-            delta < 0L -> "Transfer Rs${formatPlainAmount(from)} + gain Rs${formatPlainAmount(-delta)}"
-            else -> "Transfer Rs${formatPlainAmount(from)}"
+            delta > 0L -> "Transfer ${AmountFormat.rupeesExact(from)} - fee ${AmountFormat.rupeesExact(delta)}"
+            delta < 0L -> "Transfer ${AmountFormat.rupeesExact(from)} + gain ${AmountFormat.rupeesExact(-delta)}"
+            else -> "Transfer ${AmountFormat.rupeesExact(from)}"
         }
     }
 
@@ -1456,20 +1439,14 @@ class TransactionEntryActivity : AppCompatActivity() {
 
         refundCandidates = resolved.map { tx ->
             val label = fmtDateTime(tx.dateEpoch) + " - " + tx.resolvePrimaryDisplay(db) +
-                " - Rs" + formatPlainAmount(tx.amountPaise)
+                " - " + AmountFormat.rupeesExact(tx.amountPaise)
             tx to label
         }
         renderRefundTarget()
     }
 
     private fun styleLedgerEffectTile() {
-        val selected = ledgerEffect == LedgerEffect.NONE
-        tvLedgerEffectToggle.background = GradientDrawable().apply {
-            shape = GradientDrawable.RECTANGLE
-            cornerRadius = dp(10).toFloat()
-            setColor(Color.parseColor(if (selected) "#00BCD4" else "#262626"))
-            setStroke(dp(1), Color.parseColor(if (selected) "#62EFFF" else "#3A3A3A"))
-        }
+        tvLedgerEffectToggle.isSelected = ledgerEffect == LedgerEffect.NONE
     }
 
     /** Swapping direction invalidates every checked pill, so clear them rather than carry them over. */
@@ -1787,11 +1764,7 @@ class TransactionEntryActivity : AppCompatActivity() {
         return resolveOrCreateFriend(db, typedLabel).id
     }
 
-    private fun computeFriendInitials(name: String): String {
-        return name.split(" ").filter { it.isNotBlank() }.take(2)
-            .joinToString("") { it.first().uppercaseChar().toString() }
-            .ifBlank { "F" }
-    }
+    private fun computeFriendInitials(name: String): String = initialsOf(name, fallback = "F")
 
     private suspend fun resolveOrCreateFriend(db: AppDatabase, name: String): Friend {
         db.friendDao().findByName(name)?.let { return it }
@@ -2000,7 +1973,7 @@ class TransactionEntryActivity : AppCompatActivity() {
             (etMyAmount.tag as? TextWatcher)?.let { etMyAmount.removeTextChangedListener(it) }
             etMyAmount.inputType = InputType.TYPE_CLASS_NUMBER or InputType.TYPE_NUMBER_FLAG_DECIMAL
             etMyAmount.imeOptions = EditorInfo.IME_ACTION_DONE
-            etMyAmount.setText(if (entry.myAmountPaise > 0L) formatPlainAmount(entry.myAmountPaise) else "")
+            etMyAmount.setText(if (entry.myAmountPaise > 0L) AmountFormat.forInput(entry.myAmountPaise) else "")
 
             val watcher = simpleWatcher {
                 entry.myAmountPaise = ((etMyAmount.text.toString().toDoubleOrNull() ?: 0.0) * 100).toLong()
@@ -2071,26 +2044,10 @@ class TransactionEntryActivity : AppCompatActivity() {
         override fun afterTextChanged(s: Editable) = onChanged(s)
     }
 
-    private fun circleDrawable(fill: Int, border: Int, stroke: Int): GradientDrawable = GradientDrawable().apply {
-        shape = GradientDrawable.OVAL
-        setColor(fill)
-        setStroke(stroke, border)
-    }
-
     private fun fmtDateTime(epoch: Long): String = SimpleDateFormat(
         "dd MMM yyyy, hh:mm a",
         Locale.getDefault()
     ).format(Date(epoch))
-
-    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
-
-    private fun formatPlainAmount(paise: Long): String {
-        return if (paise % 100 > 0) {
-            "%.2f".format(paise / 100.0)
-        } else {
-            "%.0f".format(paise / 100.0)
-        }
-    }
 
     private fun toast(message: String) {
         Toast.makeText(this, message, Toast.LENGTH_SHORT).show()

@@ -13,6 +13,7 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.varun.upitracker.R
 import com.varun.upitracker.ui.transactionentry.TransactionEntryActivity
+import com.varun.upitracker.util.AmountFormat
 
 object TransactionNotificationHelper {
 
@@ -29,7 +30,7 @@ object TransactionNotificationHelper {
 
         val notificationId = transactionId.toInt()
         val safeLabel      = displayLabel.ifBlank { "Unknown" }
-        val amount         = "₹${"%.0f".format(amountPaise / 100.0)}"
+        val amount         = AmountFormat.rupees(amountPaise)
 
         val title = if (needsReview) "Tap to categorise" else "Transaction recorded"
 

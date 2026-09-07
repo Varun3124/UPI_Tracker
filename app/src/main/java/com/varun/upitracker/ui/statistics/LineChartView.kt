@@ -5,9 +5,14 @@ import android.graphics.Canvas
 import android.graphics.Paint
 import android.graphics.Path
 import android.util.AttributeSet
-import android.util.TypedValue
 import com.varun.upitracker.domain.statistics.TrendAxis
 import com.varun.upitracker.domain.statistics.ValueAxis
+import com.varun.upitracker.R
+import com.varun.upitracker.ui.theme.themeColor
+import com.varun.upitracker.util.AmountFormat
+import com.varun.upitracker.ui.theme.ThemeAttr
+import com.varun.upitracker.ui.theme.dpF
+import com.varun.upitracker.ui.theme.spF
 
 /**
  * One series over time, drawn against an axis fitted to its own range.
@@ -28,33 +33,33 @@ class LineChartView @JvmOverloads constructor(
 
     private val linePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        color = 0xFF006064.toInt() // the app's accent, as on the pills and the chevrons
-        strokeWidth = dp(2f)
+        color = context.themeColor(ThemeAttr.primary) // the accent, as on the pills and the chevrons
+        strokeWidth = dpF(2f)
         strokeCap = Paint.Cap.ROUND
         strokeJoin = Paint.Join.ROUND
     }
     private val dotPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
-        color = 0xFF006064.toInt()
+        color = context.themeColor(ThemeAttr.primary)
     }
     private val gridPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        color = 0xFFF0F0F0.toInt()
-        strokeWidth = dp(1f)
+        color = context.themeColor(ThemeAttr.chartGrid)
+        strokeWidth = dpF(1f)
     }
     private val zeroPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        color = 0xFFE0E0E0.toInt()
-        strokeWidth = dp(1f)
+        color = context.themeColor(ThemeAttr.chartZeroLine)
+        strokeWidth = dpF(1f)
     }
     private val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xFF888888.toInt() // the app's caption grey
-        textSize = sp(10f)
+        color = context.themeColor(ThemeAttr.chartAxisLabel)
+        textSize = spF(10f)
         textAlign = Paint.Align.CENTER
     }
     private val axisLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xFFAAAAAA.toInt()
-        textSize = sp(9f)
+        color = context.themeColor(ThemeAttr.chartAxisLabel)
+        textSize = spF(9f)
         textAlign = Paint.Align.RIGHT
     }
 
@@ -87,8 +92,8 @@ class LineChartView @JvmOverloads constructor(
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         setMeasuredDimension(
-            resolveSize(dp(280f).toInt(), widthMeasureSpec),
-            resolveSize(dp(DEFAULT_HEIGHT_DP).toInt(), heightMeasureSpec)
+            resolveSize(dpF(280f).toInt(), widthMeasureSpec),
+            resolveSize(dpF(DEFAULT_HEIGHT_DP).toInt(), heightMeasureSpec)
         )
     }
 
@@ -99,14 +104,14 @@ class LineChartView @JvmOverloads constructor(
         val gridlines = axis.gridlines
         // Measured, not guessed: a balance runs to five or six digits and the gutter has to grow
         // with the widest label rather than clip it.
-        val gutter = gridlines.maxOf { axisLabelPaint.measureText(axisLabel(it)) } + dp(6f)
+        val gutter = gridlines.maxOf { axisLabelPaint.measureText(axisLabel(it)) } + dpF(6f)
 
-        val labelBand = if (labels.any { it != null }) sp(16f) else 0f
+        val labelBand = if (labels.any { it != null }) spF(16f) else 0f
         val left = paddingLeft + gutter
         val right = (width - paddingRight).toFloat()
         val bottom = height - paddingBottom - labelBand
         // Half a dot of headroom at each end, so a point sitting on the axis top is not clipped.
-        val top = paddingTop + DOT_RADIUS_DP.let { dp(it) }
+        val top = paddingTop + DOT_RADIUS_DP.let { dpF(it) }
         val plotHeight = bottom - top
         if (plotHeight <= 0f || right <= left) return
         panPlotWidthPx = right - left
@@ -116,7 +121,7 @@ class LineChartView @JvmOverloads constructor(
             // Zero gets the darker line: on an overdraft it is the only meaningful crossing, and
             // without it a balance below zero looks like any other low point.
             canvas.drawLine(left, y, right, y, if (value == 0L) zeroPaint else gridPaint)
-            canvas.drawText(axisLabel(value), left - dp(4f), y + sp(3f), axisLabelPaint)
+            canvas.drawText(axisLabel(value), left - dpF(4f), y + spF(3f), axisLabelPaint)
         }
 
         // Slot centres rather than edge to edge, because this chart is read against the income and
@@ -136,7 +141,7 @@ class LineChartView @JvmOverloads constructor(
 
         // Dots only while they stay apart; a month of them reads as a thick line.
         if (values.size <= MAX_DOTS) {
-            values.indices.forEach { canvas.drawCircle(xAt(it), yAt(it), dp(DOT_RADIUS_DP), dotPaint) }
+            values.indices.forEach { canvas.drawCircle(xAt(it), yAt(it), dpF(DOT_RADIUS_DP), dotPaint) }
         }
 
         labels.forEachIndexed { index, label ->
@@ -146,18 +151,14 @@ class LineChartView @JvmOverloads constructor(
                 left + labelPaint.measureText(label) / 2f,
                 right - labelPaint.measureText(label) / 2f
             )
-            canvas.drawText(label, x, bottom + sp(12f), labelPaint)
+            canvas.drawText(label, x, bottom + spF(12f), labelPaint)
         }
     }
 
     /** Whole rupees, the same form the stacked bar's axis uses. */
-    private fun axisLabel(paise: Long): String = (paise / 100L).toString()
+    private fun axisLabel(paise: Long): String = AmountFormat.axis(paise)
 
-    private fun dp(value: Float) =
-        TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, value, resources.displayMetrics)
 
-    private fun sp(value: Float) =
-        TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, value, resources.displayMetrics)
 
     private companion object {
         const val DEFAULT_HEIGHT_DP = 180f

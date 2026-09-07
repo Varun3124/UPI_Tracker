@@ -17,8 +17,6 @@ import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.view.ViewCompat
-import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.ViewModelProvider
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -36,6 +34,11 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
+import com.varun.upitracker.util.AmountFormat
+import android.widget.ImageButton
+import com.varun.upitracker.ui.theme.ThemeAttr
+import com.varun.upitracker.ui.theme.themeColor
+import com.varun.upitracker.ui.theme.padRootForSystemBars
 
 class AccountsActivity : AppCompatActivity() {
 
@@ -51,11 +54,7 @@ class AccountsActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_accounts)
 
-        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main)) { view, insets ->
-            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
-            insets
-        }
+        padRootForSystemBars(R.id.main)
 
         viewModel = ViewModelProvider(
             this,
@@ -76,8 +75,8 @@ class AccountsActivity : AppCompatActivity() {
             onDeleteSnapshot = ::showDeleteSnapshotDialog
         )
 
-        findViewById<TextView>(R.id.btnBackAccounts).setOnClickListener { finish() }
-        findViewById<TextView>(R.id.btnAddAccount).setOnClickListener { showAddAccountChoice() }
+        findViewById<ImageButton>(R.id.btnBackAccounts).setOnClickListener { finish() }
+        findViewById<ImageButton>(R.id.btnAddAccount).setOnClickListener { showAddAccountChoice() }
         findViewById<RecyclerView>(R.id.rvAccounts).apply {
             layoutManager = LinearLayoutManager(this@AccountsActivity)
             adapter = this@AccountsActivity.adapter
@@ -390,14 +389,14 @@ class AccountsActivity : AppCompatActivity() {
     private fun label(value: String) = TextView(this).apply {
         text = value
         textSize = 12f
-        setTextColor(android.graphics.Color.parseColor("#757575"))
+        setTextColor(themeColor(ThemeAttr.onSurfaceVariant))
         setPadding(0, 12, 0, 0)
     }
 
     private fun dateButton(epoch: Long) = TextView(this).apply {
         text = dateTimeFmt.format(Date(epoch))
         textSize = 15f
-        setTextColor(android.graphics.Color.parseColor("#212121"))
+        setTextColor(themeColor(ThemeAttr.onSurface))
         setPadding(0, 12, 0, 12)
     }
 
@@ -474,13 +473,13 @@ private class AccountsAdapter(
     private fun snapshotText(parent: ViewGroup, value: String) = TextView(parent.context).apply {
         text = value
         textSize = 12f
-        setTextColor(android.graphics.Color.parseColor("#616161"))
+        setTextColor(themeColor(ThemeAttr.onSurfaceVariant))
     }
 
     private fun actionText(parent: ViewGroup, value: String, action: () -> Unit) = TextView(parent.context).apply {
         text = value
         textSize = 12f
-        setTextColor(android.graphics.Color.parseColor("#1E88E5"))
+        setTextColor(themeColor(ThemeAttr.primary))
         setPadding(16, 6, 0, 6)
         setOnClickListener { action() }
     }
@@ -505,7 +504,8 @@ private class AccountsAdapter(
 
 private fun AccountType.displayName(): String = enumDisplayName(name)
 
-private fun Long.formatPaise(): String = "Rs${"%.2f".format(this / 100.0)}"
+/** Account balances show their paise, so this is the exact form rather than whole rupees. */
+private fun Long.formatPaise(): String = AmountFormat.rupeesExact(this)
 
 private fun String.toPaiseOrNull(): Long? {
     val value = trim()

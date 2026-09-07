@@ -15,8 +15,6 @@ import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.view.ViewCompat
-import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -31,6 +29,11 @@ import com.varun.upitracker.database.model.MerchantAliasBundle
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import android.widget.ImageButton
+import com.varun.upitracker.ui.theme.ThemeAttr
+import com.varun.upitracker.ui.theme.themeColor
+import androidx.annotation.AttrRes
+import com.varun.upitracker.ui.theme.padRootForSystemBars
 
 class AliasMappingsActivity : AppCompatActivity() {
 
@@ -49,11 +52,7 @@ class AliasMappingsActivity : AppCompatActivity() {
         repository = SettingsRepository(applicationContext)
         mode = intent.getStringExtra(EXTRA_MODE) ?: MODE_FRIEND
 
-        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main)) { view, insets ->
-            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
-            insets
-        }
+        padRootForSystemBars(R.id.main)
 
         tvTitle = findViewById(R.id.tvAliasTitle)
         tvHint = findViewById(R.id.tvAliasHint)
@@ -70,8 +69,8 @@ class AliasMappingsActivity : AppCompatActivity() {
 
         bindHeader()
 
-        findViewById<TextView>(R.id.btnBackAliases).setOnClickListener { finish() }
-        findViewById<TextView>(R.id.btnAddAliasToolbar).setOnClickListener { showCreateDialog() }
+        findViewById<ImageButton>(R.id.btnBackAliases).setOnClickListener { finish() }
+        findViewById<View>(R.id.btnAddAliasToolbar).setOnClickListener { showCreateDialog() }
         findViewById<RecyclerView>(R.id.rvAliasCards).apply {
             layoutManager = LinearLayoutManager(this@AliasMappingsActivity)
             adapter = this@AliasMappingsActivity.adapter
@@ -299,7 +298,7 @@ private class AliasCardAdapter(
         bindSection(
             container = holder.rawContainer,
             values = item.rawNames,
-            accent = "#424242",
+            accent = ThemeAttr.onSurfaceVariant,
             emptyLabel = "No raw names mapped yet.",
             onMove = { mapping -> onMoveRaw(item, mapping) },
             onDelete = { mapping -> onDeleteRaw(item, mapping) }
@@ -307,7 +306,7 @@ private class AliasCardAdapter(
         bindSection(
             container = holder.upiContainer,
             values = item.upiIds,
-            accent = "#1565C0",
+            accent = ThemeAttr.primary,
             emptyLabel = "No UPI IDs mapped yet.",
             onMove = { mapping -> onMoveUpi(item, mapping) },
             onDelete = { mapping -> onDeleteUpi(item, mapping) }
@@ -317,7 +316,7 @@ private class AliasCardAdapter(
     private fun bindSection(
         container: LinearLayout,
         values: List<AliasMappingItem>,
-        accent: String,
+        @AttrRes accent: Int,
         emptyLabel: String,
         onMove: (AliasMappingItem) -> Unit,
         onDelete: (AliasMappingItem) -> Unit
@@ -327,7 +326,7 @@ private class AliasCardAdapter(
             container.addView(TextView(container.context).apply {
                 text = emptyLabel
                 textSize = 12f
-                setTextColor(Color.parseColor("#9E9E9E"))
+                setTextColor(themeColor(ThemeAttr.textMuted))
             })
             return
         }
@@ -341,12 +340,12 @@ private class AliasCardAdapter(
                     addView(TextView(context).apply {
                         text = mapping.value
                         textSize = 13f
-                        setTextColor(Color.parseColor(accent))
+                        setTextColor(themeColor(accent))
                         layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
                     })
 
                     addView(makeActionText(context, "Move") { onMove(mapping) })
-                    addView(makeActionText(context, "Delete", "#C62828") { onDelete(mapping) })
+                    addView(makeActionText(context, "Delete", ThemeAttr.negative) { onDelete(mapping) })
                 }
             )
         }
@@ -355,13 +354,13 @@ private class AliasCardAdapter(
     private fun makeActionText(
         context: Context,
         label: String,
-        color: String = "#2E7D32",
+        @AttrRes color: Int = ThemeAttr.positive,
         onTap: () -> Unit
     ): TextView {
         return TextView(context).apply {
             text = label
             textSize = 12f
-            setTextColor(Color.parseColor(color))
+            setTextColor(themeColor(color))
             setPadding(16, 0, 0, 0)
             setOnClickListener { onTap() }
         }
@@ -369,8 +368,8 @@ private class AliasCardAdapter(
 
     class VH(view: View) : RecyclerView.ViewHolder(view) {
         val tvTitle: TextView = view.findViewById(R.id.tvAliasName)
-        val btnRename: TextView = view.findViewById(R.id.btnRenameAlias)
-        val btnDelete: TextView = view.findViewById(R.id.btnDeleteAlias)
+        val btnRename: ImageButton = view.findViewById(R.id.btnRenameAlias)
+        val btnDelete: ImageButton = view.findViewById(R.id.btnDeleteAlias)
         val rawContainer: LinearLayout = view.findViewById(R.id.rawNamesContainer)
         val upiContainer: LinearLayout = view.findViewById(R.id.upiIdsContainer)
     }

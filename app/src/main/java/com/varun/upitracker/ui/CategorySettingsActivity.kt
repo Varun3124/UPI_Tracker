@@ -7,8 +7,6 @@ import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.view.ViewCompat
-import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.ViewModelProvider
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -17,6 +15,11 @@ import com.varun.upitracker.database.entity.Category
 import com.varun.upitracker.database.entity.CategoryKind
 import com.varun.upitracker.ui.settings.AppViewModelFactory
 import com.varun.upitracker.ui.settings.CategorySettingsViewModel
+import android.widget.ImageButton
+import android.view.View
+import com.varun.upitracker.ui.theme.ThemeAttr
+import com.varun.upitracker.ui.theme.themeColor
+import com.varun.upitracker.ui.theme.padRootForSystemBars
 
 class CategorySettingsActivity : AppCompatActivity() {
 
@@ -34,11 +37,7 @@ class CategorySettingsActivity : AppCompatActivity() {
             AppViewModelFactory(applicationContext)
         )[CategorySettingsViewModel::class.java]
 
-        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main)) { view, insets ->
-            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
-            insets
-        }
+        padRootForSystemBars(R.id.main)
 
         tvEmpty = findViewById(R.id.tvEmptyCategories)
         adapter = CategorySettingsAdapter(
@@ -46,8 +45,8 @@ class CategorySettingsActivity : AppCompatActivity() {
             onDelete = ::showDeleteDialog
         )
 
-        findViewById<TextView>(R.id.btnBackCategories).setOnClickListener { finish() }
-        findViewById<TextView>(R.id.btnAddCategoryToolbar).setOnClickListener { showCreateDialog() }
+        findViewById<ImageButton>(R.id.btnBackCategories).setOnClickListener { finish() }
+        findViewById<View>(R.id.btnAddCategoryToolbar).setOnClickListener { showCreateDialog() }
         findViewById<RecyclerView>(R.id.rvCategories).apply {
             layoutManager = LinearLayoutManager(this@CategorySettingsActivity)
             adapter = this@CategorySettingsActivity.adapter
@@ -180,7 +179,9 @@ private class CategorySettingsAdapter(
         holder.tvName.text = category.name
         val isExpense = category.kind == CategoryKind.EXPENSE
         holder.tvKind.text = if (isExpense) "Expense" else "Income"
-        holder.tvKind.setTextColor(if (isExpense) 0xFFC62828.toInt() else 0xFF2E7D32.toInt())
+        holder.tvKind.setTextColor(
+            holder.tvKind.themeColor(if (isExpense) ThemeAttr.negative else ThemeAttr.positive)
+        )
         holder.btnRename.setOnClickListener { onRename(category) }
         holder.btnDelete.setOnClickListener { onDelete(category) }
     }

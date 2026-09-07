@@ -20,7 +20,7 @@
         android:layout_height="wrap_content"
         android:includeFontPadding="false"
         android:singleLine="true"
-        android:textColor="#FFFFFF"
+        android:textColor="?attr/colorOnSurface"
         android:textSize="13sp" />
 
     <TextView
@@ -29,7 +29,7 @@
         android:layout_height="wrap_content"
         android:includeFontPadding="false"
         android:text=": "
-        android:textColor="#FFFFFF"
+        android:textColor="?attr/colorOnSurface"
         android:textSize="13sp"
         android:visibility="gone" />
 
@@ -49,8 +49,8 @@
         android:paddingTop="0dp"
         android:paddingBottom="0dp"
         android:singleLine="true"
-        android:textColor="#FFFFFF"
-        android:textColorHint="#777777"
+        android:textColor="?attr/colorOnSurface"
+        android:textColorHint="?attr/appTextMuted"
         android:textSize="13sp"
         android:visibility="gone" />
 

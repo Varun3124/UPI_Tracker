@@ -4,6 +4,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import com.varun.upitracker.util.AmountFormat
 
 /**
  * One rule guards both directions: a refund must not push a category below zero, and editing a
@@ -33,7 +34,10 @@ class RefundCoverageTest {
     fun refundingMoreThanWasSpentOnACategory_isRejected() {
         val result = check(mapOf(1L to 60000L, 2L to 40000L), mapOf(1L to 70000L))
         assertFalse(result.isValid)
-        assertEquals("Refunds under Food would exceed the Rs600 spent on it.", result.message)
+        assertEquals(
+            "Refunds under Food would exceed the ${AmountFormat.SYMBOL}600 spent on it.",
+            result.message
+        )
     }
 
     @Test
@@ -65,6 +69,9 @@ class RefundCoverageTest {
     @Test
     fun paiseAmountsFormatWithDecimals() {
         val result = check(mapOf(1L to 60050L), mapOf(1L to 70000L))
-        assertEquals("Refunds under Food would exceed the Rs600.50 spent on it.", result.message)
+        assertEquals(
+            "Refunds under Food would exceed the ${AmountFormat.SYMBOL}600.50 spent on it.",
+            result.message
+        )
     }
 }

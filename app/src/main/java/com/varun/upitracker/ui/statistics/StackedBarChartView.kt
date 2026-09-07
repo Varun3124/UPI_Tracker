@@ -4,16 +4,20 @@ import android.content.Context
 import android.graphics.Canvas
 import android.graphics.Paint
 import android.util.AttributeSet
-import android.util.TypedValue
 import android.view.MotionEvent
 import android.view.View
 import com.varun.upitracker.domain.statistics.BarAxis
-import com.varun.upitracker.domain.statistics.CategoryPalette
+import com.varun.upitracker.R
+import com.varun.upitracker.ui.theme.themeColor
+import com.varun.upitracker.util.AmountFormat
+import com.varun.upitracker.ui.theme.ThemeAttr
+import com.varun.upitracker.ui.theme.dpF
+import com.varun.upitracker.ui.theme.spF
 
 /**
  * Day columns, each a stack of the same categories in the same order, against a fixed Y axis.
  *
- * Takes its colours from [CategoryPalette] and its segments in the pie's own order, which is the
+ * Takes its colours from the caller and its segments in the pie's own order, which is the
  * only reason the two charts read as one picture: a colour means the same category in both, and
  * the largest category is the base of every column so the eye can follow it across the week.
  *
@@ -32,28 +36,31 @@ class StackedBarChartView @JvmOverloads constructor(
     private val barPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply { style = Paint.Style.FILL }
     private val stubPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
-        color = 0xFFEEEEEE.toInt() // the same inactive grey the pickers use
+        color = context.themeColor(ThemeAttr.chartTrack) // the same inactive fill the pickers use
     }
     private val baselinePaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        color = 0xFFE0E0E0.toInt()
-        strokeWidth = dp(1f)
+        color = context.themeColor(ThemeAttr.chartZeroLine)
+        strokeWidth = dpF(1f)
     }
     private val gridPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
-        color = 0xFFF0F0F0.toInt()
-        strokeWidth = dp(1f)
+        color = context.themeColor(ThemeAttr.chartGrid)
+        strokeWidth = dpF(1f)
     }
     private val labelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xFF888888.toInt() // the app's caption grey
-        textSize = sp(10f)
+        color = context.themeColor(ThemeAttr.chartAxisLabel)
+        textSize = spF(10f)
         textAlign = Paint.Align.CENTER
     }
     private val axisLabelPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        color = 0xFFAAAAAA.toInt()
-        textSize = sp(9f)
+        color = context.themeColor(ThemeAttr.chartAxisLabel)
+        textSize = spF(9f)
         textAlign = Paint.Align.RIGHT
     }
+
+    /** Resolved once: onDraw must not touch the theme per segment. */
+    private val neutralColor = context.themeColor(ThemeAttr.chartNeutral)
 
     private var labels: List<String> = emptyList()
     private var dateLabels: List<String?> = emptyList()
@@ -85,8 +92,8 @@ class StackedBarChartView @JvmOverloads constructor(
 
     override fun onMeasure(widthMeasureSpec: Int, heightMeasureSpec: Int) {
         setMeasuredDimension(
-            resolveSize(dp(280f).toInt(), widthMeasureSpec),
-            resolveSize(dp(DEFAULT_HEIGHT_DP).toInt(), heightMeasureSpec)
+            resolveSize(dpF(280f).toInt(), widthMeasureSpec),
+            resolveSize(dpF(DEFAULT_HEIGHT_DP).toInt(), heightMeasureSpec)
         )
     }
 
@@ -98,9 +105,9 @@ class StackedBarChartView @JvmOverloads constructor(
 
         // Measured, not guessed: the axis grows past 3000 when a day does, and the gutter has to
         // grow with the widest label rather than clipping it.
-        val gutter = gridlines.maxOf { axisLabelPaint.measureText(axisLabel(it)) } + dp(6f)
+        val gutter = gridlines.maxOf { axisLabelPaint.measureText(axisLabel(it)) } + dpF(6f)
 
-        val labelBand = if (dateLabels.any { it != null }) sp(28f) else sp(16f)
+        val labelBand = if (dateLabels.any { it != null }) spF(28f) else spF(16f)
         val left = paddingLeft + gutter
         val right = (width - paddingRight).toFloat()
         val baseline = height - paddingBottom - labelBand
@@ -111,14 +118,14 @@ class StackedBarChartView @JvmOverloads constructor(
             val y = baseline - plotHeight * (value / axisMaxPaise.toFloat())
             canvas.drawLine(left, y, right, y, gridPaint)
             if (index % stride == 0) {
-                canvas.drawText(axisLabel(value), left - dp(4f), y + sp(3f), axisLabelPaint)
+                canvas.drawText(axisLabel(value), left - dpF(4f), y + spF(3f), axisLabelPaint)
             }
         }
         canvas.drawLine(left, baseline, right, baseline, baselinePaint)
 
         val slot = (right - left) / labels.size
-        val barWidth = minOf(slot * BAR_WIDTH_RATIO, dp(36f))
-        val minSegment = dp(1.5f)
+        val barWidth = minOf(slot * BAR_WIDTH_RATIO, dpF(36f))
+        val minSegment = dpF(1.5f)
 
         labels.forEachIndexed { day, label ->
             val centre = left + slot * (day + 0.5f)
@@ -129,7 +136,7 @@ class StackedBarChartView @JvmOverloads constructor(
             if (segments.sum() <= 0L) {
                 // A stub rather than nothing: an empty Tuesday still has to hold its slot, or the
                 // week silently reads as six days.
-                canvas.drawRect(barLeft, baseline - dp(2f), barRight, baseline, stubPaint)
+                canvas.drawRect(barLeft, baseline - dpF(2f), barRight, baseline, stubPaint)
             } else {
                 // Each edge comes from the running total, never from summing rounded heights, so a
                 // segment's bottom is exactly the previous one's top and the column's full height
@@ -140,7 +147,7 @@ class StackedBarChartView @JvmOverloads constructor(
                     val yBottom = baseline - plotHeight * (running / axisMaxPaise.toFloat())
                     running += value
                     val yTop = baseline - plotHeight * (running / axisMaxPaise.toFloat())
-                    barPaint.color = segmentColors.getOrElse(index) { CategoryPalette.NEUTRAL }
+                    barPaint.color = segmentColors.getOrElse(index) { neutralColor }
                     // A sub-pixel segment is nudged to a visible sliver; drawing bottom-up means
                     // the next segment paints back over the overshoot.
                     canvas.drawRect(
@@ -149,9 +156,9 @@ class StackedBarChartView @JvmOverloads constructor(
                 }
             }
 
-            val dayLabelY = baseline + sp(12f)
+            val dayLabelY = baseline + spF(12f)
             canvas.drawText(label, centre, dayLabelY, labelPaint)
-            dateLabels.getOrNull(day)?.let { canvas.drawText(it, centre, dayLabelY + sp(11f), labelPaint) }
+            dateLabels.getOrNull(day)?.let { canvas.drawText(it, centre, dayLabelY + spF(11f), labelPaint) }
         }
     }
 
@@ -197,7 +204,7 @@ class StackedBarChartView @JvmOverloads constructor(
     private fun columnAt(x: Float): Int? {
         if (labels.isEmpty()) return null
         val gridlines = BarAxis.gridlinesPaise(axisMaxPaise)
-        val gutter = gridlines.maxOf { axisLabelPaint.measureText(axisLabel(it)) } + dp(6f)
+        val gutter = gridlines.maxOf { axisLabelPaint.measureText(axisLabel(it)) } + dpF(6f)
         val left = paddingLeft + gutter
         val right = (width - paddingRight).toFloat()
         if (x < left || x > right || right <= left) return null
@@ -205,16 +212,12 @@ class StackedBarChartView @JvmOverloads constructor(
         return ((x - left) / slot).toInt().coerceIn(0, labels.size - 1)
     }
 
-    private fun axisLabel(paise: Long): String = (paise / 100L).toString()
+    private fun axisLabel(paise: Long): String = AmountFormat.axis(paise)
 
     private val ViewConfigurationSlop: Float
         get() = android.view.ViewConfiguration.get(context).scaledTouchSlop.toFloat()
 
-    private fun dp(value: Float) =
-        TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, value, resources.displayMetrics)
 
-    private fun sp(value: Float) =
-        TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_SP, value, resources.displayMetrics)
 
     private companion object {
         const val DEFAULT_HEIGHT_DP = 180f

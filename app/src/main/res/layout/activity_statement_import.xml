@@ -5,33 +5,20 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="#F5F5F5">
+    android:background="?android:attr/colorBackground">
 
     <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="56dp"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:padding="12dp"
-        android:background="#FFFFFF">
+        style="@style/Widget.UPI.TopBar">
 
-        <TextView
+        <ImageButton
             android:id="@+id/btnBackImport"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="←"
-            android:textSize="20sp"
-            android:layout_marginEnd="12dp"
-            android:textColor="#212121" />
+            style="@style/Widget.UPI.IconButton"
+            android:src="@drawable/ic_arrow_back"
+            android:contentDescription="@string/cd_back" />
 
         <TextView
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="Bank statement import"
-            android:textSize="18sp"
-            android:textStyle="bold"
-            android:textColor="#212121" />
+            style="@style/Widget.UPI.TopBarTitle"
+            android:text="Bank statement import" />
     </LinearLayout>
 
     <!-- Setup state: pick the file, the account it belongs to, and the range to process. -->
@@ -65,7 +52,7 @@
                         android:layout_height="wrap_content"
                         android:text="Statement file"
                         android:textSize="12sp"
-                        android:textColor="#757575" />
+                        android:textColor="?attr/colorOnSurfaceVariant" />
 
                     <TextView
                         android:id="@+id/btnPickFile"
@@ -73,11 +60,11 @@
                         android:layout_height="44dp"
                         android:layout_marginTop="8dp"
                         android:gravity="center"
-                        android:background="#EEEEEE"
+                        android:background="?attr/colorSurfaceVariant"
                         android:text="Choose .xls file"
                         android:textSize="14sp"
                         android:textStyle="bold"
-                        android:textColor="#212121" />
+                        android:textColor="?attr/colorOnSurface" />
 
                     <TextView
                         android:id="@+id/tvFileSummary"
@@ -85,7 +72,7 @@
                         android:layout_height="wrap_content"
                         android:layout_marginTop="8dp"
                         android:textSize="12sp"
-                        android:textColor="#757575" />
+                        android:textColor="?attr/colorOnSurfaceVariant" />
 
                     <TextView
                         android:layout_width="wrap_content"
@@ -93,7 +80,7 @@
                         android:layout_marginTop="20dp"
                         android:text="Account"
                         android:textSize="12sp"
-                        android:textColor="#757575" />
+                        android:textColor="?attr/colorOnSurfaceVariant" />
 
                     <Spinner
                         android:id="@+id/spinnerAccount"
@@ -107,7 +94,7 @@
                         android:layout_marginTop="20dp"
                         android:text="Date range"
                         android:textSize="12sp"
-                        android:textColor="#757575" />
+                        android:textColor="?attr/colorOnSurfaceVariant" />
 
                     <LinearLayout
                         android:layout_width="match_parent"
@@ -122,9 +109,9 @@
                             android:layout_weight="1"
                             android:layout_marginEnd="6dp"
                             android:gravity="center"
-                            android:background="#EEEEEE"
+                            android:background="?attr/colorSurfaceVariant"
                             android:textSize="14sp"
-                            android:textColor="#212121" />
+                            android:textColor="?attr/colorOnSurface" />
 
                         <TextView
                             android:id="@+id/btnToDate"
@@ -133,9 +120,9 @@
                             android:layout_weight="1"
                             android:layout_marginStart="6dp"
                             android:gravity="center"
-                            android:background="#EEEEEE"
+                            android:background="?attr/colorSurfaceVariant"
                             android:textSize="14sp"
-                            android:textColor="#212121" />
+                            android:textColor="?attr/colorOnSurface" />
                     </LinearLayout>
                 </LinearLayout>
             </androidx.cardview.widget.CardView>
@@ -146,11 +133,11 @@
                 android:layout_height="48dp"
                 android:layout_marginTop="16dp"
                 android:gravity="center"
-                android:background="#006064"
+                android:background="?attr/colorPrimary"
                 android:text="Process statement"
                 android:textSize="15sp"
                 android:textStyle="bold"
-                android:textColor="#FFFFFF" />
+                android:textColor="?attr/colorOnPrimary" />
         </LinearLayout>
     </ScrollView>
 
@@ -192,7 +179,7 @@
                         android:layout_height="wrap_content"
                         android:textSize="15sp"
                         android:textStyle="bold"
-                        android:textColor="#212121" />
+                        android:textColor="?attr/colorOnSurface" />
 
                     <TextView
                         android:id="@+id/tvSkippedCount"
@@ -200,17 +187,17 @@
                         android:layout_height="wrap_content"
                         android:layout_marginTop="4dp"
                         android:textSize="12sp"
-                        android:textColor="#757575"
+                        android:textColor="?attr/colorOnSurfaceVariant"
                         android:visibility="gone" />
                 </LinearLayout>
 
-                <TextView
+                <ImageView
                     android:id="@+id/tvResolvedChevron"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="&gt;"
-                    android:textSize="18sp"
-                    android:textColor="#9E9E9E" />
+                    android:layout_width="@dimen/icon_size"
+                    android:layout_height="@dimen/icon_size"
+                    android:src="@drawable/ic_chevron_right"
+                    app:tint="?attr/appTextMuted"
+                    android:contentDescription="@string/cd_open" />
             </LinearLayout>
         </androidx.cardview.widget.CardView>
 
@@ -222,7 +209,7 @@
             android:gravity="center"
             android:text="Nothing left to review — every row in this range is already recorded."
             android:textSize="13sp"
-            android:textColor="#757575"
+            android:textColor="?attr/colorOnSurfaceVariant"
             android:visibility="gone" />
 
         <androidx.recyclerview.widget.RecyclerView
@@ -240,9 +227,9 @@
             android:layout_width="match_parent"
             android:layout_height="52dp"
             android:gravity="center"
-            android:background="#006064"
+            android:background="?attr/colorPrimary"
             android:textSize="15sp"
             android:textStyle="bold"
-            android:textColor="#FFFFFF" />
+            android:textColor="?attr/colorOnPrimary" />
     </LinearLayout>
 </LinearLayout>

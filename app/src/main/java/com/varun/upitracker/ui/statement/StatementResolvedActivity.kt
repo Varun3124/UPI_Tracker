@@ -9,8 +9,6 @@ import android.view.ViewGroup
 import android.widget.TextView
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.view.ViewCompat
-import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -29,6 +27,8 @@ import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import android.widget.ImageButton
+import com.varun.upitracker.ui.theme.padRootForSystemBars
 
 /**
  * Read-only list of the transactions a statement import matched by UPI ref id. Reached from the
@@ -51,13 +51,9 @@ class StatementResolvedActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_statement_resolved)
 
-        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main)) { view, insets ->
-            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
-            insets
-        }
+        padRootForSystemBars(R.id.main)
 
-        findViewById<TextView>(R.id.btnBackResolved).setOnClickListener { finish() }
+        findViewById<ImageButton>(R.id.btnBackResolved).setOnClickListener { finish() }
 
         val ids = intent.getLongArrayExtra(EXTRA_TRANSACTION_IDS) ?: LongArray(0)
         val db = AppDatabase.getInstance(applicationContext)
@@ -105,7 +101,7 @@ private class ResolvedAdapter(
         holder.date.text = dateFmt.format(Date(transaction.dateEpoch))
         holder.iou.text = ""
         holder.amount.text = transaction.formatPerspectiveAmount()
-        holder.amount.setTextColor(transaction.perspectiveColor())
+        holder.amount.setTextColor(transaction.perspectiveColor(holder.amount.context))
         holder.note.text = transaction.resolveTypeLabel()
 
         holder.payee.text = transaction.payeeRawLabel ?: transaction.payerRawLabel ?: ""

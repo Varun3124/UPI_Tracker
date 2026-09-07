@@ -16,6 +16,7 @@ import com.varun.upitracker.database.entity.TransactionCategorySplit
 import com.varun.upitracker.database.model.FriendAliasBundle
 import com.varun.upitracker.database.model.MerchantAliasBundle
 import com.varun.upitracker.sms.SmsBacklogScanner
+import com.varun.upitracker.util.initialsOf
 
 class SettingsRepository(private val context: Context) {
 
@@ -348,13 +349,8 @@ class SettingsRepository(private val context: Context) {
         return db.transactionDao().countReferencesForMerchant(merchantId) > 0
     }
 
-    private fun aliasInitials(label: String): String {
-        val initials = label.split(" ")
-            .filter { it.isNotBlank() }
-            .take(2)
-            .joinToString("") { it.first().uppercaseChar().toString() }
-        return initials.ifBlank { "F" }
-    }
+    /** Stored in `Friend.avatarInitials`, so the fallback stays "F" exactly as it was. */
+    private fun aliasInitials(label: String): String = initialsOf(label, fallback = "F")
 
     private fun requireName(value: String, label: String): String {
         val name = value.trim()

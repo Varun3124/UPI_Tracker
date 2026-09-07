@@ -10,8 +10,8 @@ import org.junit.Test
 class CategoryPaletteTest {
 
     @Test
-    fun sameCategoryAlwaysGetsTheSameColour() {
-        assertEquals(CategoryPalette.colorFor(7L), CategoryPalette.colorFor(7L))
+    fun sameCategoryAlwaysGetsTheSameSlot() {
+        assertEquals(CategoryPalette.indexFor(7L), CategoryPalette.indexFor(7L))
     }
 
     /**
@@ -19,28 +19,33 @@ class CategoryPaletteTest {
      * other categories happen to be present. Otherwise a slice would change colour between periods.
      */
     @Test
-    fun colourIsIndependentOfTheSurroundingSet() {
-        val alone = CategoryPalette.colorFor(3L)
-        val crowd = listOf(1L, 2L, 3L, 9L, 12L).map(CategoryPalette::colorFor)
+    fun slotIsIndependentOfTheSurroundingSet() {
+        val alone = CategoryPalette.indexFor(3L)
+        val crowd = listOf(1L, 2L, 3L, 9L, 12L).map { CategoryPalette.indexFor(it) }
         assertEquals(alone, crowd[2])
     }
 
     @Test
     fun theFirstSixteenIdsAreAllDistinct() {
-        val colours = (1L..16L).map(CategoryPalette::colorFor)
-        assertEquals(16, colours.toSet().size)
+        val slots = (1L..16L).map { CategoryPalette.indexFor(it) }
+        assertEquals(16, slots.toSet().size)
     }
 
+    /**
+     * Every slot has to exist in the resource arrays. Those are Android resources, so what can be
+     * checked here is the half that is pure: no id ever escapes the declared range.
+     */
     @Test
-    fun neutralIsNeverIssuedAsACategoryColour() {
-        assertTrue(CategoryPalette.PALETTE.none { it == CategoryPalette.NEUTRAL })
+    fun everySlotIsInRange() {
+        val slots = (-50L..50L).map { CategoryPalette.indexFor(it) }
+        assertTrue(slots.all { it in 0 until CategoryPalette.SIZE })
     }
 
     /** Ids start at 1, but a defensive 0 or a negative must not throw. */
     @Test
     fun handlesZeroAndNegativeIds() {
-        CategoryPalette.colorFor(0L)
-        CategoryPalette.colorFor(-5L)
+        assertEquals(0, CategoryPalette.indexFor(0L))
+        assertEquals(11, CategoryPalette.indexFor(-5L))
     }
 }
 
@@ -161,11 +166,11 @@ class StatsAggregatorTest {
     }
 
     @Test
-    fun foldedSlicesCarryTheSameColoursAsADirectQuery() {
-        val folded = StatsAggregator.foldDays(epochs, labels, week).slices.associate { it.categoryId to it.color }
+    fun foldedSlicesCarryTheSamePaletteKeysAsADirectQuery() {
+        val folded = StatsAggregator.foldDays(epochs, labels, week).slices.map { it.categoryId }
         val direct = StatsAggregator.toSlices(
             listOf(total(1, "Food", 60000), total(2, "Transport", 43000), total(3, "Gift", 40000))
-        ).associate { it.categoryId to it.color }
+        ).map { it.categoryId }
         assertEquals(direct, folded)
     }
 
@@ -186,7 +191,10 @@ class StatsAggregatorTest {
     @Test
     fun differentCategoriesGetDifferentColours() {
         val slices = StatsAggregator.foldDays(epochs, labels, week).slices
-        assertNotEquals(slices[0].color, slices[1].color)
+        assertNotEquals(
+            CategoryPalette.indexFor(slices[0].categoryId),
+            CategoryPalette.indexFor(slices[1].categoryId)
+        )
     }
 
     /** The bar chart needs each column's day to open it on tap. */
@@ -270,17 +278,17 @@ class PayeeSliceTest {
         val slices = StatsAggregator.toPayeeSlices(
             listOf(merchant(7, "Swiggy", 500), friend(7, "Asha", 400))
         )
-        assertEquals(2, slices.map { it.color }.toSet().size)
+        assertEquals(2, slices.map { CategoryPalette.indexFor(it.categoryId) }.toSet().size)
         assertEquals(listOf(7L, -7L), slices.map { it.categoryId })
     }
 
     @Test
     fun colourIsStableAcrossDifferentSurroundingSets() {
-        val alone = StatsAggregator.toPayeeSlices(listOf(merchant(3, "Uber", 100))).single().color
+        val alone = StatsAggregator.toPayeeSlices(listOf(merchant(3, "Uber", 100))).single().categoryId
         val crowded = StatsAggregator.toPayeeSlices(
             listOf(merchant(1, "A", 900), merchant(3, "Uber", 100), friend(2, "B", 500))
-        ).first { it.name == "Uber" }.color
-        assertEquals(alone, crowded)
+        ).first { it.name == "Uber" }.categoryId
+        assertEquals(CategoryPalette.indexFor(alone), CategoryPalette.indexFor(crowded))
     }
 
     /** A merchant that was never saved has neither id; it still needs a slice. */

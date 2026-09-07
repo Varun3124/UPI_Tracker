@@ -1,8 +1,75 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="black">#FF000000</color>
-    <color name="white">#FFFFFFFF</color>
-    <color name="accent_black">#000000</color>
-    <color name="compliment_cyan">#006064</color>
-    <color name="compliment_cyan_dark">#004D40</color>
+
+    <!--
+      The brand palette, verbatim. Nothing outside this block should introduce a new hue: the
+      semantic tokens below are all derived from these six, and every screen reads the semantic
+      names rather than these.
+    -->
+    <color name="brand_navy_900">#181A2F</color>
+    <color name="brand_navy_800">#242E49</color>
+    <color name="brand_navy_600">#37415C</color>
+    <color name="brand_peach">#FDA481</color>
+    <color name="brand_crimson">#B4182D</color>
+    <color name="brand_maroon">#54162B</color>
+
+    <!--
+      Semantic tokens - LIGHT.
+      values-night/colors.xml redeclares every name below with its dark value; that swap is the
+      only mechanism the app uses to change modes. Adding a token here without adding it there
+      leaves dark mode reading a light colour, so keep the two files in lockstep.
+
+      In light mode the navy family is the ink and the peach is deepened to #C1542A so it can
+      carry text on white; in dark mode those roles invert.
+    -->
+    <color name="app_background">#F2F3F9</color>
+    <color name="app_surface">#FFFFFF</color>
+    <color name="app_surface_variant">#E6E9F3</color>
+    <color name="app_surface_elevated">#FFFFFF</color>
+    <color name="app_outline">#C3C8DC</color>
+    <color name="app_outline_variant">#DDE1EC</color>
+
+    <color name="app_on_surface">@color/brand_navy_900</color>
+    <color name="app_on_surface_variant">#4E5877</color>
+    <color name="app_on_surface_muted">#7A8299</color>
+
+    <color name="app_primary">#C1542A</color>
+    <color name="app_on_primary">#FFFFFF</color>
+    <color name="app_primary_container">#FFE0D0</color>
+    <color name="app_on_primary_container">#6E2A0E</color>
+
+    <color name="app_secondary">@color/brand_navy_600</color>
+    <color name="app_on_secondary">#FFFFFF</color>
+    <color name="app_secondary_container">#DFE3F1</color>
+    <color name="app_on_secondary_container">#232C45</color>
+
+    <!-- Money semantics. Teal-green rather than a true green: it separates from the crimson far
+         better under red-green colour blindness, and sits closer to the palette's cool half. -->
+    <color name="app_positive">#1F7A5C</color>
+    <color name="app_negative">@color/brand_crimson</color>
+    <color name="app_warning">#B26A00</color>
+    <color name="app_amount_neutral">#7A8299</color>
+
+    <color name="app_negative_container">#FFE0E3</color>
+    <color name="app_on_negative_container">#5E0B18</color>
+    <color name="app_positive_container">#CFEEE2</color>
+    <color name="app_on_positive_container">#0C3D2C</color>
+
+    <!-- Avatars. One colour per actor type, never per person: two friends are meant to look alike.
+         Light mode fills deep and letters white; dark mode inverts both. -->
+    <color name="app_avatar_me">#C1542A</color>
+    <color name="app_on_avatar_me">#FFFFFF</color>
+    <color name="app_avatar_friend">@color/brand_navy_600</color>
+    <color name="app_on_avatar_friend">#FFFFFF</color>
+    <color name="app_avatar_merchant">@color/brand_maroon</color>
+    <color name="app_on_avatar_merchant">#FFFFFF</color>
+
+    <!-- Chart chrome. The 16 category fills live in arrays.xml. -->
+    <color name="app_chart_grid">#E7EAF3</color>
+    <color name="app_chart_zero_line">#C3C8DC</color>
+    <color name="app_chart_axis_label">#7A8299</color>
+    <color name="app_chart_track">#EDEFF6</color>
+    <color name="app_chart_neutral">#B6BCCE</color>
+
+
 </resources>

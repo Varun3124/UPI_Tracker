@@ -7,6 +7,7 @@ import com.varun.upitracker.domain.BalanceDeltaCalculator
 import com.varun.upitracker.domain.statistics.BalanceMovement
 import com.varun.upitracker.domain.TransactionDeltaInput
 import com.varun.upitracker.domain.TransferDeltaInput
+import com.varun.upitracker.util.AmountFormat
 
 /**
  * One row in a chronological ledger list. Transactions and account transfers are stored in separate
@@ -122,11 +123,11 @@ fun AccountTransfer.resolveRouteLabel(accountLabels: Map<String, String>): Strin
         TransferDeltaInput(fromAccountId, toAccountId, amountFromPaise, amountToPaise)
     )
     return when {
-        delta > 0L -> "$route - fee Rs${"%.0f".format(delta / 100.0)}"
-        delta < 0L -> "$route + gain Rs${"%.0f".format(-delta / 100.0)}"
+        delta > 0L -> "$route - fee ${AmountFormat.rupees(delta)}"
+        delta < 0L -> "$route + gain ${AmountFormat.rupees(-delta)}"
         else -> route
     }
 }
 
 /** Unsigned: money moving between your own accounts is neither spend nor income. */
-fun AccountTransfer.formatTransferAmount(): String = "Rs${"%.0f".format(amountFromPaise / 100.0)}"
+fun AccountTransfer.formatTransferAmount(): String = AmountFormat.rupees(amountFromPaise)

@@ -9,8 +9,6 @@ import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.view.ViewCompat
-import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.ViewModelProvider
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -25,6 +23,11 @@ import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import com.varun.upitracker.util.AmountFormat
+import com.varun.upitracker.ui.theme.ThemeAttr
+import com.varun.upitracker.ui.theme.themeColor
+import android.widget.ImageButton
+import com.varun.upitracker.ui.theme.padRootForSystemBars
 
 class FriendDetailActivity : AppCompatActivity() {
 
@@ -40,11 +43,7 @@ class FriendDetailActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_friend_detail)
 
-        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main)) { v, insets ->
-            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            v.setPadding(bars.left, bars.top, bars.right, bars.bottom)
-            insets
-        }
+        padRootForSystemBars(R.id.main)
 
         val friendId = intent.getLongExtra(EXTRA_FRIEND_ID, -1L)
         if (friendId == -1L) {
@@ -52,7 +51,7 @@ class FriendDetailActivity : AppCompatActivity() {
             return
         }
 
-        findViewById<TextView>(R.id.btnBack).setOnClickListener { finish() }
+        findViewById<ImageButton>(R.id.btnBack).setOnClickListener { finish() }
 
         viewModel = ViewModelProvider(
             this,
@@ -73,16 +72,18 @@ class FriendDetailActivity : AppCompatActivity() {
             findViewById<TextView>(R.id.tvFriendDetailBalance).apply {
                 val net = summary?.netBalancePaise ?: 0L
                 text = when {
-                    net > 0 -> "+Rs${"%.0f".format(net / 100.0)}"
-                    net < 0 -> "-Rs${"%.0f".format(-net / 100.0)}"
+                    net > 0 -> "+" + AmountFormat.rupees(net)
+                    net < 0 -> "-" + AmountFormat.rupees(-net)
                     else -> "Settled"
                 }
                 setTextColor(
-                    when {
-                        net > 0 -> Color.parseColor("#2E7D32")
-                        net < 0 -> Color.parseColor("#C62828")
-                        else -> Color.GRAY
-                    }
+                    themeColor(
+                        when {
+                            net > 0 -> ThemeAttr.positive
+                            net < 0 -> ThemeAttr.negative
+                            else -> ThemeAttr.amountNeutral
+                        }
+                    )
                 )
             }
 
@@ -128,7 +129,7 @@ class FriendTransactionAdapter(
         }
         holder.tvDate.text = dateFmt.format(Date(tx.dateEpoch))
         holder.tvAmount.text = tx.formatPerspectiveAmount()
-        holder.tvAmount.setTextColor(tx.perspectiveColor())
+        holder.tvAmount.setTextColor(tx.perspectiveColor(holder.tvAmount.context))
 
         CoroutineScope(Dispatchers.Main).launch {
             val entries = withContext(Dispatchers.IO) { db.iouDao().getEntriesForTransaction(tx.id).filter { it.friendId == friendId } }
@@ -142,16 +143,20 @@ class FriendTransactionAdapter(
                     val settled = entries.all { it.isSettled }
                     holder.tvIouNote.text = if (settled) "IOU settled" else "IOU pending"
                     holder.tvIouAmount.text = when {
-                        iouAmt > 0 -> "owes Rs${"%.0f".format(iouAmt / 100.0)}"
-                        iouAmt < 0 -> "you owe Rs${"%.0f".format(-iouAmt / 100.0)}"
+                        iouAmt > 0 -> "owes " + AmountFormat.rupees(iouAmt)
+                        iouAmt < 0 -> "you owe " + AmountFormat.rupees(-iouAmt)
                         else -> ""
                     }
-                    holder.tvIouAmount.setTextColor(if (iouAmt > 0) Color.parseColor("#2E7D32") else Color.parseColor("#C62828"))
+                    holder.tvIouAmount.setTextColor(
+                        holder.tvIouAmount.themeColor(
+                            if (iouAmt > 0) ThemeAttr.positive else ThemeAttr.negative
+                        )
+                    )
                 }
                 share != null -> {
                     holder.tvIouNote.text = "Friend share"
-                    holder.tvIouAmount.text = "Rs${"%.0f".format(share.amountPaise / 100.0)}"
-                    holder.tvIouAmount.setTextColor(Color.parseColor("#5C6BC0"))
+                    holder.tvIouAmount.text = AmountFormat.rupees(share.amountPaise)
+                    holder.tvIouAmount.setTextColor(holder.tvIouAmount.themeColor(ThemeAttr.secondary))
                 }
                 else -> {
                     holder.tvIouNote.text = ""

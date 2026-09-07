@@ -4,46 +4,32 @@
     android:id="@+id/main"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#F5F5F5"
+    android:background="?android:attr/colorBackground"
     android:orientation="vertical">
 
     <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="56dp"
-        android:background="#FFFFFF"
-        android:gravity="center_vertical"
-        android:orientation="horizontal"
-        android:paddingStart="16dp"
-        android:paddingEnd="16dp">
+        style="@style/Widget.UPI.TopBar">
 
-        <TextView
+        <ImageButton
             android:id="@+id/btnBackStats"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:paddingEnd="16dp"
-            android:text="&lt;"
-            android:textColor="#212121"
-            android:textSize="20sp" />
+            style="@style/Widget.UPI.IconButton"
+            android:src="@drawable/ic_arrow_back"
+            android:contentDescription="@string/cd_back" />
 
         <TextView
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="Statistics"
-            android:textColor="#212121"
-            android:textSize="18sp"
-            android:textStyle="bold" />
+            style="@style/Widget.UPI.TopBarTitle"
+            android:text="Statistics" />
 
         <!-- Same shape and styling as btnPickMonth on All Transactions: flat, not a pill. -->
         <TextView
             android:id="@+id/btnPickPeriod"
             android:layout_width="wrap_content"
             android:layout_height="36dp"
-            android:background="#EEEEEE"
+            android:background="?attr/colorSurfaceVariant"
             android:gravity="center"
             android:paddingStart="12dp"
             android:paddingEnd="12dp"
-            android:textColor="#212121"
+            android:textColor="?attr/colorOnSurface"
             android:textSize="13sp"
             android:textStyle="bold" />
     </LinearLayout>
@@ -53,7 +39,7 @@
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:background="#FFFFFF"
+        android:background="?attr/colorSurface"
         android:gravity="center_vertical"
         android:orientation="horizontal"
         android:paddingStart="16dp"
@@ -61,31 +47,17 @@
         android:paddingBottom="10dp">
 
         <TextView
+            style="@style/Widget.UPI.Pill"
             android:id="@+id/btnSectionCategories"
-            android:layout_width="wrap_content"
-            android:layout_height="32dp"
-            android:clickable="true"
-            android:focusable="true"
-            android:gravity="center"
-            android:paddingStart="14dp"
-            android:paddingEnd="14dp"
             android:text="Categories"
-            android:textSize="12sp"
-            android:textStyle="bold" />
+            android:textSize="12sp" />
 
         <TextView
+            style="@style/Widget.UPI.Pill"
             android:id="@+id/btnSectionTrends"
-            android:layout_width="wrap_content"
-            android:layout_height="32dp"
-            android:layout_marginStart="8dp"
-            android:clickable="true"
-            android:focusable="true"
-            android:gravity="center"
-            android:paddingStart="14dp"
-            android:paddingEnd="14dp"
+            android:layout_marginStart="@dimen/space_s"
             android:text="Trends"
-            android:textSize="12sp"
-            android:textStyle="bold" />
+            android:textSize="12sp" />
 
         <!-- Beside the section pills, because it scopes everything under Trends: both the balance
              line and the in-and-out figures read the same accounts. Hidden on Categories, whose
@@ -95,13 +67,13 @@
             android:layout_width="wrap_content"
             android:layout_height="30dp"
             android:layout_marginStart="12dp"
-            android:background="#EEEEEE"
+            android:background="?attr/colorSurfaceVariant"
             android:clickable="true"
             android:focusable="true"
             android:gravity="center"
             android:paddingStart="12dp"
             android:paddingEnd="12dp"
-            android:textColor="#212121"
+            android:textColor="?attr/colorOnSurface"
             android:textSize="12sp"
             android:textStyle="bold"
             android:visibility="gone" />
@@ -110,21 +82,19 @@
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:background="#FFFFFF"
+        android:background="?attr/colorSurface"
         android:gravity="center_vertical"
         android:orientation="horizontal"
         android:paddingStart="16dp"
         android:paddingEnd="16dp"
         android:paddingBottom="10dp">
 
-        <TextView
+        <ImageButton
             android:id="@+id/btnPrevPeriod"
-            android:layout_width="40dp"
-            android:layout_height="32dp"
-            android:gravity="center"
-            android:text="&lt;"
-            android:textColor="#006064"
-            android:textSize="18sp" />
+            style="@style/Widget.UPI.IconButton"
+            android:src="@drawable/ic_chevron_left"
+            app:tint="?attr/colorPrimary"
+            android:contentDescription="@string/cd_previous_period" />
 
         <TextView
             android:id="@+id/tvRangeLabel"
@@ -132,18 +102,16 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:gravity="center"
-            android:textColor="#212121"
+            android:textColor="?attr/colorOnSurface"
             android:textSize="14sp"
             android:textStyle="bold" />
 
-        <TextView
+        <ImageButton
             android:id="@+id/btnNextPeriod"
-            android:layout_width="40dp"
-            android:layout_height="32dp"
-            android:gravity="center"
-            android:text="&gt;"
-            android:textColor="#006064"
-            android:textSize="18sp" />
+            style="@style/Widget.UPI.IconButton"
+            android:src="@drawable/ic_chevron_right"
+            app:tint="?attr/colorPrimary"
+            android:contentDescription="@string/cd_next_period" />
     </LinearLayout>
 
     <!-- Wraps the Categories scroller only, so a horizontal drag anywhere over its charts steps
@@ -194,7 +162,7 @@
                             android:layout_weight="1"
                             android:letterSpacing="0.1"
                             android:text="BY CATEGORY"
-                            android:textColor="#888888"
+                            android:textColor="?attr/appTextMuted"
                             android:textSize="11sp" />
 
                         <!-- Only visible while drilled into a category. -->
@@ -208,7 +176,7 @@
                             android:paddingTop="2dp"
                             android:paddingBottom="2dp"
                             android:text="Show all ✕"
-                            android:textColor="#006064"
+                            android:textColor="?attr/colorPrimary"
                             android:textSize="12sp"
                             android:textStyle="bold"
                             android:visibility="gone" />
@@ -236,14 +204,14 @@
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
                                 android:text="Categorised"
-                                android:textColor="#888888"
+                                android:textColor="?attr/appTextMuted"
                                 android:textSize="11sp" />
 
                             <TextView
                                 android:id="@+id/tvPieTotal"
                                 android:layout_width="wrap_content"
                                 android:layout_height="wrap_content"
-                                android:textColor="#212121"
+                                android:textColor="?attr/colorOnSurface"
                                 android:textSize="20sp"
                                 android:textStyle="bold" />
                         </LinearLayout>
@@ -256,7 +224,7 @@
                         android:layout_marginTop="12dp"
                         android:gravity="center"
                         android:text="No spending in this period"
-                        android:textColor="#888888"
+                        android:textColor="?attr/appTextMuted"
                         android:textSize="13sp"
                         android:visibility="gone" />
 
@@ -288,7 +256,7 @@
                         android:layout_height="wrap_content"
                         android:letterSpacing="0.1"
                         android:text="PER DAY"
-                        android:textColor="#888888"
+                        android:textColor="?attr/appTextMuted"
                         android:textSize="11sp" />
 
                     <TextView
@@ -296,7 +264,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginBottom="8dp"
-                        android:textColor="#888888"
+                        android:textColor="?attr/appTextMuted"
                         android:textSize="12sp" />
 
                     <com.varun.upitracker.ui.statistics.StackedBarChartView
@@ -342,7 +310,7 @@
                         android:layout_height="wrap_content"
                         android:letterSpacing="0.1"
                         android:text="BALANCE"
-                        android:textColor="#888888"
+                        android:textColor="?attr/appTextMuted"
                         android:textSize="11sp" />
 
                     <!-- The figure is a real TextView so it formats like every other amount in the
@@ -351,7 +319,7 @@
                         android:id="@+id/tvBalanceLatest"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:textColor="#212121"
+                        android:textColor="?attr/colorOnSurface"
                         android:textSize="22sp"
                         android:textStyle="bold" />
 
@@ -360,7 +328,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginBottom="8dp"
-                        android:textColor="#888888"
+                        android:textColor="?attr/appTextMuted"
                         android:textSize="12sp" />
 
                     <com.varun.upitracker.ui.statistics.LineChartView
@@ -373,7 +341,7 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:gravity="center"
-                        android:textColor="#888888"
+                        android:textColor="?attr/appTextMuted"
                         android:textSize="13sp"
                         android:visibility="gone" />
                 </LinearLayout>
@@ -405,7 +373,7 @@
                             android:layout_weight="1"
                             android:letterSpacing="0.1"
                             android:text="IN AND OUT"
-                            android:textColor="#888888"
+                            android:textColor="?attr/appTextMuted"
                             android:textSize="11sp" />
 
                         <!-- A literal bullet, as every other glyph in the app is: there are no
@@ -414,7 +382,7 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="● In"
-                            android:textColor="#2E7D32"
+                            android:textColor="?attr/appPositive"
                             android:textSize="11sp"
                             android:textStyle="bold" />
 
@@ -423,7 +391,7 @@
                             android:layout_height="wrap_content"
                             android:layout_marginStart="10dp"
                             android:text="● Out"
-                            android:textColor="#C62828"
+                            android:textColor="?attr/appNegative"
                             android:textSize="11sp"
                             android:textStyle="bold" />
                     </LinearLayout>
@@ -433,7 +401,7 @@
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
                         android:layout_marginBottom="8dp"
-                        android:textColor="#888888"
+                        android:textColor="?attr/appTextMuted"
                         android:textSize="12sp" />
 
                     <com.varun.upitracker.ui.statistics.IncomeExpenseChartView

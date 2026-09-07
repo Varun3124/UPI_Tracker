@@ -1,6 +1,7 @@
 ﻿package com.varun.upitracker.domain.transactionentry.validation
 
 import com.varun.upitracker.ui.ActorType
+import com.varun.upitracker.util.AmountFormat
 
 data class ValidationResult(
     val isValid: Boolean,
@@ -116,6 +117,5 @@ class TransactionValidator {
         return ValidationResult.valid()
     }
 
-    private fun formatPaise(paise: Long): String =
-        if (paise % 100 > 0) "Rs%.2f".format(paise / 100.0) else "Rs%.0f".format(paise / 100.0)
+    private fun formatPaise(paise: Long): String = AmountFormat.rupeesExact(paise)
 }

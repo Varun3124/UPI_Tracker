@@ -3,12 +3,17 @@ package com.varun.upitracker.domain.statistics
 import com.varun.upitracker.database.model.CategoryTotal
 import com.varun.upitracker.database.model.PayeeTotal
 
-/** One category's share of a window, carrying the colour it is drawn in on both charts. */
+/**
+ * One category's share of a window.
+ *
+ * Carries no colour: [categoryId] is the palette key, and `ui.theme.ChartColors` turns it into an
+ * actual colour for whichever mode is on screen. Baking an ARGB value in here would have frozen the
+ * light-mode palette into the data layer.
+ */
 data class CategorySlice(
     val categoryId: Long,
     val name: String,
-    val paise: Long,
-    val color: Int
+    val paise: Long
 )
 
 /** One column of the weekly bar. [segments] is parallel to the slice list, in the same order. */
@@ -69,8 +74,7 @@ object StatsAggregator {
                 CategorySlice(
                     categoryId = it.categoryId,
                     name = it.categoryName,
-                    paise = it.netPaise,
-                    color = CategoryPalette.colorFor(it.categoryId)
+                    paise = it.netPaise
                 )
             }
             .toList()
@@ -87,7 +91,7 @@ object StatsAggregator {
             .filter { it.netPaise > 0L }
             .map { total ->
                 val key = total.merchantId ?: total.friendId?.let { -it } ?: 0L
-                CategorySlice(key, total.payeeName, total.netPaise, CategoryPalette.colorFor(key))
+                CategorySlice(key, total.payeeName, total.netPaise)
             }
             .sortedWith(compareByDescending<CategorySlice> { it.paise }.thenBy { it.categoryId })
             .toList()

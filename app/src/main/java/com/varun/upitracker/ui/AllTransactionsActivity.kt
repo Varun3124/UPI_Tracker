@@ -2,10 +2,8 @@ package com.varun.upitracker.ui
 
 import android.content.Intent
 import android.graphics.Color
-import android.graphics.drawable.GradientDrawable
 import android.app.DatePickerDialog
 import android.os.Bundle
-import android.util.TypedValue
 import android.view.MotionEvent
 import android.view.ViewConfiguration
 import android.view.LayoutInflater
@@ -21,8 +19,6 @@ import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.view.ViewCompat
-import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.ViewModelProvider
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -38,6 +34,9 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
+import android.widget.ImageButton
+import com.varun.upitracker.ui.theme.padRootForSystemBars
+import com.varun.upitracker.ui.theme.dp
 
 class AllTransactionsActivity : AppCompatActivity() {
 
@@ -61,13 +60,9 @@ class AllTransactionsActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_all_transactions)
 
-        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main)) { v, insets ->
-            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            v.setPadding(bars.left, bars.top, bars.right, bars.bottom)
-            insets
-        }
+        padRootForSystemBars(R.id.main)
 
-        findViewById<TextView>(R.id.btnBackAll).setOnClickListener { finish() }
+        findViewById<ImageButton>(R.id.btnBackAll).setOnClickListener { finish() }
         btnPickMonth = findViewById(R.id.btnPickMonth)
         btnPickMonth.setOnClickListener {
             val state = viewModel.uiState.value
@@ -265,13 +260,13 @@ class AllTransactionsActivity : AppCompatActivity() {
     }
 
     private fun renderFilterBar(state: AllTransactionsUiState) {
-        stylePill(btnPendingOnly, state.pendingOnly)
+        btnPendingOnly.isSelected = state.pendingOnly
 
         val scope = state.selectedAccountId?.let { id ->
             state.accounts.firstOrNull { it.id == id }?.label ?: state.accountLabels[id]
         }
         btnAccountFilter.text = scope ?: ALL_ACCOUNTS
-        stylePill(btnAccountFilter, scope != null)
+        btnAccountFilter.isSelected = scope != null
 
         findViewById<TextView>(R.id.tvFilterHint).text = if (state.isFiltered) {
             "${state.entries.size} of ${state.totalEntryCount}"
@@ -291,19 +286,6 @@ class AllTransactionsActivity : AppCompatActivity() {
         }
     }
 
-    /**
-     * The app has no selector drawables, so the checked look is built the same way
-     * TransactionEntryActivity styles its actor tiles.
-     */
-    private fun stylePill(view: TextView, active: Boolean) {
-        view.background = GradientDrawable().apply {
-            shape = GradientDrawable.RECTANGLE
-            cornerRadius = dp(16).toFloat()
-            setColor(if (active) Color.parseColor("#006064") else Color.parseColor("#EEEEEE"))
-            setStroke(dp(1), if (active) Color.parseColor("#006064") else Color.parseColor("#DDDDDD"))
-        }
-        view.setTextColor(if (active) Color.parseColor("#FFFFFF") else Color.parseColor("#212121"))
-    }
 
     private fun showAccountFilterMenu() {
         val state = viewModel.uiState.value ?: return
@@ -320,12 +302,6 @@ class AllTransactionsActivity : AppCompatActivity() {
         }
         popup.show()
     }
-
-    private fun dp(value: Int): Int = TypedValue.applyDimension(
-        TypedValue.COMPLEX_UNIT_DIP,
-        value.toFloat(),
-        resources.displayMetrics
-    ).toInt()
 
     private fun showMonthPicker(monthStartEpoch: Long) {
         val selected = Calendar.getInstance().apply { timeInMillis = monthStartEpoch }
@@ -478,7 +454,7 @@ class AllTransactionsAdapter(
                     holder.tvPayee.text = withContext(Dispatchers.IO) { tx.resolvePrimaryDisplay(db) }
                 }
                 holder.tvAmount.text = tx.formatPerspectiveAmount()
-                holder.tvAmount.setTextColor(tx.perspectiveColor())
+                holder.tvAmount.setTextColor(tx.perspectiveColor(holder.tvAmount.context))
                 holder.tvNote.text = tx.resolveTypeLabel()
             }
 
@@ -486,7 +462,7 @@ class AllTransactionsAdapter(
                 val transfer = entry.transfer
                 holder.tvPayee.text = transfer.resolvePrimaryDisplay()
                 holder.tvAmount.text = transfer.formatTransferAmount()
-                holder.tvAmount.setTextColor(AmountPerspective.NEUTRAL.color())
+                holder.tvAmount.setTextColor(AmountPerspective.NEUTRAL.color(holder.tvAmount.context))
                 holder.tvNote.text = transfer.resolveRouteLabel(accountLabels)
             }
         }

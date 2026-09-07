@@ -1,65 +1,69 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/main"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="#F5F5F5">
+    android:background="?android:attr/colorBackground">
 
     <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="56dp"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:padding="12dp"
-        android:background="#FFFFFF">
+        style="@style/Widget.UPI.TopBar">
 
-        <TextView
+        <ImageButton
             android:id="@+id/btnBackSettings"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="&lt;"
-            android:textSize="20sp"
-            android:textColor="#212121"
-            android:layout_marginEnd="12dp" />
+            style="@style/Widget.UPI.IconButton"
+            android:src="@drawable/ic_arrow_back"
+            android:contentDescription="@string/cd_back" />
 
         <TextView
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="Settings"
-            android:textSize="18sp"
-            android:textStyle="bold"
-            android:textColor="#212121" />
+            style="@style/Widget.UPI.TopBarTitle"
+            android:text="Settings" />
     </LinearLayout>
 
     <ScrollView
         android:layout_width="match_parent"
-        android:layout_height="match_parent">
+        android:layout_height="match_parent"
+        android:scrollbars="none">
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-            android:padding="16dp">
+            android:paddingStart="@dimen/page_gutter"
+            android:paddingEnd="@dimen/page_gutter"
+            android:paddingTop="@dimen/space_l"
+            android:paddingBottom="@dimen/space_xxl">
 
-            <androidx.cardview.widget.CardView
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="0dp"
+                android:layout_marginBottom="@dimen/space_s"
+                android:text="DATA"
+                android:textAppearance="@style/TextAppearance.UPI.SectionHeader" />
+
+            <com.google.android.material.card.MaterialCardView
                 android:id="@+id/cardCategories"
+                style="@style/Widget.UPI.Card.Clickable"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginBottom="12dp"
-                android:clickable="true"
-                android:focusable="true"
-                app:cardCornerRadius="12dp"
-                app:cardElevation="2dp">
+                android:layout_marginBottom="@dimen/space_s">
 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="horizontal"
                     android:gravity="center_vertical"
-                    android:padding="16dp">
+                    android:padding="@dimen/space_l">
+
+                    <ImageView
+                        android:layout_width="@dimen/icon_size"
+                        android:layout_height="@dimen/icon_size"
+                        android:layout_marginEnd="@dimen/space_l"
+                        android:src="@drawable/ic_category"
+                        app:tint="?attr/colorPrimary"
+                        android:importantForAccessibility="no" />
 
                     <LinearLayout
                         android:layout_width="0dp"
@@ -71,44 +75,48 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="Categories"
-                            android:textSize="15sp"
-                            android:textStyle="bold"
-                            android:textColor="#212121" />
+                            android:textAppearance="@style/TextAppearance.UPI.Title"
+                            android:textSize="15sp" />
 
                         <TextView
-                            android:layout_width="wrap_content"
+                            android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:layout_marginTop="4dp"
+                            android:layout_marginTop="@dimen/space_xs"
                             android:text="Create, rename, merge, and safely reassign categories."
-                            android:textSize="12sp"
-                            android:textColor="#757575" />
+                            android:textAppearance="@style/TextAppearance.UPI.Caption" />
                     </LinearLayout>
 
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text=">"
-                        android:textSize="18sp"
-                        android:textColor="#9E9E9E" />
+                    <ImageView
+                        android:layout_width="@dimen/icon_size"
+                        android:layout_height="@dimen/icon_size"
+                        android:layout_marginStart="@dimen/space_s"
+                        android:src="@drawable/ic_chevron_right"
+                        app:tint="?attr/appTextMuted"
+                        android:importantForAccessibility="no" />
                 </LinearLayout>
-            </androidx.cardview.widget.CardView>
+            </com.google.android.material.card.MaterialCardView>
 
-            <androidx.cardview.widget.CardView
+            <com.google.android.material.card.MaterialCardView
                 android:id="@+id/cardAccounts"
+                style="@style/Widget.UPI.Card.Clickable"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginBottom="12dp"
-                android:clickable="true"
-                android:focusable="true"
-                app:cardCornerRadius="12dp"
-                app:cardElevation="2dp">
+                android:layout_marginBottom="@dimen/space_s">
 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="horizontal"
                     android:gravity="center_vertical"
-                    android:padding="16dp">
+                    android:padding="@dimen/space_l">
+
+                    <ImageView
+                        android:layout_width="@dimen/icon_size"
+                        android:layout_height="@dimen/icon_size"
+                        android:layout_marginEnd="@dimen/space_l"
+                        android:src="@drawable/ic_account_balance"
+                        app:tint="?attr/colorPrimary"
+                        android:importantForAccessibility="no" />
 
                     <LinearLayout
                         android:layout_width="0dp"
@@ -120,44 +128,56 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="Accounts"
-                            android:textSize="15sp"
-                            android:textStyle="bold"
-                            android:textColor="#212121" />
+                            android:textAppearance="@style/TextAppearance.UPI.Title"
+                            android:textSize="15sp" />
 
                         <TextView
-                            android:layout_width="wrap_content"
+                            android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:layout_marginTop="4dp"
+                            android:layout_marginTop="@dimen/space_xs"
                             android:text="Manage balances, snapshots, defaults, and archives."
-                            android:textSize="12sp"
-                            android:textColor="#757575" />
+                            android:textAppearance="@style/TextAppearance.UPI.Caption" />
                     </LinearLayout>
 
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text=">"
-                        android:textSize="18sp"
-                        android:textColor="#9E9E9E" />
+                    <ImageView
+                        android:layout_width="@dimen/icon_size"
+                        android:layout_height="@dimen/icon_size"
+                        android:layout_marginStart="@dimen/space_s"
+                        android:src="@drawable/ic_chevron_right"
+                        app:tint="?attr/appTextMuted"
+                        android:importantForAccessibility="no" />
                 </LinearLayout>
-            </androidx.cardview.widget.CardView>
+            </com.google.android.material.card.MaterialCardView>
 
-            <androidx.cardview.widget.CardView
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_l"
+                android:layout_marginBottom="@dimen/space_s"
+                android:text="PEOPLE"
+                android:textAppearance="@style/TextAppearance.UPI.SectionHeader" />
+
+            <com.google.android.material.card.MaterialCardView
                 android:id="@+id/cardFriendAliases"
+                style="@style/Widget.UPI.Card.Clickable"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginBottom="12dp"
-                android:clickable="true"
-                android:focusable="true"
-                app:cardCornerRadius="12dp"
-                app:cardElevation="2dp">
+                android:layout_marginBottom="@dimen/space_s">
 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="horizontal"
                     android:gravity="center_vertical"
-                    android:padding="16dp">
+                    android:padding="@dimen/space_l">
+
+                    <ImageView
+                        android:layout_width="@dimen/icon_size"
+                        android:layout_height="@dimen/icon_size"
+                        android:layout_marginEnd="@dimen/space_l"
+                        android:src="@drawable/ic_group"
+                        app:tint="?attr/colorPrimary"
+                        android:importantForAccessibility="no" />
 
                     <LinearLayout
                         android:layout_width="0dp"
@@ -169,43 +189,48 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="Friend aliases"
-                            android:textSize="15sp"
-                            android:textStyle="bold"
-                            android:textColor="#212121" />
+                            android:textAppearance="@style/TextAppearance.UPI.Title"
+                            android:textSize="15sp" />
 
                         <TextView
-                            android:layout_width="wrap_content"
+                            android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:layout_marginTop="4dp"
+                            android:layout_marginTop="@dimen/space_xs"
                             android:text="Manage friend alias cards and remap raw names or UPI IDs."
-                            android:textSize="12sp"
-                            android:textColor="#757575" />
+                            android:textAppearance="@style/TextAppearance.UPI.Caption" />
                     </LinearLayout>
 
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text=">"
-                        android:textSize="18sp"
-                        android:textColor="#9E9E9E" />
+                    <ImageView
+                        android:layout_width="@dimen/icon_size"
+                        android:layout_height="@dimen/icon_size"
+                        android:layout_marginStart="@dimen/space_s"
+                        android:src="@drawable/ic_chevron_right"
+                        app:tint="?attr/appTextMuted"
+                        android:importantForAccessibility="no" />
                 </LinearLayout>
-            </androidx.cardview.widget.CardView>
+            </com.google.android.material.card.MaterialCardView>
 
-            <androidx.cardview.widget.CardView
+            <com.google.android.material.card.MaterialCardView
                 android:id="@+id/cardMerchantAliases"
+                style="@style/Widget.UPI.Card.Clickable"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:clickable="true"
-                android:focusable="true"
-                app:cardCornerRadius="12dp"
-                app:cardElevation="2dp">
+                android:layout_marginBottom="@dimen/space_s">
 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="horizontal"
                     android:gravity="center_vertical"
-                    android:padding="16dp">
+                    android:padding="@dimen/space_l">
+
+                    <ImageView
+                        android:layout_width="@dimen/icon_size"
+                        android:layout_height="@dimen/icon_size"
+                        android:layout_marginEnd="@dimen/space_l"
+                        android:src="@drawable/ic_store"
+                        app:tint="?attr/colorPrimary"
+                        android:importantForAccessibility="no" />
 
                     <LinearLayout
                         android:layout_width="0dp"
@@ -217,43 +242,56 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="Merchant aliases"
-                            android:textSize="15sp"
-                            android:textStyle="bold"
-                            android:textColor="#212121" />
+                            android:textAppearance="@style/TextAppearance.UPI.Title"
+                            android:textSize="15sp" />
 
                         <TextView
-                            android:layout_width="wrap_content"
+                            android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:layout_marginTop="4dp"
+                            android:layout_marginTop="@dimen/space_xs"
                             android:text="Manage merchant alias cards and move raw names or UPI IDs."
-                            android:textSize="12sp"
-                            android:textColor="#757575" />
+                            android:textAppearance="@style/TextAppearance.UPI.Caption" />
                     </LinearLayout>
 
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text=">"
-                        android:textSize="18sp"
-                        android:textColor="#9E9E9E" />
+                    <ImageView
+                        android:layout_width="@dimen/icon_size"
+                        android:layout_height="@dimen/icon_size"
+                        android:layout_marginStart="@dimen/space_s"
+                        android:src="@drawable/ic_chevron_right"
+                        app:tint="?attr/appTextMuted"
+                        android:importantForAccessibility="no" />
                 </LinearLayout>
-            </androidx.cardview.widget.CardView>
-            <androidx.cardview.widget.CardView
+            </com.google.android.material.card.MaterialCardView>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_l"
+                android:layout_marginBottom="@dimen/space_s"
+                android:text="IMPORT"
+                android:textAppearance="@style/TextAppearance.UPI.SectionHeader" />
+
+            <com.google.android.material.card.MaterialCardView
                 android:id="@+id/cardImportStatement"
+                style="@style/Widget.UPI.Card.Clickable"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                android:clickable="true"
-                android:focusable="true"
-                app:cardCornerRadius="12dp"
-                app:cardElevation="2dp">
+                android:layout_marginBottom="@dimen/space_s">
 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:orientation="horizontal"
                     android:gravity="center_vertical"
-                    android:padding="16dp">
+                    android:padding="@dimen/space_l">
+
+                    <ImageView
+                        android:layout_width="@dimen/icon_size"
+                        android:layout_height="@dimen/icon_size"
+                        android:layout_marginEnd="@dimen/space_l"
+                        android:src="@drawable/ic_upload_file"
+                        app:tint="?attr/colorPrimary"
+                        android:importantForAccessibility="no" />
 
                     <LinearLayout
                         android:layout_width="0dp"
@@ -265,27 +303,27 @@
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
                             android:text="Bank statement import"
-                            android:textSize="15sp"
-                            android:textStyle="bold"
-                            android:textColor="#212121" />
+                            android:textAppearance="@style/TextAppearance.UPI.Title"
+                            android:textSize="15sp" />
 
                         <TextView
-                            android:layout_width="wrap_content"
+                            android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:layout_marginTop="4dp"
+                            android:layout_marginTop="@dimen/space_xs"
                             android:text="Read an HDFC .xls statement to fill gaps and learn payee names."
-                            android:textSize="12sp"
-                            android:textColor="#757575" />
+                            android:textAppearance="@style/TextAppearance.UPI.Caption" />
                     </LinearLayout>
 
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="&gt;"
-                        android:textSize="18sp"
-                        android:textColor="#9E9E9E" />
+                    <ImageView
+                        android:layout_width="@dimen/icon_size"
+                        android:layout_height="@dimen/icon_size"
+                        android:layout_marginStart="@dimen/space_s"
+                        android:src="@drawable/ic_chevron_right"
+                        app:tint="?attr/appTextMuted"
+                        android:importantForAccessibility="no" />
                 </LinearLayout>
-            </androidx.cardview.widget.CardView>
+            </com.google.android.material.card.MaterialCardView>
+
         </LinearLayout>
     </ScrollView>
 </LinearLayout>

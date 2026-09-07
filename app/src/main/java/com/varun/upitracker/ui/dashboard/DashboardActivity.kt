@@ -1,8 +1,6 @@
 package com.varun.upitracker.ui.dashboard
 
 import android.content.Intent
-import android.graphics.Color
-import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
@@ -11,8 +9,6 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.view.ViewCompat
-import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import com.varun.upitracker.R
@@ -36,6 +32,14 @@ import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import com.varun.upitracker.util.AmountFormat
+import android.widget.ImageButton
+import com.varun.upitracker.ui.ActorType
+import com.varun.upitracker.ui.theme.Avatars
+import com.varun.upitracker.ui.theme.ThemeAttr
+import com.varun.upitracker.ui.theme.themeColor
+import com.varun.upitracker.ui.theme.dp
+import com.varun.upitracker.ui.theme.padRootForSystemBars
 
 class DashboardActivity : AppCompatActivity() {
 
@@ -57,11 +61,7 @@ class DashboardActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_dashboard)
 
-        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main)) { v, insets ->
-            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            v.setPadding(bars.left, bars.top, bars.right, bars.bottom)
-            insets
-        }
+        padRootForSystemBars(R.id.main)
 
         tvDailySpend = findViewById(R.id.tvDailySpend)
         tvWeeklySpend = findViewById(R.id.tvWeeklySpend)
@@ -78,7 +78,7 @@ class DashboardActivity : AppCompatActivity() {
             DashboardViewModelFactory(applicationContext)
         )[DashboardViewModel::class.java]
 
-        findViewById<TextView>(R.id.btnSettings).setOnClickListener {
+        findViewById<ImageButton>(R.id.btnSettings).setOnClickListener {
             startActivity(Intent(this, SettingsActivity::class.java))
         }
         findViewById<View>(R.id.cardSpending).setOnClickListener {
@@ -87,9 +87,9 @@ class DashboardActivity : AppCompatActivity() {
 
         findViewById<Button>(R.id.btnAddManual).setOnClickListener { launchManualEntry() }
         viewModel.uiState.observe(this) { state ->
-            tvDailySpend.text = "Rs${"%.0f".format(state.dailySpendPaise / 100.0)}"
-            tvWeeklySpend.text = "Rs${"%.0f".format(state.weeklySpendPaise / 100.0)}"
-            tvMonthlySpend.text = "Rs${"%.0f".format(state.monthlySpendPaise / 100.0)}"
+            tvDailySpend.text = AmountFormat.rupees(state.dailySpendPaise)
+            tvWeeklySpend.text = AmountFormat.rupees(state.weeklySpendPaise)
+            tvMonthlySpend.text = AmountFormat.rupees(state.monthlySpendPaise)
             buildRecentRow(state.recentEntries)
             latestIouSummaries = state.iouSummaries
             buildIouSection(latestIouSummaries)
@@ -124,7 +124,7 @@ class DashboardActivity : AppCompatActivity() {
                         payeeTv.text = withContext(Dispatchers.IO) { tx.resolvePrimaryDisplay(db) }
                     }
                     amountTv.text = tx.formatPerspectiveAmount()
-                    amountTv.setTextColor(tx.perspectiveColor())
+                    amountTv.setTextColor(tx.perspectiveColor(this@DashboardActivity))
                     badge.visibility = if (tx.isPending) View.VISIBLE else View.GONE
                     card.setOnClickListener { openTransactionEntry(tx.id) }
                 }
@@ -133,7 +133,7 @@ class DashboardActivity : AppCompatActivity() {
                     val transfer = entry.transfer
                     payeeTv.text = transfer.resolvePrimaryDisplay()
                     amountTv.text = transfer.formatTransferAmount()
-                    amountTv.setTextColor(AmountPerspective.NEUTRAL.color())
+                    amountTv.setTextColor(AmountPerspective.NEUTRAL.color(this@DashboardActivity))
                     badge.visibility = View.GONE
                     card.setOnClickListener { openTransferEntry(transfer.id) }
                 }
@@ -142,8 +142,11 @@ class DashboardActivity : AppCompatActivity() {
         }
 
         val viewAll = LayoutInflater.from(this).inflate(R.layout.item_transaction_card, recentRow, false)
-        viewAll.findViewById<TextView>(R.id.tvCardPayee).text = "View All"
-        viewAll.findViewById<TextView>(R.id.tvCardAmount).text = "->"
+        viewAll.findViewById<TextView>(R.id.tvCardPayee).text = "View all"
+        viewAll.findViewById<TextView>(R.id.tvCardAmount).apply {
+            text = "All"
+            setTextColor(themeColor(ThemeAttr.primary))
+        }
         viewAll.findViewById<TextView>(R.id.tvCardDate).text = "This month"
         viewAll.setOnClickListener { startActivity(Intent(this, AllTransactionsActivity::class.java)) }
         recentRow.addView(viewAll)
@@ -155,8 +158,8 @@ class DashboardActivity : AppCompatActivity() {
             iouContainer.addView(TextView(this).apply {
                 text = "No IOU records yet"
                 textSize = 13f
-                setTextColor(Color.GRAY)
-                setPadding(0, 8, 0, 8)
+                setTextColor(themeColor(ThemeAttr.textMuted))
+                setPadding(0, dp(8), 0, dp(8))
             })
             btnToggleInsignificantIou.visibility = View.GONE
             return
@@ -180,8 +183,8 @@ class DashboardActivity : AppCompatActivity() {
             iouContainer.addView(TextView(this).apply {
                 text = "No significant IOUs"
                 textSize = 13f
-                setTextColor(Color.GRAY)
-                setPadding(0, 8, 0, 8)
+                setTextColor(themeColor(ThemeAttr.textMuted))
+                setPadding(0, dp(8), 0, dp(8))
             })
             return
         }
@@ -193,26 +196,22 @@ class DashboardActivity : AppCompatActivity() {
             val label = card.findViewById<TextView>(R.id.tvIouLabel)
             val amount = card.findViewById<TextView>(R.id.tvIouAmount)
             name.text = summary.friendName
-            initials.background = GradientDrawable().apply {
-                shape = GradientDrawable.OVAL
-                setColor(Color.parseColor("#5C6BC0"))
-            }
-            initials.text = summary.friendName.split(" ").filter { it.isNotBlank() }.take(2).joinToString("") { it.first().uppercaseChar().toString() }
+            Avatars.bind(initials, summary.friendName, ActorType.FRIEND, fallback = "F")
             when {
                 summary.netBalancePaise > 0 -> {
                     label.text = "owes you"
-                    amount.text = "Rs${"%.0f".format(summary.netBalancePaise / 100.0)}"
-                    amount.setTextColor(Color.parseColor("#2E7D32"))
+                    amount.text = AmountFormat.rupees(summary.netBalancePaise)
+                    amount.setTextColor(themeColor(ThemeAttr.positive))
                 }
                 summary.netBalancePaise < 0 -> {
                     label.text = "you owe"
-                    amount.text = "Rs${"%.0f".format(-summary.netBalancePaise / 100.0)}"
-                    amount.setTextColor(Color.parseColor("#C62828"))
+                    amount.text = AmountFormat.rupees(-summary.netBalancePaise)
+                    amount.setTextColor(themeColor(ThemeAttr.negative))
                 }
                 else -> {
                     label.text = "settled"
-                    amount.text = "Rs0"
-                    amount.setTextColor(Color.GRAY)
+                    amount.text = AmountFormat.rupees(0L)
+                    amount.setTextColor(themeColor(ThemeAttr.amountNeutral))
                 }
             }
             card.setOnClickListener {

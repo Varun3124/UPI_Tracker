@@ -1,16 +1,108 @@
 <resources xmlns:tools="http://schemas.android.com/tools">
-    <!-- Base application theme. -->
-    <style name="Base.Theme.UPITracker" parent="Theme.Material3.DayNight.NoActionBar">
-        <!-- Main colors -->
-        <item name="colorPrimary">@color/accent_black</item>
-        <item name="colorOnPrimary">@color/white</item>
-        <item name="colorSecondary">@color/compliment_cyan</item>
-        <item name="colorOnSecondary">@color/white</item>
-        <item name="colorTertiary">@color/compliment_cyan_dark</item>
 
-        <!-- Status bar and navigation bar -->
-        <item name="android:statusBarColor">@color/accent_black</item>
+    <!--
+      One theme, both modes. Every colour below is a @color/app_* token, and
+      values-night/colors.xml redeclares those same names with dark values - so this file is not
+      duplicated for night. values-night/themes.xml overrides only the two window-icon booleans,
+      which are the one thing a colour swap cannot express.
+    -->
+    <style name="Base.Theme.UPITracker" parent="Theme.Material3.DayNight.NoActionBar">
+
+        <item name="colorPrimary">@color/app_primary</item>
+        <item name="colorOnPrimary">@color/app_on_primary</item>
+        <item name="colorPrimaryContainer">@color/app_primary_container</item>
+        <item name="colorOnPrimaryContainer">@color/app_on_primary_container</item>
+
+        <item name="colorSecondary">@color/app_secondary</item>
+        <item name="colorOnSecondary">@color/app_on_secondary</item>
+        <item name="colorSecondaryContainer">@color/app_secondary_container</item>
+        <item name="colorOnSecondaryContainer">@color/app_on_secondary_container</item>
+
+        <item name="colorTertiary">@color/app_primary</item>
+        <item name="colorOnTertiary">@color/app_on_primary</item>
+        <item name="colorTertiaryContainer">@color/app_primary_container</item>
+        <item name="colorOnTertiaryContainer">@color/app_on_primary_container</item>
+
+        <item name="android:colorBackground">@color/app_background</item>
+        <item name="colorOnBackground">@color/app_on_surface</item>
+        <item name="android:windowBackground">@color/app_background</item>
+
+        <item name="colorSurface">@color/app_surface</item>
+        <item name="colorOnSurface">@color/app_on_surface</item>
+        <item name="colorSurfaceVariant">@color/app_surface_variant</item>
+        <item name="colorOnSurfaceVariant">@color/app_on_surface_variant</item>
+        <item name="colorSurfaceInverse">@color/app_on_surface</item>
+        <item name="colorOnSurfaceInverse">@color/app_surface</item>
+
+        <item name="colorOutline">@color/app_outline</item>
+        <item name="colorOutlineVariant">@color/app_outline_variant</item>
+
+        <!-- Destructive UI and negative money are the same crimson, so error maps onto it. -->
+        <item name="colorError">@color/app_negative</item>
+        <item name="colorOnError">@color/app_on_primary</item>
+        <item name="colorErrorContainer">@color/app_negative_container</item>
+        <item name="colorOnErrorContainer">@color/app_on_negative_container</item>
+
+        <item name="android:textColorPrimary">@color/app_on_surface</item>
+        <item name="android:textColorSecondary">@color/app_on_surface_variant</item>
+        <item name="android:textColorTertiary">@color/app_on_surface_muted</item>
+        <item name="android:textColorHint">@color/app_on_surface_muted</item>
+        <item name="colorControlNormal">@color/app_on_surface_variant</item>
+        <item name="colorControlActivated">@color/app_primary</item>
+        <item name="colorControlHighlight">@color/app_outline_variant</item>
+
+        <!-- App-specific roles; see values/attrs.xml. -->
+        <item name="appPositive">@color/app_positive</item>
+        <item name="appNegative">@color/app_negative</item>
+        <item name="appWarning">@color/app_warning</item>
+        <item name="appAmountNeutral">@color/app_amount_neutral</item>
+        <item name="appPositiveContainer">@color/app_positive_container</item>
+        <item name="appOnPositiveContainer">@color/app_on_positive_container</item>
+        <item name="appNegativeContainer">@color/app_negative_container</item>
+        <item name="appOnNegativeContainer">@color/app_on_negative_container</item>
+        <item name="appTextMuted">@color/app_on_surface_muted</item>
+
+        <item name="appAvatarMe">@color/app_avatar_me</item>
+        <item name="appOnAvatarMe">@color/app_on_avatar_me</item>
+        <item name="appAvatarFriend">@color/app_avatar_friend</item>
+        <item name="appOnAvatarFriend">@color/app_on_avatar_friend</item>
+        <item name="appAvatarMerchant">@color/app_avatar_merchant</item>
+        <item name="appOnAvatarMerchant">@color/app_on_avatar_merchant</item>
+
+        <item name="appChartGrid">@color/app_chart_grid</item>
+        <item name="appChartZeroLine">@color/app_chart_zero_line</item>
+        <item name="appChartAxisLabel">@color/app_chart_axis_label</item>
+        <item name="appChartTrack">@color/app_chart_track</item>
+        <item name="appChartNeutral">@color/app_chart_neutral</item>
+
+        <!--
+          targetSdk 36 means Android 15+ enforces edge-to-edge and ignores these anyway, so the bars
+          are transparent and each Activity pads itself with the real window insets. Do not put an
+          opaque colour back here without also removing that padding.
+        -->
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+        <item name="android:enforceNavigationBarContrast" tools:targetApi="29">false</item>
+        <item name="android:enforceStatusBarContrast" tools:targetApi="29">false</item>
+
+        <!-- Default styles, so a bare <Button>/<Toolbar>/<Chip> in a layout is already on-theme. -->
+        <item name="materialButtonStyle">@style/Widget.UPI.Button</item>
+        <item name="materialCardViewStyle">@style/Widget.UPI.Card</item>
+        <item name="toolbarStyle">@style/Widget.UPI.TopAppBar</item>
+        <item name="chipStyle">@style/Widget.UPI.Chip.Filter</item>
+        <item name="materialAlertDialogTheme">@style/ThemeOverlay.UPI.Dialog</item>
+        <item name="alertDialogTheme">@style/ThemeOverlay.UPI.Dialog</item>
     </style>
 
-    <style name="Theme.UPITracker" parent="Base.Theme.UPITracker" />
+    <!--
+      Only the per-mode items live here. Everything else is in Base.Theme.UPITracker, which is
+      declared once in values/ and never overlaid - a style redeclared in values-night/ replaces its
+      day twin entirely rather than merging with it, so the shared items have to sit in a style that
+      night does not redeclare.
+    -->
+    <style name="Theme.UPITracker" parent="Base.Theme.UPITracker">
+        <item name="android:windowLightStatusBar">true</item>
+        <item name="android:windowLightNavigationBar">true</item>
+    </style>
+
 </resources>

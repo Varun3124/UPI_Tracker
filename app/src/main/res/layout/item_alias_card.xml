@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <androidx.cardview.widget.CardView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
@@ -26,25 +26,27 @@
                 android:layout_weight="1"
                 android:textSize="16sp"
                 android:textStyle="bold"
-                android:textColor="#212121" />
+                android:textColor="?attr/colorOnSurface" />
 
-            <TextView
+            <ImageButton
                 android:id="@+id/btnRenameAlias"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Rename"
-                android:textSize="12sp"
-                android:textColor="#2E7D32"
-                android:paddingStart="12dp"
-                android:paddingEnd="12dp" />
+                style="@style/Widget.UPI.IconButton"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:padding="@dimen/space_s"
+                android:src="@drawable/ic_edit"
+                app:tint="?attr/colorPrimary"
+                android:contentDescription="@string/cd_edit" />
 
-            <TextView
+            <ImageButton
                 android:id="@+id/btnDeleteAlias"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="Delete"
-                android:textSize="12sp"
-                android:textColor="#C62828" />
+                style="@style/Widget.UPI.IconButton"
+                android:layout_width="40dp"
+                android:layout_height="40dp"
+                android:padding="@dimen/space_s"
+                android:src="@drawable/ic_delete"
+                app:tint="?attr/appNegative"
+                android:contentDescription="@string/cd_delete" />
         </LinearLayout>
 
         <TextView
@@ -54,7 +56,7 @@
             android:text="Raw names"
             android:textSize="11sp"
             android:textStyle="bold"
-            android:textColor="#757575" />
+            android:textColor="?attr/colorOnSurfaceVariant" />
 
         <LinearLayout
             android:id="@+id/rawNamesContainer"
@@ -70,7 +72,7 @@
             android:text="UPI IDs"
             android:textSize="11sp"
             android:textStyle="bold"
-            android:textColor="#757575" />
+            android:textColor="?attr/colorOnSurfaceVariant" />
 
         <LinearLayout
             android:id="@+id/upiIdsContainer"

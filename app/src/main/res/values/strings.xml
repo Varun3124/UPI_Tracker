@@ -1,3 +1,23 @@
 <resources>
     <string name="app_name">UPI Tracker</string>
+
+    <!-- Content descriptions. The icons these label were previously Unicode glyphs in TextViews,
+         which TalkBack read out as punctuation or skipped entirely. -->
+    <string name="cd_settings">Settings</string>
+    <string name="cd_back">Back</string>
+    <string name="cd_close">Close</string>
+    <string name="cd_add_transaction">Add transaction</string>
+    <string name="cd_add_person">Add person</string>
+    <string name="cd_add_account">Add account</string>
+    <string name="cd_add_category">Add category</string>
+    <string name="cd_add_alias">Add alias</string>
+    <string name="cd_remove">Remove</string>
+    <string name="cd_edit">Edit</string>
+    <string name="cd_delete">Delete</string>
+    <string name="cd_selected">Selected</string>
+    <string name="cd_open">Open</string>
+    <string name="cd_previous_period">Previous period</string>
+    <string name="cd_next_period">Next period</string>
+    <string name="cd_avatar">Avatar</string>
+    <string name="cd_statistics">Statistics</string>
 </resources>
