@@ -55,7 +55,7 @@ class OverlayService : LifecycleService() {
         )
 
         val notification = NotificationCompat.Builder(this, CHANNEL_ID)
-            .setSmallIcon(R.drawable.ic_launcher_foreground)
+            .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle("New Transaction Detected")
             .setContentText("Tap to categorize your transaction")
             .setPriority(NotificationCompat.PRIORITY_MAX) // Increased to MAX

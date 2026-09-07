@@ -22,5 +22,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "UPI Tracker"
+rootProject.name = "DhanMoney"
 include(":app")

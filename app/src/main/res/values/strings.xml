@@ -1,5 +1,5 @@
 <resources>
-    <string name="app_name">UPI Tracker</string>
+    <string name="app_name">DhanMoney</string>
 
     <!-- Content descriptions. The icons these label were previously Unicode glyphs in TextViews,
          which TalkBack read out as punctuation or skipped entirely. -->
