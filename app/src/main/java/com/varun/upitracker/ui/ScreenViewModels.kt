@@ -108,6 +108,8 @@ data class AllTransactionsUiState(
     /** True when the long-press menu's "All time" choice is active. */
     val isAllTime: Boolean = false,
     val pendingOnly: Boolean = false,
+    /** True when only entries where neither side of the transaction is ME should show. */
+    val thirdPartyOnly: Boolean = false,
     /** Accounts offered by the filter dropdown. */
     val accounts: List<Account> = emptyList(),
     /** null means "All accounts". */
@@ -124,7 +126,7 @@ data class AllTransactionsUiState(
     /** Balance standing after each entry, keyed by [stableId]. */
     val runningBalances: Map<String, Long> = emptyMap()
 ) {
-    val isFiltered: Boolean get() = pendingOnly || selectedAccountId != null
+    val isFiltered: Boolean get() = pendingOnly || thirdPartyOnly || selectedAccountId != null
 }
 
 class AllTransactionsViewModel(context: Context) : ViewModel() {
@@ -135,6 +137,7 @@ class AllTransactionsViewModel(context: Context) : ViewModel() {
     private var isCustomRange: Boolean = false
     private var isAllTime: Boolean = false
     private var pendingOnly: Boolean = false
+    private var thirdPartyOnly: Boolean = false
     private var selectedAccountId: String? = null
     private var showBalance: Boolean = false
     private var loadedEntries: List<LedgerEntry> = emptyList()
@@ -220,6 +223,13 @@ class AllTransactionsViewModel(context: Context) : ViewModel() {
         emitState()
     }
 
+    /** Filters what is already loaded, so toggling costs no database round trip. */
+    fun setThirdPartyOnly(enabled: Boolean) {
+        if (enabled == thirdPartyOnly) return
+        thirdPartyOnly = enabled
+        emitState()
+    }
+
     fun setShowBalance(enabled: Boolean) {
         if (enabled == showBalance) return
         showBalance = enabled
@@ -268,6 +278,11 @@ class AllTransactionsViewModel(context: Context) : ViewModel() {
         val filtered = loadedEntries
             // Account transfers have no pending state, so that filter excludes them entirely.
             .filter { !pendingOnly || (it is LedgerEntry.Tx && it.transaction.isPending) }
+            // Transfers never have ME as payer/payee, so this filter excludes them entirely too.
+            .filter {
+                !thirdPartyOnly ||
+                    (it is LedgerEntry.Tx && it.transaction.amountPerspective() == AmountPerspective.NEUTRAL)
+            }
             .filter { accountId == null || it.involvesAccount(accountId) }
 
         val scope = balanceScopeIds()
@@ -284,6 +299,7 @@ class AllTransactionsViewModel(context: Context) : ViewModel() {
             accounts = loadedAccounts,
             selectedAccountId = accountId,
             pendingOnly = pendingOnly,
+            thirdPartyOnly = thirdPartyOnly,
             totalEntryCount = loadedEntries.size,
             showBalance = showBalance,
             openingBalancePaise = openingBalancePaise,
@@ -384,6 +400,33 @@ class FriendDetailViewModel(context: Context) : ViewModel() {
                     transactions = db.transactionDao().getTransactionsForFriendSync(friendId)
                 )
             }
+        }
+    }
+
+    fun deleteTransaction(friendId: Long, transactionId: Long, onError: (String) -> Unit = {}) {
+        viewModelScope.launch {
+            // Mirrors AllTransactionsViewModel.deleteTransaction: a refund pointing at this
+            // transaction must be dealt with first, same as everywhere else transactions are deleted.
+            val refundCount = withContext(Dispatchers.IO) {
+                db.transactionDao().getRefundIdsForOriginal(transactionId).size
+            }
+            if (refundCount > 0) {
+                onError(
+                    if (refundCount == 1) {
+                        "A refund is linked to this transaction. Delete or unlink the refund first."
+                    } else {
+                        "$refundCount refunds are linked to this transaction. Delete or unlink them first."
+                    }
+                )
+                return@launch
+            }
+            withContext(Dispatchers.IO) {
+                db.withTransaction {
+                    db.transactionShareDao().deleteForTransaction(transactionId)
+                    db.transactionDao().deleteById(transactionId)
+                }
+            }
+            load(friendId)
         }
     }
 }

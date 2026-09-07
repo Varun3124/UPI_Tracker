@@ -8,6 +8,7 @@ import android.view.ViewGroup
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.ViewModelProvider
 import androidx.recyclerview.widget.LinearLayoutManager
@@ -89,14 +90,34 @@ class FriendDetailActivity : AppCompatActivity() {
 
             findViewById<RecyclerView>(R.id.rvFriendTransactions).apply {
                 layoutManager = LinearLayoutManager(this@FriendDetailActivity)
-                adapter = FriendTransactionAdapter(state.transactions, friendId, db, dateFmt) { txId ->
-                    startActivity(Intent(this@FriendDetailActivity, TransactionEntryActivity::class.java).apply {
-                        putExtra(TransactionEntryActivity.EXTRA_TRANSACTION_ID, txId)
-                    })
-                }
+                adapter = FriendTransactionAdapter(
+                    transactions = state.transactions,
+                    friendId = friendId,
+                    db = db,
+                    dateFmt = dateFmt,
+                    onTap = { txId ->
+                        startActivity(Intent(this@FriendDetailActivity, TransactionEntryActivity::class.java).apply {
+                            putExtra(TransactionEntryActivity.EXTRA_TRANSACTION_ID, txId)
+                        })
+                    },
+                    onLongPress = { txId -> showDeleteDialog(friendId, txId) }
+                )
             }
         }
         viewModel.load(friendId)
+    }
+
+    private fun showDeleteDialog(friendId: Long, transactionId: Long) {
+        AlertDialog.Builder(this)
+            .setTitle("Delete transaction?")
+            .setMessage("This will delete the transaction and its shares.")
+            .setPositiveButton("Delete") { _, _ ->
+                viewModel.deleteTransaction(friendId, transactionId) { error ->
+                    Toast.makeText(this, error, Toast.LENGTH_LONG).show()
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 }
 
@@ -105,7 +126,8 @@ class FriendTransactionAdapter(
     private val friendId: Long,
     private val db: AppDatabase,
     private val dateFmt: SimpleDateFormat,
-    private val onTap: (Long) -> Unit
+    private val onTap: (Long) -> Unit,
+    private val onLongPress: (Long) -> Unit
 ) : RecyclerView.Adapter<FriendTransactionAdapter.VH>() {
 
     inner class VH(view: android.view.View) : RecyclerView.ViewHolder(view) {
@@ -166,5 +188,9 @@ class FriendTransactionAdapter(
         }
 
         holder.itemView.setOnClickListener { onTap(tx.id) }
+        holder.itemView.setOnLongClickListener {
+            onLongPress(tx.id)
+            true
+        }
     }
 }

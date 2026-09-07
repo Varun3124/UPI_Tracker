@@ -52,6 +52,7 @@ class AllTransactionsActivity : AppCompatActivity() {
     private lateinit var btnPickMonth: TextView
     private lateinit var btnPendingOnly: TextView
     private lateinit var btnAccountFilter: TextView
+    private lateinit var btnThirdPartyOnly: TextView
     private lateinit var cbShowBalance: CheckBox
     private var transactionsAdapter: AllTransactionsAdapter? = null
 
@@ -87,6 +88,11 @@ class AllTransactionsActivity : AppCompatActivity() {
 
         btnAccountFilter = findViewById(R.id.btnAccountFilter)
         btnAccountFilter.setOnClickListener { showAccountFilterMenu() }
+
+        btnThirdPartyOnly = findViewById(R.id.btnThirdPartyOnly)
+        btnThirdPartyOnly.setOnClickListener {
+            viewModel.setThirdPartyOnly(viewModel.uiState.value?.thirdPartyOnly != true)
+        }
 
         cbShowBalance = findViewById(R.id.cbShowBalance)
         cbShowBalance.setOnCheckedChangeListener { _, checked -> viewModel.setShowBalance(checked) }
@@ -261,6 +267,7 @@ class AllTransactionsActivity : AppCompatActivity() {
 
     private fun renderFilterBar(state: AllTransactionsUiState) {
         btnPendingOnly.isSelected = state.pendingOnly
+        btnThirdPartyOnly.isSelected = state.thirdPartyOnly
 
         val scope = state.selectedAccountId?.let { id ->
             state.accounts.firstOrNull { it.id == id }?.label ?: state.accountLabels[id]
@@ -278,11 +285,15 @@ class AllTransactionsActivity : AppCompatActivity() {
 
         val empty = findViewById<TextView>(R.id.tvAllTransactionsEmpty)
         empty.visibility = if (state.entries.isEmpty()) View.VISIBLE else View.GONE
-        empty.text = when {
-            state.pendingOnly && scope != null -> "Nothing pending review in $scope this month."
-            state.pendingOnly -> "Nothing pending review this month."
-            scope != null -> "Nothing on $scope this month."
-            else -> "No transactions this month."
+        empty.text = if (state.isFiltered) {
+            val reasons = buildList {
+                if (state.pendingOnly) add("pending review")
+                if (state.thirdPartyOnly) add("with neither side me")
+                if (scope != null) add("on $scope")
+            }
+            "Nothing ${reasons.joinToString(", ")} this month."
+        } else {
+            "No transactions this month."
         }
     }
 

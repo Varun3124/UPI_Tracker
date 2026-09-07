@@ -58,6 +58,13 @@
             android:textSize="12sp" />
 
         <TextView
+            style="@style/Widget.UPI.Pill"
+            android:id="@+id/btnThirdPartyOnly"
+            android:layout_marginStart="@dimen/space_s"
+            android:text="Neither side me"
+            android:textSize="12sp" />
+
+        <TextView
             android:id="@+id/tvFilterHint"
             android:layout_width="0dp"
             android:layout_height="wrap_content"

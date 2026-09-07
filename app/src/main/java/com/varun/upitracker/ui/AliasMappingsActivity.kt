@@ -61,8 +61,6 @@ class AliasMappingsActivity : AppCompatActivity() {
         adapter = AliasCardAdapter(
             onRename = ::showRenameDialog,
             onDeleteAlias = ::confirmDeleteAlias,
-            onMoveRaw = ::showMoveRawDialog,
-            onMoveUpi = ::showMoveUpiDialog,
             onDeleteRaw = ::confirmDeleteRaw,
             onDeleteUpi = ::confirmDeleteUpi
         )
@@ -85,10 +83,10 @@ class AliasMappingsActivity : AppCompatActivity() {
     private fun bindHeader() {
         if (mode == MODE_MERCHANT) {
             tvTitle.text = "Merchant aliases"
-            tvHint.text = "Each card is one merchant alias. Raw names and UPI IDs can be deleted or moved to another alias."
+            tvHint.text = "Each card is one merchant alias. Raw names and UPI IDs can be deleted."
         } else {
             tvTitle.text = "Friend aliases"
-            tvHint.text = "Each card is one friend alias. Raw names and UPI IDs can be deleted or moved to another alias."
+            tvHint.text = "Each card is one friend alias. Raw names and UPI IDs can be deleted."
         }
     }
 
@@ -161,26 +159,6 @@ class AliasMappingsActivity : AppCompatActivity() {
             }
             .setNegativeButton("Cancel", null)
             .show()
-    }
-
-    private fun showMoveRawDialog(card: AliasCardItem, mapping: AliasMappingItem) {
-        showTextInputDialog("Move raw name", "") { destination ->
-            lifecycleScope.launch {
-                runMutation {
-                    if (mode == MODE_MERCHANT) moveMerchantRawName(mapping.id, destination) else moveFriendRawName(mapping.id, destination)
-                }
-            }
-        }
-    }
-
-    private fun showMoveUpiDialog(card: AliasCardItem, mapping: AliasMappingItem) {
-        showTextInputDialog("Move UPI ID", "") { destination ->
-            lifecycleScope.launch {
-                runMutation {
-                    if (mode == MODE_MERCHANT) moveMerchantUpiId(mapping.id, destination) else moveFriendUpiId(mapping.id, destination)
-                }
-            }
-        }
     }
 
     private fun confirmDeleteRaw(card: AliasCardItem, mapping: AliasMappingItem) {
@@ -269,8 +247,6 @@ private data class AliasMappingItem(
 private class AliasCardAdapter(
     private val onRename: (AliasCardItem) -> Unit,
     private val onDeleteAlias: (AliasCardItem) -> Unit,
-    private val onMoveRaw: (AliasCardItem, AliasMappingItem) -> Unit,
-    private val onMoveUpi: (AliasCardItem, AliasMappingItem) -> Unit,
     private val onDeleteRaw: (AliasCardItem, AliasMappingItem) -> Unit,
     private val onDeleteUpi: (AliasCardItem, AliasMappingItem) -> Unit
 ) : RecyclerView.Adapter<AliasCardAdapter.VH>() {
@@ -300,7 +276,6 @@ private class AliasCardAdapter(
             values = item.rawNames,
             accent = ThemeAttr.onSurfaceVariant,
             emptyLabel = "No raw names mapped yet.",
-            onMove = { mapping -> onMoveRaw(item, mapping) },
             onDelete = { mapping -> onDeleteRaw(item, mapping) }
         )
         bindSection(
@@ -308,7 +283,6 @@ private class AliasCardAdapter(
             values = item.upiIds,
             accent = ThemeAttr.primary,
             emptyLabel = "No UPI IDs mapped yet.",
-            onMove = { mapping -> onMoveUpi(item, mapping) },
             onDelete = { mapping -> onDeleteUpi(item, mapping) }
         )
     }
@@ -318,7 +292,6 @@ private class AliasCardAdapter(
         values: List<AliasMappingItem>,
         @AttrRes accent: Int,
         emptyLabel: String,
-        onMove: (AliasMappingItem) -> Unit,
         onDelete: (AliasMappingItem) -> Unit
     ) {
         container.removeAllViews()
@@ -344,7 +317,6 @@ private class AliasCardAdapter(
                         layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
                     })
 
-                    addView(makeActionText(context, "Move") { onMove(mapping) })
                     addView(makeActionText(context, "Delete", ThemeAttr.negative) { onDelete(mapping) })
                 }
             )

@@ -58,12 +58,6 @@ interface MerchantDao {
     @Query("SELECT * FROM merchants ORDER BY name COLLATE NOCASE ASC, id ASC")
     suspend fun getAliasBundles(): List<com.varun.upitracker.database.model.MerchantAliasBundle>
 
-    @Query("UPDATE merchant_raw_names SET merchantId = :merchantId WHERE id = :mappingId")
-    suspend fun reassignRawName(mappingId: Long, merchantId: Long)
-
-    @Query("UPDATE merchant_upi_ids SET merchantId = :merchantId WHERE id = :mappingId")
-    suspend fun reassignUpiId(mappingId: Long, merchantId: Long)
-
     @Query("UPDATE merchant_raw_names SET merchantId = :targetId WHERE merchantId = :sourceId")
     suspend fun moveAllRawNames(sourceId: Long, targetId: Long)
 
