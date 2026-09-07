@@ -17,3 +17,9 @@ local.properties
 
 # Kotlin daemon crash logs
 .kotlin
+
+# Release signing — never commit the keystore or its passwords
+/keystore.properties
+/keystore/
+*.jks
+*.keystore
