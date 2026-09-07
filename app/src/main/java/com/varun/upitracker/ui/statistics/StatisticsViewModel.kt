@@ -8,6 +8,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
 import com.varun.upitracker.data.repository.AccountRepository
+import com.varun.upitracker.data.repository.BalanceSeriesInputs
 import com.varun.upitracker.data.repository.TrendsRepository
 import com.varun.upitracker.database.AppDatabase
 import com.varun.upitracker.database.entity.CategoryKind
@@ -18,7 +19,9 @@ import com.varun.upitracker.domain.statistics.DateRange
 import com.varun.upitracker.domain.statistics.StatisticsPeriods
 import com.varun.upitracker.domain.statistics.AccountScope
 import com.varun.upitracker.domain.statistics.BalanceTimeline
+import com.varun.upitracker.domain.TransferDeltaInput
 import com.varun.upitracker.domain.statistics.PanMath
+import com.varun.upitracker.domain.statistics.TransferFlow
 import com.varun.upitracker.domain.statistics.parseAccountScope
 import com.varun.upitracker.domain.statistics.serialise
 import com.varun.upitracker.sms.SmsBacklogScanner
@@ -57,10 +60,15 @@ data class TrendsUiState(
     val incomeSeries: List<Long> = emptyList(),
     val expenseSeries: List<Long> = emptyList(),
     /**
-     * The combined balance immediately *before* the first bucket.
+     * The combined balance immediately before the window opens.
      *
-     * The window's change is measured from here, not from the first point: that one already
-     * carries its own bucket's movement, so the first day of the window would go uncounted.
+     * The change is measured from here, not from the first plotted point: that one already carries
+     * its own bucket's movement, so the window's first day would go uncounted.
+     *
+     * [changePaise] is then the same money [incomeSeries] and [expenseSeries] describe crossing the
+     * edge of the scope -- **unless a reconciliation snapshot falls inside the window**, which
+     * re-anchors the balance to a counted figure rather than a moved one. The two legitimately
+     * disagree by exactly that correction.
      */
     val openingPaise: Long = 0L,
     /** False when the scope resolves to nothing, where a flat zero line would be a lie. */
@@ -360,13 +368,38 @@ class StatisticsViewModel(context: Context) : ViewModel() {
         // Clipped to the window: the first and last buckets otherwise reach outside the period, so
         // a quarter's opening week would count days from the month before it.
         val windows = starts.map { TrendsBuckets.bucketWindow(bucket, it).within(window) }
-        val flows = windows.map { bucketFlow(it, ids) }
+        val flows = windows.map { bucketWindow ->
+            val fromTransactions = bucketFlow(bucketWindow, ids)
+            // Transfers are bucketed in memory from the span already loaded for the timeline,
+            // rather than queried per bucket: telling an internal move from one that crossed the
+            // edge of the scope needs both legs at once, which a per-account query cannot see.
+            val fromTransfers = TransferFlow.sum(
+                inputs.transfers
+                    .filter {
+                        it.dateEpoch >= bucketWindow.startInclusive &&
+                            it.dateEpoch < bucketWindow.endExclusive
+                    }
+                    .map {
+                        TransferDeltaInput(
+                            fromAccountId = it.fromAccountId,
+                            toAccountId = it.toAccountId,
+                            amountFromPaise = it.amountFromPaise,
+                            amountToPaise = it.amountToPaise
+                        )
+                    },
+                ids
+            )
+            FlowTotal(
+                inPaise = fromTransactions.inPaise + fromTransfers.inPaise,
+                outPaise = fromTransactions.outPaise + fromTransfers.outPaise
+            )
+        }
         return TrendsUiState(
             bucket = bucket,
             bucketStarts = starts,
             incomeSeries = flows.map { it.inPaise },
             expenseSeries = flows.map { it.outPaise },
-            openingPaise = inputs.openingByAccount.values.sum(),
+            openingPaise = openingAtWindowStart(window, starts, ids, inputs),
             windowStart = window.startInclusive,
             windowEndExclusive = window.endExclusive,
             canPan = canPan,
@@ -417,6 +450,35 @@ class StatisticsViewModel(context: Context) : ViewModel() {
     }
 
     /**
+     * The combined balance immediately before the window the charts show.
+     *
+     * Not simply the loaded span's opening: the span begins at the first whole bucket, which for a
+     * quarter is the Monday before it. Measuring the period's change from there would count up to
+     * six days the charts never draw, and would put the balance figure out of step with the
+     * in-and-out totals beside it, which start at the window.
+     *
+     * Walked from data already in memory rather than asked of the database again, so this costs
+     * nothing on a drag.
+     */
+    private fun openingAtWindowStart(
+        window: TrendWindow,
+        starts: List<Long>,
+        ids: Set<String>,
+        inputs: BalanceSeriesInputs
+    ): Long {
+        val spanStart = starts.first()
+        if (spanStart >= window.startInclusive) return inputs.openingByAccount.values.sum()
+        return BalanceTimeline.build(
+            bucketStarts = listOf(spanStart),
+            windowEndExclusive = window.startInclusive,
+            accountIds = ids,
+            openingByAccount = inputs.openingByAccount,
+            movements = inputs.movements,
+            anchorsByAccount = inputs.anchorsByAccount
+        ).first()
+    }
+
+    /**
      * The scope's ids and oldest epoch, answered once per scope.
      *
      * Four queries otherwise, on every step of a drag.
@@ -443,9 +505,8 @@ class StatisticsViewModel(context: Context) : ViewModel() {
      * alone, so an SMS-imported credit carries neither and read as no income at all. That is not a
      * quirk of one database -- it is every unreviewed credit in any of them.
      *
-     * The cost is that this no longer ties out to the pie, which is why the card is titled for cash
-     * rather than for categories. What it ties out to instead is the balance line directly above
-     * it, which is the more useful agreement of the two: both count what actually moved.
+     * Transactions only. Transfers are added by the caller, which has both legs of each one and so
+     * can tell a move inside the scope from one that crossed its edge.
      */
     private suspend fun bucketFlow(window: TrendWindow, accountIds: Set<String>): FlowTotal {
         val key = "${window.startInclusive}/${window.endExclusive}"

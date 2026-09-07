@@ -23,7 +23,15 @@ data class BalanceSeriesInputs(
     /** Each account's balance immediately before [spanFrom], the shape `getBalance` answers in. */
     val openingByAccount: Map<String, Long>,
     val movements: List<BalanceMovement>,
-    val anchorsByAccount: Map<String, List<BalanceAnchor>>
+    val anchorsByAccount: Map<String, List<BalanceAnchor>>,
+    /**
+     * The span's transfers, kept whole rather than only as movements.
+     *
+     * The in-and-out chart needs both legs of one transfer at once to tell a move inside the scope
+     * from one that crossed its edge, and a movement carries only a single account. Already fetched
+     * for the timeline, so carrying them costs nothing.
+     */
+    val transfers: List<AccountTransfer> = emptyList()
 )
 
 /**
@@ -56,9 +64,10 @@ class TrendsRepository internal constructor(private val source: TrendsDataSource
         }
 
         val ids = accountIds.toList()
+        val transfers = source.getTransfersBetween(spanFrom, spanToExclusive)
         val entries =
             source.getTransactionsBetween(spanFrom, spanToExclusive).map(LedgerEntry::Tx) +
-                source.getTransfersBetween(spanFrom, spanToExclusive).map(LedgerEntry::Transfer)
+                transfers.map(LedgerEntry::Transfer)
 
         return BalanceSeriesInputs(
             spanFrom = spanFrom,
@@ -70,7 +79,8 @@ class TrendsRepository internal constructor(private val source: TrendsDataSource
             movements = entries.toBalanceMovements(accountIds),
             anchorsByAccount = source.getSnapshotsBetween(ids, spanFrom, spanToExclusive)
                 .groupBy { it.accountId }
-                .mapValues { (_, rows) -> rows.map { BalanceAnchor(it.snapshotEpoch, it.balancePaise) } }
+                .mapValues { (_, rows) -> rows.map { BalanceAnchor(it.snapshotEpoch, it.balancePaise) } },
+            transfers = transfers
         )
     }
 
