@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!-- Spacing scale. The layouts previously mixed 6/8/10/12/14/16/20dp with no system; everything
+         new should land on one of these. -->
+    <dimen name="space_xxs">2dp</dimen>
+    <dimen name="space_xs">4dp</dimen>
+    <dimen name="space_s">8dp</dimen>
+    <dimen name="space_m">12dp</dimen>
+    <dimen name="space_l">16dp</dimen>
+    <dimen name="space_xl">24dp</dimen>
+    <dimen name="space_xxl">32dp</dimen>
+
+    <!-- Page gutter. One value so every screen's content lines up with every other screen's. -->
+    <dimen name="page_gutter">16dp</dimen>
+
+    <dimen name="radius_md">12dp</dimen>
+    <dimen name="radius_lg">16dp</dimen>
+    <dimen name="radius_pill">999dp</dimen>
+
+    <dimen name="stroke_hairline">1dp</dimen>
+
+    <dimen name="avatar_size_sm">36dp</dimen>
+    <dimen name="avatar_size_md">44dp</dimen>
+    <dimen name="avatar_text_sm">13sp</dimen>
+    <dimen name="avatar_text_md">15sp</dimen>
+
+    <dimen name="top_bar_height">56dp</dimen>
+    <!-- Android's minimum comfortable tap area. The old glyph TextViews were wrap_content and sat
+         well under this. -->
+    <dimen name="touch_target_min">48dp</dimen>
+    <dimen name="icon_size">24dp</dimen>
+
+    <dimen name="pill_height">36dp</dimen>
+    <dimen name="recent_card_width">168dp</dimen>
+
+</resources>

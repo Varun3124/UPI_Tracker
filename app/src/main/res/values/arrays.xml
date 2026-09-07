@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!--
+      Category fills for the pie and the stacked bars - LIGHT.
+
+      The ordering is load-bearing and must not be resorted: CategoryPalette keys on
+      `categoryId % 16`, so consecutive ids land on consecutive slots and the sequence is arranged
+      so those neighbours are far apart in hue. Re-toning a slot is safe; moving one repaints every
+      category whose id sits above it.
+
+      Slots 2, 4 and 9 are pinned to the brand crimson, peach and navy so the theme shows up in the
+      charts. These are ~700 weights, dark enough to read as fills on a white card.
+    -->
+    <array name="chart_category_colors">
+        <item>#1F6FB2</item> <!-- blue -->
+        <item>#B4182D</item> <!-- crimson (brand) -->
+        <item>#2E7D5B</item> <!-- teal green -->
+        <item>#C1542A</item> <!-- burnt peach (brand) -->
+        <item>#7B3F9D</item> <!-- purple -->
+        <item>#0E7C8C</item> <!-- cyan -->
+        <item>#B02A62</item> <!-- pink -->
+        <item>#5F8C33</item> <!-- olive green -->
+        <item>#37415C</item> <!-- slate navy (brand) -->
+        <item>#C4451F</item> <!-- deep orange -->
+        <item>#10756B</item> <!-- teal -->
+        <item>#5344A8</item> <!-- deep purple -->
+        <item>#8A8F2B</item> <!-- lime -->
+        <item>#2A7FC4</item> <!-- light blue -->
+        <item>#7A5343</item> <!-- brown -->
+        <item>#54606F</item> <!-- blue grey -->
+    </array>
+
+</resources>

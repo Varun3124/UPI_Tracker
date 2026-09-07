@@ -1,9 +1,17 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Named "overlay" for historical reasons - it began as the SMS overlay and is now the full-screen
+  transaction entry Activity, still launched over the lock screen by OverlayService.
+
+  It used to be hardcoded dark while every other screen was hardcoded light. It follows the theme
+  now, so it is navy in dark mode and light in light mode like everything else.
+-->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/main"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#121212"
+    android:background="?android:attr/colorBackground"
     android:orientation="vertical">
 
     <ScrollView
@@ -11,19 +19,20 @@
         android:layout_width="match_parent"
         android:layout_height="0dp"
         android:layout_weight="1"
-        android:fillViewport="true">
+        android:fillViewport="true"
+        android:scrollbars="none">
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
-                android:padding="16dp"
-                android:paddingBottom="220dp">
+            android:padding="@dimen/page_gutter"
+            android:paddingBottom="220dp">
 
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginBottom="16dp"
+                android:layout_marginBottom="@dimen/space_m"
                 android:gravity="center_vertical"
                 android:orientation="horizontal">
 
@@ -34,348 +43,422 @@
                     android:layout_weight="1"
                     android:ellipsize="end"
                     android:maxLines="2"
-                    android:textColor="#8A8A8A"
-                    android:textSize="11sp" />
+                    android:textAppearance="@style/TextAppearance.UPI.Label" />
 
-                <TextView
+                <ImageButton
                     android:id="@+id/btnClose"
-                    android:layout_width="36dp"
-                    android:layout_height="36dp"
-                    android:background="@null"
-                    android:gravity="center"
-                    android:text="X"
-                    android:textColor="#AAAAAA"
-                    android:textSize="18sp" />
+                    style="@style/Widget.UPI.IconButton"
+                    android:src="@drawable/ic_close"
+                    app:tint="?attr/appTextMuted"
+                    android:contentDescription="@string/cd_close" />
             </LinearLayout>
 
-            <LinearLayout
+            <!-- ===================== Payer ===================== -->
+            <com.google.android.material.card.MaterialCardView
+                style="@style/Widget.UPI.Card"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginBottom="14dp"
-                android:background="#1C1C1C"
-                android:orientation="vertical"
-                android:padding="14dp">
+                android:layout_marginBottom="@dimen/space_m">
 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:gravity="center_vertical"
-                    android:orientation="horizontal">
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginEnd="10dp"
-                        android:text="Payer"
-                        android:textColor="#FFFFFF"
-                        android:textSize="14sp"
-                        android:textStyle="bold" />
-
-                    <View
-                        android:layout_width="0dp"
-                        android:layout_height="0dp"
-                        android:layout_weight="1" />
+                    android:orientation="vertical"
+                    android:padding="@dimen/space_l">
 
                     <LinearLayout
-                        android:id="@+id/payerActorTiles"
-                        android:layout_width="wrap_content"
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
+                        android:gravity="center_vertical"
                         android:orientation="horizontal">
 
                         <TextView
-                            android:id="@+id/tvPayerActorMe"
-                            android:layout_width="wrap_content"
-                            android:layout_height="36dp"
-                            android:gravity="center"
-                            android:minWidth="52dp"
-                            android:paddingStart="10dp"
-                            android:paddingEnd="10dp"
-                            android:text="Me"
-                            android:textColor="#FFFFFF"
-                            android:textSize="12sp" />
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="Payer"
+                            android:textAppearance="@style/TextAppearance.UPI.Title"
+                            android:textSize="14sp" />
 
-                        <TextView
-                            android:id="@+id/tvPayerActorFriend"
+                        <!-- Styled by styleActorTiles(): it sets isSelected/isEnabled and the pill
+                             selector drawable does the rest. -->
+                        <LinearLayout
+                            android:id="@+id/payerActorTiles"
                             android:layout_width="wrap_content"
-                            android:layout_height="36dp"
-                            android:layout_marginStart="6dp"
-                            android:gravity="center"
-                            android:minWidth="52dp"
-                            android:paddingStart="10dp"
-                            android:paddingEnd="10dp"
-                            android:text="Friend"
-                            android:textColor="#FFFFFF"
-                            android:textSize="12sp" />
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal">
 
-                        <TextView
-                            android:id="@+id/tvPayerActorMerchant"
-                            android:layout_width="wrap_content"
-                            android:layout_height="36dp"
-                            android:layout_marginStart="6dp"
-                            android:gravity="center"
-                            android:minWidth="52dp"
-                            android:paddingStart="10dp"
-                            android:paddingEnd="10dp"
-                            android:text="Merchant"
-                            android:textColor="#FFFFFF"
-                            android:textSize="12sp" />
+                            <TextView
+                                android:id="@+id/tvPayerActorMe"
+                                style="@style/Widget.UPI.Pill"
+                                android:layout_width="wrap_content"
+                                android:layout_height="@dimen/pill_height"
+                                android:minWidth="52dp"
+                                android:text="Me"
+                                android:textSize="12sp" />
+
+                            <TextView
+                                android:id="@+id/tvPayerActorFriend"
+                                style="@style/Widget.UPI.Pill"
+                                android:layout_width="wrap_content"
+                                android:layout_height="@dimen/pill_height"
+                                android:layout_marginStart="@dimen/space_xs"
+                                android:minWidth="52dp"
+                                android:text="Friend"
+                                android:textSize="12sp" />
+
+                            <TextView
+                                android:id="@+id/tvPayerActorMerchant"
+                                style="@style/Widget.UPI.Pill"
+                                android:layout_width="wrap_content"
+                                android:layout_height="@dimen/pill_height"
+                                android:layout_marginStart="@dimen/space_xs"
+                                android:minWidth="52dp"
+                                android:text="Merchant"
+                                android:textSize="12sp" />
+                        </LinearLayout>
                     </LinearLayout>
-                </LinearLayout>
 
-                <LinearLayout
-                    android:id="@+id/payerSharesContainer"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:orientation="vertical" />
+                    <LinearLayout
+                        android:id="@+id/payerSharesContainer"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/space_m"
+                        android:orientation="vertical" />
 
-                <Button
-                    android:id="@+id/btnAddPayerPerson"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    android:backgroundTint="#262626"
-                    android:text="+ Add person"
-                    android:textColor="#AAAAAA"
-                    android:textSize="12sp" />
-
-                <TextView
-                    android:id="@+id/tvPayerBalance"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="6dp"
-                    android:textColor="#AAAAAA"
-                    android:textSize="11sp" />
-            </LinearLayout>
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="14dp"
-                android:orientation="vertical">
-
-                <LinearLayout
-                    android:id="@+id/amountRow"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="horizontal"
-                    android:gravity="center_vertical">
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnAddPayerPerson"
+                        style="@style/Widget.UPI.Button.Text"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/space_xs"
+                        android:text="Add person"
+                        android:textSize="12sp"
+                        android:contentDescription="@string/cd_add_person"
+                        app:icon="@drawable/ic_add"
+                        app:iconGravity="start"
+                        app:iconSize="16dp" />
 
                     <TextView
-                        android:layout_width="wrap_content"
+                        android:id="@+id/tvPayerBalance"
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:text="Rs"
-                        android:textColor="#FFFFFF"
-                        android:textSize="30sp"
-                        android:textStyle="bold" />
-
-                    <EditText
-                        android:id="@+id/etAmount"
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_marginStart="8dp"
-                        android:layout_weight="1"
-                        android:background="@null"
-                        android:hint="0.00"
-                        android:imeOptions="actionDone"
-                        android:inputType="numberDecimal"
-                        android:textColor="#FFFFFF"
-                        android:textColorHint="#333333"
-                        android:textSize="32sp"
-                        android:textStyle="bold" />
-
-                    <Button
-                        android:id="@+id/btnEqualize"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginStart="12dp"
-                        android:backgroundTint="#262626"
-                        android:text="Equalize"
-                        android:textColor="#AAAAAA"
-                        android:textSize="12sp" />
+                        android:layout_marginTop="@dimen/space_xs"
+                        android:textAppearance="@style/TextAppearance.UPI.Label" />
                 </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- ===================== Amount ===================== -->
+            <LinearLayout
+                android:id="@+id/amountRow"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="@dimen/space_m"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="₹"
+                    android:textAppearance="@style/TextAppearance.UPI.Amount.Hero"
+                    android:textColor="?attr/colorPrimary" />
+
+                <EditText
+                    android:id="@+id/etAmount"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="@dimen/space_s"
+                    android:layout_weight="1"
+                    android:background="@null"
+                    android:hint="0.00"
+                    android:imeOptions="actionDone"
+                    android:inputType="numberDecimal"
+                    android:textAppearance="@style/TextAppearance.UPI.Amount.Hero"
+                    android:textColor="?attr/colorOnSurface"
+                    android:textColorHint="?attr/appTextMuted"
+                    android:autofillHints="" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnEqualize"
+                    style="@style/Widget.UPI.Button.Tonal"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="@dimen/space_m"
+                    android:text="Equalize"
+                    android:textSize="12sp" />
+            </LinearLayout>
+
+            <!-- ===================== Date ===================== -->
+            <com.google.android.material.card.MaterialCardView
+                style="@style/Widget.UPI.Card.Clickable"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="@dimen/space_m">
 
                 <LinearLayout
                     android:id="@+id/dateSection"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:background="#1C1C1C"
-                    android:orientation="vertical"
-                    android:padding="10dp">
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:padding="@dimen/space_l">
 
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="Date"
-                        android:textColor="#FFFFFF"
-                        android:textSize="14sp"
-                        android:textStyle="bold" />
+                    <ImageView
+                        android:layout_width="@dimen/icon_size"
+                        android:layout_height="@dimen/icon_size"
+                        android:layout_marginEnd="@dimen/space_l"
+                        android:src="@drawable/ic_calendar"
+                        app:tint="?attr/colorPrimary"
+                        android:importantForAccessibility="no" />
 
-                    <TextView
-                        android:id="@+id/tvDateValue"
-                        android:layout_width="wrap_content"
+                    <LinearLayout
+                        android:layout_width="0dp"
                         android:layout_height="wrap_content"
-                        android:layout_marginTop="4dp"
-                        android:textColor="#D7D7D7"
-                        android:textSize="14sp" />
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Date"
+                            android:textAppearance="@style/TextAppearance.UPI.Label" />
+
+                        <TextView
+                            android:id="@+id/tvDateValue"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="@dimen/space_xxs"
+                            android:textAppearance="@style/TextAppearance.UPI.Body" />
+                    </LinearLayout>
                 </LinearLayout>
-            </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
 
             <EditText
                 android:id="@+id/etDescription"
+                style="@style/Widget.UPI.TextField"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginBottom="14dp"
-                android:background="#1C1C1C"
+                android:layout_marginBottom="@dimen/space_m"
                 android:hint="Description"
                 android:imeOptions="actionDone"
                 android:inputType="textMultiLine"
                 android:minLines="2"
-                android:padding="14dp"
-                android:textColor="#FFFFFF"
-                android:textColorHint="#AAAAAA"
-                android:textSize="14sp" />
+                android:gravity="top|start"
+                android:autofillHints="" />
 
-            <LinearLayout
+            <!-- ===================== Payee ===================== -->
+            <com.google.android.material.card.MaterialCardView
+                style="@style/Widget.UPI.Card"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginBottom="14dp"
-                android:background="#1C1C1C"
-                android:orientation="vertical"
-                android:padding="14dp">
+                android:layout_marginBottom="@dimen/space_m">
 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:gravity="center_vertical"
-                    android:orientation="horizontal">
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:layout_marginEnd="10dp"
-                        android:text="Payee"
-                        android:textColor="#FFFFFF"
-                        android:textSize="14sp"
-                        android:textStyle="bold" />
-
-                    <View
-                        android:layout_width="0dp"
-                        android:layout_height="0dp"
-                        android:layout_weight="1" />
+                    android:orientation="vertical"
+                    android:padding="@dimen/space_l">
 
                     <LinearLayout
-                        android:id="@+id/payeeActorTiles"
-                        android:layout_width="wrap_content"
+                        android:layout_width="match_parent"
                         android:layout_height="wrap_content"
+                        android:gravity="center_vertical"
                         android:orientation="horizontal">
 
                         <TextView
-                            android:id="@+id/tvPayeeActorMe"
-                            android:layout_width="wrap_content"
-                            android:layout_height="36dp"
-                            android:gravity="center"
-                            android:minWidth="52dp"
-                            android:paddingStart="10dp"
-                            android:paddingEnd="10dp"
-                            android:text="Me"
-                            android:textColor="#FFFFFF"
-                            android:textSize="12sp" />
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="Payee"
+                            android:textAppearance="@style/TextAppearance.UPI.Title"
+                            android:textSize="14sp" />
 
-                        <TextView
-                            android:id="@+id/tvPayeeActorFriend"
+                        <LinearLayout
+                            android:id="@+id/payeeActorTiles"
                             android:layout_width="wrap_content"
-                            android:layout_height="36dp"
-                            android:layout_marginStart="6dp"
-                            android:gravity="center"
-                            android:minWidth="52dp"
-                            android:paddingStart="10dp"
-                            android:paddingEnd="10dp"
-                            android:text="Friend"
-                            android:textColor="#FFFFFF"
-                            android:textSize="12sp" />
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal">
 
-                        <TextView
-                            android:id="@+id/tvPayeeActorMerchant"
-                            android:layout_width="wrap_content"
-                            android:layout_height="36dp"
-                            android:layout_marginStart="6dp"
-                            android:gravity="center"
-                            android:minWidth="52dp"
-                            android:paddingStart="10dp"
-                            android:paddingEnd="10dp"
-                            android:text="Merchant"
-                            android:textColor="#FFFFFF"
-                            android:textSize="12sp" />
+                            <TextView
+                                android:id="@+id/tvPayeeActorMe"
+                                style="@style/Widget.UPI.Pill"
+                                android:layout_width="wrap_content"
+                                android:layout_height="@dimen/pill_height"
+                                android:minWidth="52dp"
+                                android:text="Me"
+                                android:textSize="12sp" />
+
+                            <TextView
+                                android:id="@+id/tvPayeeActorFriend"
+                                style="@style/Widget.UPI.Pill"
+                                android:layout_width="wrap_content"
+                                android:layout_height="@dimen/pill_height"
+                                android:layout_marginStart="@dimen/space_xs"
+                                android:minWidth="52dp"
+                                android:text="Friend"
+                                android:textSize="12sp" />
+
+                            <TextView
+                                android:id="@+id/tvPayeeActorMerchant"
+                                style="@style/Widget.UPI.Pill"
+                                android:layout_width="wrap_content"
+                                android:layout_height="@dimen/pill_height"
+                                android:layout_marginStart="@dimen/space_xs"
+                                android:minWidth="52dp"
+                                android:text="Merchant"
+                                android:textSize="12sp" />
+                        </LinearLayout>
                     </LinearLayout>
+
+                    <LinearLayout
+                        android:id="@+id/payeeSharesContainer"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/space_m"
+                        android:orientation="vertical" />
+
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/btnAddPayeePerson"
+                        style="@style/Widget.UPI.Button.Text"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/space_xs"
+                        android:text="Add person"
+                        android:textSize="12sp"
+                        android:contentDescription="@string/cd_add_person"
+                        app:icon="@drawable/ic_add"
+                        app:iconGravity="start"
+                        app:iconSize="16dp" />
+
+                    <TextView
+                        android:id="@+id/tvPayeeBalance"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/space_xs"
+                        android:textAppearance="@style/TextAppearance.UPI.Label" />
                 </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <!-- ===================== Ledger options ===================== -->
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/ledgerOptionsCard"
+                style="@style/Widget.UPI.Card"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="@dimen/space_m"
+                android:visibility="gone">
 
                 <LinearLayout
-                    android:id="@+id/payeeSharesContainer"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:orientation="vertical" />
+                    android:orientation="vertical"
+                    android:padding="@dimen/space_l">
 
-                <Button
-                    android:id="@+id/btnAddPayeePerson"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="4dp"
-                    android:backgroundTint="#262626"
-                    android:text="+ Add person"
-                    android:textColor="#AAAAAA"
-                    android:textSize="12sp" />
+                    <LinearLayout
+                        android:id="@+id/ledgerEffectSection"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:visibility="gone">
 
-                <TextView
-                    android:id="@+id/tvPayeeBalance"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="6dp"
-                    android:textColor="#AAAAAA"
-                    android:textSize="11sp" />
-            </LinearLayout>
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="This money"
+                            android:textAppearance="@style/TextAppearance.UPI.Title"
+                            android:textSize="14sp" />
+
+                        <TextView
+                            android:id="@+id/tvLedgerEffectToggle"
+                            style="@style/Widget.UPI.Pill"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="@dimen/space_s"
+                            android:minHeight="@dimen/pill_height"
+                            android:paddingTop="@dimen/space_s"
+                            android:paddingBottom="@dimen/space_s"
+                            android:text="Doesn&apos;t affect what we owe each other"
+                            android:textSize="12sp" />
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:id="@+id/refundSection"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:visibility="gone">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Refund for"
+                            android:textAppearance="@style/TextAppearance.UPI.Title"
+                            android:textSize="14sp" />
+
+                        <TextView
+                            android:id="@+id/tvRefundTarget"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="@dimen/space_xs"
+                            android:text="Not a refund - counts as income"
+                            android:textAppearance="@style/TextAppearance.UPI.Body"
+                            android:textColor="?attr/colorOnSurfaceVariant" />
+                    </LinearLayout>
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
 
             <TextView
                 android:id="@+id/tvBalance"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginBottom="16dp"
+                android:layout_marginBottom="@dimen/space_l"
                 android:text="Unallocated"
-                android:textColor="#AAAAAA"
-                android:textSize="12sp" />
+                android:textAppearance="@style/TextAppearance.UPI.Caption" />
 
             <View
                 android:layout_width="match_parent"
-                android:layout_height="1dp"
-                android:layout_marginBottom="12dp"
-                android:background="#2A2A2A" />
+                android:layout_height="@dimen/stroke_hairline"
+                android:layout_marginBottom="@dimen/space_m"
+                android:background="?attr/colorOutlineVariant" />
 
-            <LinearLayout
-                android:id="@+id/categoryContainer"
+            <HorizontalScrollView
+                android:id="@+id/categoryScrollView"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:paddingBottom="48dp" />
+                android:overScrollMode="ifContentScrolls"
+                android:scrollbars="none">
+
+                <com.google.android.flexbox.FlexboxLayout
+                    android:id="@+id/categoryContainer"
+                    android:layout_width="wrap_content"
+                    android:layout_height="200dp"
+                    app:alignItems="flex_start"
+                    app:flexDirection="column"
+                    app:flexWrap="wrap"
+                    app:justifyContent="flex_start" />
+
+            </HorizontalScrollView>
+
+            <View
+                android:layout_width="match_parent"
+                android:layout_height="48dp" />
         </LinearLayout>
     </ScrollView>
 
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:background="#0D0D0D"
+        android:background="?attr/colorSurface"
         android:orientation="horizontal"
-        android:padding="12dp">
+        android:padding="@dimen/space_m">
 
-        <Button
+        <com.google.android.material.button.MaterialButton
             android:id="@+id/btnDone"
+            style="@style/Widget.UPI.Button"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:backgroundTint="#00BCD4"
-            android:text="DONE"
-            android:textColor="#FFFFFF"
-            android:textStyle="bold" />
+            android:text="Done" />
     </LinearLayout>
 
 </LinearLayout>

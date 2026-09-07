@@ -1,0 +1,223 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!-- ============================ Text ============================ -->
+
+    <!-- The SPENDING / RECENT / IOU rubrics. Previously 11sp + #888888 + letterSpacing 0.1
+         retyped at every use site. -->
+    <style name="TextAppearance.UPI.SectionHeader" parent="TextAppearance.Material3.LabelSmall">
+        <item name="android:textSize">11sp</item>
+        <item name="android:letterSpacing">0.12</item>
+        <item name="android:textAllCaps">true</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:textColor">?attr/appTextMuted</item>
+    </style>
+
+    <style name="TextAppearance.UPI.TitleLarge" parent="TextAppearance.Material3.TitleLarge">
+        <item name="android:textSize">22sp</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textColor">?attr/colorOnSurface</item>
+    </style>
+
+    <style name="TextAppearance.UPI.Title" parent="TextAppearance.Material3.TitleMedium">
+        <item name="android:textSize">16sp</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textColor">?attr/colorOnSurface</item>
+    </style>
+
+    <style name="TextAppearance.UPI.Body" parent="TextAppearance.Material3.BodyMedium">
+        <item name="android:textSize">14sp</item>
+        <item name="android:textColor">?attr/colorOnSurface</item>
+    </style>
+
+    <style name="TextAppearance.UPI.Caption" parent="TextAppearance.Material3.BodySmall">
+        <item name="android:textSize">12sp</item>
+        <item name="android:textColor">?attr/colorOnSurfaceVariant</item>
+    </style>
+
+    <style name="TextAppearance.UPI.Label" parent="TextAppearance.Material3.LabelSmall">
+        <item name="android:textSize">11sp</item>
+        <item name="android:textColor">?attr/appTextMuted</item>
+    </style>
+
+    <!-- Amounts. tnum gives fixed-width digits, so a column of amounts lines up instead of
+         jittering sideways as the digits change. -->
+    <style name="TextAppearance.UPI.Amount" parent="TextAppearance.Material3.TitleMedium">
+        <item name="android:fontFeatureSettings">tnum</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textColor">?attr/colorOnSurface</item>
+    </style>
+
+    <style name="TextAppearance.UPI.Amount.Large">
+        <item name="android:textSize">26sp</item>
+    </style>
+
+    <style name="TextAppearance.UPI.Amount.Medium">
+        <item name="android:textSize">18sp</item>
+    </style>
+
+    <style name="TextAppearance.UPI.Amount.Small">
+        <item name="android:textSize">15sp</item>
+    </style>
+
+    <style name="TextAppearance.UPI.Amount.Hero">
+        <item name="android:textSize">34sp</item>
+        <item name="android:fontFamily">sans-serif-medium</item>
+    </style>
+
+    <!-- ============================ Surfaces ============================ -->
+
+    <!--
+      Flat and outlined rather than elevated. A drop shadow needs a light background to fall on; on
+      the navy dark surface it only muddies the edge, whereas a hairline outline reads in both modes.
+    -->
+    <style name="Widget.UPI.Card" parent="Widget.Material3.CardView.Filled">
+        <item name="cardBackgroundColor">?attr/colorSurface</item>
+        <item name="cardCornerRadius">@dimen/radius_lg</item>
+        <item name="cardElevation">0dp</item>
+        <item name="strokeColor">?attr/colorOutlineVariant</item>
+        <item name="strokeWidth">@dimen/stroke_hairline</item>
+        <item name="contentPadding">0dp</item>
+    </style>
+
+    <style name="Widget.UPI.Card.Accent">
+        <item name="cardBackgroundColor">?attr/colorPrimaryContainer</item>
+        <item name="strokeWidth">0dp</item>
+    </style>
+
+    <style name="Widget.UPI.Card.Clickable">
+        <item name="android:clickable">true</item>
+        <item name="android:focusable">true</item>
+        <item name="rippleColor">?attr/colorControlHighlight</item>
+    </style>
+
+    <!--
+      The nine screens each hand-rolled this: a 56dp LinearLayout, a white background, 12dp of
+      padding, a glyph TextView and an 18sp bold title. The container stays a LinearLayout because
+      several screens put a trailing control in the bar and an <include> could not carry one, but
+      everything that was actually drifting between copies is now in these two styles.
+    -->
+    <style name="Widget.UPI.TopBar" parent="">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">@dimen/top_bar_height</item>
+        <item name="android:orientation">horizontal</item>
+        <item name="android:gravity">center_vertical</item>
+        <item name="android:background">?attr/colorSurface</item>
+        <item name="android:paddingStart">@dimen/space_xs</item>
+        <item name="android:paddingEnd">@dimen/space_m</item>
+    </style>
+
+    <style name="Widget.UPI.TopBarTitle" parent="">
+        <item name="android:layout_width">0dp</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_weight">1</item>
+        <item name="android:textAppearance">@style/TextAppearance.UPI.Title</item>
+        <item name="android:textSize">18sp</item>
+        <item name="android:maxLines">1</item>
+        <item name="android:ellipsize">end</item>
+        <item name="android:layout_marginStart">@dimen/space_xs</item>
+    </style>
+
+    <style name="Widget.UPI.TopAppBar" parent="Widget.Material3.Toolbar">
+        <item name="android:background">@android:color/transparent</item>
+        <item name="android:minHeight">@dimen/top_bar_height</item>
+        <item name="titleTextAppearance">@style/TextAppearance.UPI.Title</item>
+        <item name="titleTextColor">?attr/colorOnSurface</item>
+        <item name="navigationIconTint">?attr/colorOnSurface</item>
+        <item name="contentInsetStartWithNavigation">0dp</item>
+    </style>
+
+    <!-- ============================ Controls ============================ -->
+
+    <style name="Widget.UPI.Button" parent="Widget.Material3.Button">
+        <item name="android:minHeight">@dimen/touch_target_min</item>
+        <item name="cornerRadius">@dimen/radius_md</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:letterSpacing">0.02</item>
+        <item name="android:textAllCaps">false</item>
+    </style>
+
+    <style name="Widget.UPI.Button.Tonal" parent="Widget.Material3.Button.TonalButton">
+        <item name="android:minHeight">@dimen/touch_target_min</item>
+        <item name="cornerRadius">@dimen/radius_md</item>
+        <item name="android:textAllCaps">false</item>
+    </style>
+
+    <style name="Widget.UPI.Button.Text" parent="Widget.Material3.Button.TextButton">
+        <item name="android:minHeight">@dimen/touch_target_min</item>
+        <item name="android:textAllCaps">false</item>
+    </style>
+
+    <style name="Widget.UPI.Button.Outlined" parent="Widget.Material3.Button.OutlinedButton">
+        <item name="android:minHeight">@dimen/touch_target_min</item>
+        <item name="cornerRadius">@dimen/radius_md</item>
+        <item name="android:textAllCaps">false</item>
+        <item name="strokeColor">?attr/colorOutline</item>
+    </style>
+
+    <!-- Every former glyph TextView becomes one of these: a real 48dp target with a ripple. -->
+    <style name="Widget.UPI.IconButton" parent="">
+        <item name="android:layout_width">@dimen/touch_target_min</item>
+        <item name="android:layout_height">@dimen/touch_target_min</item>
+        <item name="android:padding">@dimen/space_m</item>
+        <item name="android:scaleType">fitCenter</item>
+        <item name="android:background">?attr/selectableItemBackgroundBorderless</item>
+        <item name="tint">?attr/colorOnSurface</item>
+    </style>
+
+    <style name="Widget.UPI.Chip.Filter" parent="Widget.Material3.Chip.Filter">
+        <item name="chipMinHeight">@dimen/pill_height</item>
+        <item name="chipCornerRadius">@dimen/radius_pill</item>
+    </style>
+
+    <!-- The mutually-exclusive selection idiom, formerly three copies of a private stylePill(). -->
+    <style name="Widget.UPI.Pill" parent="">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">@dimen/pill_height</item>
+        <item name="android:minHeight">@dimen/pill_height</item>
+        <item name="android:gravity">center</item>
+        <item name="android:paddingStart">@dimen/space_m</item>
+        <item name="android:paddingEnd">@dimen/space_m</item>
+        <item name="android:background">@drawable/bg_pill_selector</item>
+        <item name="android:textColor">@color/pill_text_selector</item>
+        <item name="android:textSize">13sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:clickable">true</item>
+        <item name="android:focusable">true</item>
+    </style>
+
+    <style name="Widget.UPI.Avatar" parent="">
+        <item name="android:layout_width">@dimen/avatar_size_md</item>
+        <item name="android:layout_height">@dimen/avatar_size_md</item>
+        <item name="android:gravity">center</item>
+        <item name="android:textSize">@dimen/avatar_text_md</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:background">@drawable/bg_circle</item>
+    </style>
+
+    <style name="Widget.UPI.Avatar.Small">
+        <item name="android:layout_width">@dimen/avatar_size_sm</item>
+        <item name="android:layout_height">@dimen/avatar_size_sm</item>
+        <item name="android:textSize">@dimen/avatar_text_sm</item>
+    </style>
+
+    <style name="Widget.UPI.TextField" parent="">
+        <item name="android:background">@drawable/bg_input_field</item>
+        <item name="android:paddingStart">@dimen/space_m</item>
+        <item name="android:paddingEnd">@dimen/space_m</item>
+        <item name="android:paddingTop">@dimen/space_m</item>
+        <item name="android:paddingBottom">@dimen/space_m</item>
+        <item name="android:textColor">?attr/colorOnSurface</item>
+        <item name="android:textColorHint">?attr/appTextMuted</item>
+        <item name="android:textSize">15sp</item>
+    </style>
+
+    <style name="ThemeOverlay.UPI.Dialog" parent="ThemeOverlay.Material3.MaterialAlertDialog">
+        <item name="colorSurface">@color/app_surface_elevated</item>
+        <item name="buttonBarPositiveButtonStyle">@style/Widget.UPI.Button.Text</item>
+        <item name="buttonBarNegativeButtonStyle">@style/Widget.UPI.Button.Text</item>
+    </style>
+
+</resources>

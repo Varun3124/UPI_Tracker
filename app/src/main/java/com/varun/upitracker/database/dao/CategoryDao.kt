@@ -8,6 +8,7 @@ import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import androidx.room.Update
 import com.varun.upitracker.database.entity.Category
+import com.varun.upitracker.database.entity.CategoryKind
 import com.varun.upitracker.database.entity.MerchantCategory
 
 @Dao
@@ -46,14 +47,28 @@ interface CategoryDao {
     """)
     suspend fun getMerchantIdsForCategory(categoryId: Long): List<Long>
 
-    @Query("SELECT * FROM categories ORDER BY name ASC")
+    @Query("SELECT * FROM categories ORDER BY kind ASC, name ASC")
     suspend fun getAllCategoriesSync(): List<com.varun.upitracker.database.entity.Category>
 
     @Query("SELECT * FROM categories WHERE id = :categoryId LIMIT 1")
     suspend fun getCategoryById(categoryId: Long): com.varun.upitracker.database.entity.Category?
 
-    @Query("SELECT * FROM categories WHERE LOWER(TRIM(name)) = LOWER(TRIM(:name)) LIMIT 1")
-    suspend fun findByNormalizedName(name: String): com.varun.upitracker.database.entity.Category?
+    /**
+     * Scoped to [kind] on purpose: a name is unique per kind, not globally. Looking one up
+     * without the kind lets a rename find the opposite direction's row and merge into it,
+     * folding expense splits into an income category.
+     */
+    @Query(
+        """
+        SELECT * FROM categories
+        WHERE LOWER(TRIM(name)) = LOWER(TRIM(:name)) AND kind = :kind
+        LIMIT 1
+        """
+    )
+    suspend fun findByNormalizedName(name: String, kind: CategoryKind): com.varun.upitracker.database.entity.Category?
+
+    @Query("SELECT * FROM categories WHERE kind = :kind ORDER BY name ASC")
+    suspend fun getCategoriesByKindSync(kind: CategoryKind): List<com.varun.upitracker.database.entity.Category>
 
     @Query("SELECT COUNT(*) FROM merchant_categories WHERE categoryId = :categoryId")
     suspend fun getMerchantLinkCount(categoryId: Long): Int

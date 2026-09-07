@@ -16,8 +16,10 @@ import com.varun.upitracker.data.repository.SettingsRepository
 import com.varun.upitracker.database.AppDatabase
 import com.varun.upitracker.database.entity.Account
 import com.varun.upitracker.database.entity.AccountType
+import com.varun.upitracker.domain.AccountTypes
 import com.varun.upitracker.database.entity.BalanceSnapshot
 import com.varun.upitracker.database.entity.BalanceSnapshotSource
+import com.varun.upitracker.database.entity.CategoryKind
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -34,7 +36,8 @@ class CategorySettingsViewModel(context: Context) : ViewModel() {
         }
     }
 
-    fun createCategory(name: String, onError: (String) -> Unit) = mutate(onError) { repository.createCategory(name) }
+    fun createCategory(name: String, kind: CategoryKind, onError: (String) -> Unit) =
+        mutate(onError) { repository.createCategory(name, kind) }
     fun renameCategory(id: Long, name: String, onError: (String) -> Unit) = mutate(onError) { repository.renameCategory(id, name) }
     fun deleteCategory(id: Long, replacementId: Long?, onError: (String) -> Unit) = mutate(onError) {
         repository.deleteCategory(id, replacementId)
@@ -46,9 +49,9 @@ class CategorySettingsViewModel(context: Context) : ViewModel() {
         }
     }
 
-    fun replacementCategories(excludingId: Long, callback: (List<Category>) -> Unit) {
+    fun replacementCategories(excludingId: Long, kind: CategoryKind, callback: (List<Category>) -> Unit) {
         viewModelScope.launch {
-            callback(withContext(Dispatchers.IO) { repository.getReplacementCategories(excludingId) })
+            callback(withContext(Dispatchers.IO) { repository.getReplacementCategories(excludingId, kind) })
         }
     }
 
@@ -94,7 +97,7 @@ class AccountsViewModel(context: Context) : ViewModel() {
                         )
                     },
                     sourceAccounts = accounts.filter {
-                        !it.isArchived && (it.type == AccountType.CASH || it.type == AccountType.SAVINGS)
+                        !it.isArchived && AccountTypes.isLiquid(it.type)
                     }
                 )
             }

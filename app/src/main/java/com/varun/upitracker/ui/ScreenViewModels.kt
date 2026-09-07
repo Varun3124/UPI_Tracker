@@ -15,6 +15,7 @@ import com.varun.upitracker.database.AppDatabase
 import com.varun.upitracker.database.entity.Account
 import com.varun.upitracker.database.entity.AccountTransfer
 import com.varun.upitracker.database.entity.AccountType
+import com.varun.upitracker.domain.AccountTypes
 import com.varun.upitracker.database.entity.Category
 import com.varun.upitracker.database.entity.Friend
 import com.varun.upitracker.database.entity.Merchant
@@ -86,7 +87,7 @@ class TransactionEntryViewModel(context: Context) : ViewModel() {
                     friends = db.friendDao().getAllFriendsByFrequency(),
                     merchants = db.merchantDao().getAllMerchantsSync(),
                     categories = db.categoryDao().getAllCategoriesSync(),
-                    accounts = db.accountDao().getActiveByTypes(listOf(AccountType.CASH, AccountType.SAVINGS)),
+                    accounts = db.accountDao().getActiveByTypes(AccountTypes.LIQUID),
                     transferAccounts = db.accountDao().getActiveSync(),
                     transaction = transactionId?.let { db.transactionDao().getTransactionById(it) },
                     transfer = transferId?.let { db.accountTransferDao().getById(it) }
@@ -104,7 +105,11 @@ data class AllTransactionsUiState(
     val rangeEndExclusiveEpoch: Long = 0L,
     /** True when the range came from the long-press picker rather than being a whole month. */
     val isCustomRange: Boolean = false,
+    /** True when the long-press menu's "All time" choice is active. */
+    val isAllTime: Boolean = false,
     val pendingOnly: Boolean = false,
+    /** True when only entries where neither side of the transaction is ME should show. */
+    val thirdPartyOnly: Boolean = false,
     /** Accounts offered by the filter dropdown. */
     val accounts: List<Account> = emptyList(),
     /** null means "All accounts". */
@@ -121,7 +126,7 @@ data class AllTransactionsUiState(
     /** Balance standing after each entry, keyed by [stableId]. */
     val runningBalances: Map<String, Long> = emptyMap()
 ) {
-    val isFiltered: Boolean get() = pendingOnly || selectedAccountId != null
+    val isFiltered: Boolean get() = pendingOnly || thirdPartyOnly || selectedAccountId != null
 }
 
 class AllTransactionsViewModel(context: Context) : ViewModel() {
@@ -130,7 +135,9 @@ class AllTransactionsViewModel(context: Context) : ViewModel() {
     private var rangeStartEpoch: Long = startOfMonth(Calendar.getInstance())
     private var rangeEndExclusiveEpoch: Long = nextMonth(rangeStartEpoch)
     private var isCustomRange: Boolean = false
+    private var isAllTime: Boolean = false
     private var pendingOnly: Boolean = false
+    private var thirdPartyOnly: Boolean = false
     private var selectedAccountId: String? = null
     private var showBalance: Boolean = false
     private var loadedEntries: List<LedgerEntry> = emptyList()
@@ -148,7 +155,7 @@ class AllTransactionsViewModel(context: Context) : ViewModel() {
 
     /** Reloads whatever range is showing, so a custom range survives returning to the screen. */
     fun loadCurrentMonth() {
-        loadRange(rangeStartEpoch, rangeEndExclusiveEpoch, isCustomRange)
+        loadRange(rangeStartEpoch, rangeEndExclusiveEpoch, isCustomRange, isAllTime)
     }
 
     fun loadMonth(monthStartEpoch: Long) {
@@ -156,13 +163,42 @@ class AllTransactionsViewModel(context: Context) : ViewModel() {
     }
 
     /**
+     * Every transaction and transfer ever recorded. `rangeStartEpoch = 0` (the Unix epoch) rather
+     * than [Long.MIN_VALUE] deliberately: [loadOpeningBalance] derives `rangeStartEpoch - 1`, and
+     * subtracting from [Long.MIN_VALUE] would overflow. Nothing real predates 1970 anyway, and
+     * `AccountRepository.getBalance` already free-falls to "assume zero" once it runs out of
+     * snapshots and transactions to walk back through.
+     */
+    fun loadAllTime() {
+        loadRange(0L, Long.MAX_VALUE, isCustom = false, isAllTime = true)
+    }
+
+    /**
+     * Jumps to the next or previous whole month, anchored on the month currently in view — or on
+     * today's month when the current view is "All time", where there is no sensible anchor.
+     */
+    fun shiftMonth(delta: Int) {
+        val anchorMonthStart = if (isAllTime) {
+            startOfMonth(Calendar.getInstance())
+        } else {
+            startOfMonth(Calendar.getInstance().apply { timeInMillis = rangeStartEpoch })
+        }
+        val shifted = Calendar.getInstance().apply {
+            timeInMillis = anchorMonthStart
+            add(Calendar.MONTH, delta)
+        }.timeInMillis
+        loadMonth(shifted)
+    }
+
+    /**
      * @param endExclusiveEpoch matches the `[from, to)` convention of the two range DAOs. For an
      *   inclusive To date the caller passes the start of the following day.
      */
-    fun loadRange(startEpoch: Long, endExclusiveEpoch: Long, isCustom: Boolean) {
+    fun loadRange(startEpoch: Long, endExclusiveEpoch: Long, isCustom: Boolean, isAllTime: Boolean = false) {
         rangeStartEpoch = startEpoch
         rangeEndExclusiveEpoch = endExclusiveEpoch
         isCustomRange = isCustom
+        this.isAllTime = isAllTime
         viewModelScope.launch {
             withContext(Dispatchers.IO) {
                 val transactions = db.transactionDao()
@@ -184,6 +220,13 @@ class AllTransactionsViewModel(context: Context) : ViewModel() {
     fun setPendingOnly(enabled: Boolean) {
         if (enabled == pendingOnly) return
         pendingOnly = enabled
+        emitState()
+    }
+
+    /** Filters what is already loaded, so toggling costs no database round trip. */
+    fun setThirdPartyOnly(enabled: Boolean) {
+        if (enabled == thirdPartyOnly) return
+        thirdPartyOnly = enabled
         emitState()
     }
 
@@ -217,7 +260,7 @@ class AllTransactionsViewModel(context: Context) : ViewModel() {
         val accountId = selectedAccountId
         if (accountId != null) return setOf(accountId)
         return loadedAccounts
-            .filter { it.type == AccountType.CASH || it.type == AccountType.SAVINGS }
+            .filter { AccountTypes.isLiquid(it.type) }
             .map { it.id }
             .toSet()
     }
@@ -235,6 +278,11 @@ class AllTransactionsViewModel(context: Context) : ViewModel() {
         val filtered = loadedEntries
             // Account transfers have no pending state, so that filter excludes them entirely.
             .filter { !pendingOnly || (it is LedgerEntry.Tx && it.transaction.isPending) }
+            // Transfers never have ME as payer/payee, so this filter excludes them entirely too.
+            .filter {
+                !thirdPartyOnly ||
+                    (it is LedgerEntry.Tx && it.transaction.amountPerspective() == AmountPerspective.NEUTRAL)
+            }
             .filter { accountId == null || it.involvesAccount(accountId) }
 
         val scope = balanceScopeIds()
@@ -247,9 +295,11 @@ class AllTransactionsViewModel(context: Context) : ViewModel() {
             rangeStartEpoch = rangeStartEpoch,
             rangeEndExclusiveEpoch = rangeEndExclusiveEpoch,
             isCustomRange = isCustomRange,
+            isAllTime = isAllTime,
             accounts = loadedAccounts,
             selectedAccountId = accountId,
             pendingOnly = pendingOnly,
+            thirdPartyOnly = thirdPartyOnly,
             totalEntryCount = loadedEntries.size,
             showBalance = showBalance,
             openingBalancePaise = openingBalancePaise,
@@ -271,8 +321,24 @@ class AllTransactionsViewModel(context: Context) : ViewModel() {
             transfer.fromAccountId == accountId || transfer.toAccountId == accountId
     }
 
-    fun deleteTransaction(transactionId: Long) {
+    fun deleteTransaction(transactionId: Long, onError: (String) -> Unit = {}) {
         viewModelScope.launch {
+            // A purchase with refunds pointing at it cannot be deleted: the refund is real money
+            // that arrived, and its category credit is attributed to this transaction's date.
+            // Blocking beats silently dropping the refund or silently turning it into income.
+            val refundCount = withContext(Dispatchers.IO) {
+                db.transactionDao().getRefundIdsForOriginal(transactionId).size
+            }
+            if (refundCount > 0) {
+                onError(
+                    if (refundCount == 1) {
+                        "A refund is linked to this transaction. Delete or unlink the refund first."
+                    } else {
+                        "$refundCount refunds are linked to this transaction. Delete or unlink them first."
+                    }
+                )
+                return@launch
+            }
             withContext(Dispatchers.IO) {
                 db.withTransaction {
                     db.transactionShareDao().deleteForTransaction(transactionId)
@@ -334,6 +400,33 @@ class FriendDetailViewModel(context: Context) : ViewModel() {
                     transactions = db.transactionDao().getTransactionsForFriendSync(friendId)
                 )
             }
+        }
+    }
+
+    fun deleteTransaction(friendId: Long, transactionId: Long, onError: (String) -> Unit = {}) {
+        viewModelScope.launch {
+            // Mirrors AllTransactionsViewModel.deleteTransaction: a refund pointing at this
+            // transaction must be dealt with first, same as everywhere else transactions are deleted.
+            val refundCount = withContext(Dispatchers.IO) {
+                db.transactionDao().getRefundIdsForOriginal(transactionId).size
+            }
+            if (refundCount > 0) {
+                onError(
+                    if (refundCount == 1) {
+                        "A refund is linked to this transaction. Delete or unlink the refund first."
+                    } else {
+                        "$refundCount refunds are linked to this transaction. Delete or unlink them first."
+                    }
+                )
+                return@launch
+            }
+            withContext(Dispatchers.IO) {
+                db.withTransaction {
+                    db.transactionShareDao().deleteForTransaction(transactionId)
+                    db.transactionDao().deleteById(transactionId)
+                }
+            }
+            load(friendId)
         }
     }
 }

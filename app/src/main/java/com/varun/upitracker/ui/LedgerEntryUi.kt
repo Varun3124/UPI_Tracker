@@ -4,8 +4,10 @@ import com.varun.upitracker.database.entity.AccountTransfer
 import com.varun.upitracker.database.entity.AccountTransferType
 import com.varun.upitracker.database.entity.Transaction
 import com.varun.upitracker.domain.BalanceDeltaCalculator
+import com.varun.upitracker.domain.statistics.BalanceMovement
 import com.varun.upitracker.domain.TransactionDeltaInput
 import com.varun.upitracker.domain.TransferDeltaInput
+import com.varun.upitracker.util.AmountFormat
 
 /**
  * One row in a chronological ledger list. Transactions and account transfers are stored in separate
@@ -29,30 +31,55 @@ fun LedgerEntry.stableId(): String = when (this) {
     is LedgerEntry.Transfer -> "X:${transfer.id}"
 }
 
-/**
- * How much this entry moved the combined balance of [accountIds]. A transfer between two accounts
- * that are both in scope nets to zero, which is what makes a combined CASH + SAVINGS balance behave.
- */
-fun LedgerEntry.balanceDelta(accountIds: Set<String>): Long = when (this) {
-    is LedgerEntry.Tx -> {
-        val input = TransactionDeltaInput(
+/** How much this entry moved [accountId] alone. The primitive [balanceDelta] sums over. */
+fun LedgerEntry.balanceDeltaFor(accountId: String): Long = when (this) {
+    is LedgerEntry.Tx -> BalanceDeltaCalculator.transactionDelta(
+        accountId,
+        TransactionDeltaInput(
             myAccountId = transaction.myAccountId,
             payerActorType = transaction.payerActorType,
             payeeActorType = transaction.payeeActorType,
             amountPaise = transaction.amountPaise
         )
-        accountIds.sumOf { BalanceDeltaCalculator.transactionDelta(it, input) }
-    }
-    is LedgerEntry.Transfer -> {
-        val input = TransferDeltaInput(
+    )
+    is LedgerEntry.Transfer -> BalanceDeltaCalculator.transferDelta(
+        accountId,
+        TransferDeltaInput(
             fromAccountId = transfer.fromAccountId,
             toAccountId = transfer.toAccountId,
             amountFromPaise = transfer.amountFromPaise,
             amountToPaise = transfer.amountToPaise
         )
-        accountIds.sumOf { BalanceDeltaCalculator.transferDelta(it, input) }
-    }
+    )
 }
+
+/**
+ * How much this entry moved the combined balance of [accountIds]. A transfer between two accounts
+ * that are both in scope nets to zero, which is what makes a combined CASH + SAVINGS balance behave.
+ *
+ * Additive over [accountIds] by construction rather than by comment, which is what lets a balance
+ * timeline decompose a combined line into per-account running totals -- necessary because a
+ * reconciliation snapshot re-anchors one account without touching the others -- and reassemble it
+ * by summing.
+ */
+fun LedgerEntry.balanceDelta(accountIds: Set<String>): Long =
+    accountIds.sumOf { balanceDeltaFor(it) }
+
+/**
+ * One movement per account this entry actually moved.
+ *
+ * A transfer between two in-scope accounts yields **two** movements rather than the netted zero
+ * [balanceDelta] would give, because a balance timeline has to be able to re-anchor one of those
+ * accounts on a reconciliation snapshot without disturbing the other. Zero deltas are dropped: they
+ * are the common case, since most entries touch one account out of the scope.
+ */
+fun List<LedgerEntry>.toBalanceMovements(accountIds: Set<String>): List<BalanceMovement> =
+    flatMap { entry ->
+        accountIds.mapNotNull { id ->
+            val delta = entry.balanceDeltaFor(id)
+            if (delta == 0L) null else BalanceMovement(entry.dateEpoch, id, delta)
+        }
+    }
 
 /**
  * The balance standing after each entry, keyed by [stableId].
@@ -96,11 +123,11 @@ fun AccountTransfer.resolveRouteLabel(accountLabels: Map<String, String>): Strin
         TransferDeltaInput(fromAccountId, toAccountId, amountFromPaise, amountToPaise)
     )
     return when {
-        delta > 0L -> "$route - fee Rs${"%.0f".format(delta / 100.0)}"
-        delta < 0L -> "$route + gain Rs${"%.0f".format(-delta / 100.0)}"
+        delta > 0L -> "$route - fee ${AmountFormat.rupees(delta)}"
+        delta < 0L -> "$route + gain ${AmountFormat.rupees(-delta)}"
         else -> route
     }
 }
 
 /** Unsigned: money moving between your own accounts is neither spend nor income. */
-fun AccountTransfer.formatTransferAmount(): String = "Rs${"%.0f".format(amountFromPaise / 100.0)}"
+fun AccountTransfer.formatTransferAmount(): String = AmountFormat.rupees(amountFromPaise)

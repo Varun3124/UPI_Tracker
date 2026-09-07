@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_enabled="false">
+        <shape android:shape="rectangle">
+            <solid android:color="?attr/colorSurfaceVariant" />
+            <stroke android:width="@dimen/stroke_hairline" android:color="?attr/colorOutlineVariant" />
+            <corners android:radius="@dimen/radius_pill" />
+        </shape>
+    </item>
+    <item android:state_selected="true">
+        <shape android:shape="rectangle">
+            <solid android:color="?attr/colorPrimary" />
+            <corners android:radius="@dimen/radius_pill" />
+        </shape>
+    </item>
+    <item android:state_activated="true">
+        <shape android:shape="rectangle">
+            <solid android:color="?attr/colorPrimary" />
+            <corners android:radius="@dimen/radius_pill" />
+        </shape>
+    </item>
+    <item>
+        <shape android:shape="rectangle">
+            <solid android:color="?attr/colorSurfaceVariant" />
+            <stroke android:width="@dimen/stroke_hairline" android:color="?attr/colorOutlineVariant" />
+            <corners android:radius="@dimen/radius_pill" />
+        </shape>
+    </item>
+</selector>

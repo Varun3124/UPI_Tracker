@@ -3,10 +3,8 @@ package com.varun.upitracker.ui.statement
 import android.app.DatePickerDialog
 import android.content.Intent
 import android.graphics.Color
-import android.graphics.drawable.GradientDrawable
 import android.net.Uri
 import android.os.Bundle
-import android.util.TypedValue
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -20,8 +18,6 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.cardview.widget.CardView
-import androidx.core.view.ViewCompat
-import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.ViewModelProvider
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -40,6 +36,12 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
+import com.varun.upitracker.util.AmountFormat
+import com.varun.upitracker.ui.theme.ThemeAttr
+import com.varun.upitracker.ui.theme.themeColor
+import android.widget.ImageButton
+import com.varun.upitracker.ui.theme.padRootForSystemBars
+import com.varun.upitracker.ui.theme.dpF
 
 /**
  * Imports an HDFC `.xls` statement in two states: a setup form, then a review of what the import
@@ -62,15 +64,11 @@ class StatementImportActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_statement_import)
 
-        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main)) { view, insets ->
-            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
-            insets
-        }
+        padRootForSystemBars(R.id.main)
 
         viewModel = ViewModelProvider(this, AppViewModelFactory(this))[StatementImportViewModel::class.java]
 
-        findViewById<TextView>(R.id.btnBackImport).setOnClickListener { onBack() }
+        findViewById<ImageButton>(R.id.btnBackImport).setOnClickListener { onBack() }
         findViewById<TextView>(R.id.btnPickFile).setOnClickListener {
             // Many file providers report a bank export as octet-stream, so accept anything and let
             // the reader reject what it cannot open.
@@ -290,9 +288,11 @@ private class GroupAdapter(
         val selectedId = selections[position]
 
         val sign = if (row.direction == "DEBIT") "-" else "+"
-        holder.amount.text = "$sign Rs ${row.amountPaise / 100}"
+        holder.amount.text = sign + AmountFormat.rupees(row.amountPaise)
         holder.amount.setTextColor(
-            if (row.direction == "DEBIT") Color.parseColor("#C62828") else Color.parseColor("#2E7D32")
+            holder.amount.themeColor(
+                if (row.direction == "DEBIT") ThemeAttr.negative else ThemeAttr.positive
+            )
         )
         holder.date.text = dateFmt.format(Date(row.dateEpoch))
         holder.label.text = row.displayLabel
@@ -303,7 +303,7 @@ private class GroupAdapter(
             else -> "Tap a match if this is already recorded, or leave it to create a pending transaction"
         }
         holder.status.setTextColor(
-            if (selectedId != null) Color.parseColor("#2E7D32") else Color.parseColor("#FF6F00")
+            holder.status.themeColor(if (selectedId != null) ThemeAttr.positive else ThemeAttr.warning)
         )
 
         holder.candidates.removeAllViews()
@@ -334,26 +334,21 @@ private class GroupAdapter(
         }
 
         view.findViewById<TextView>(R.id.tvCandidateAmount).text =
-            "Rs ${transaction.amountPaise / 100}"
+            AmountFormat.rupees(transaction.amountPaise)
         view.findViewById<TextView>(R.id.tvCandidateDate).text =
             dateFmt.format(Date(transaction.dateEpoch))
         view.findViewById<TextView>(R.id.tvCandidateAliasHint).visibility =
             if (candidate.aliasMatch) View.VISIBLE else View.GONE
 
-        val check = view.findViewById<TextView>(R.id.tvCandidateCheck)
-        check.visibility = if (isSelected) View.VISIBLE else View.GONE
-        if (isSelected) {
-            check.background = GradientDrawable().apply {
-                shape = GradientDrawable.OVAL
-                setColor(Color.parseColor("#2E7D32"))
-            }
-        }
+        // The tick's circle and tint come from the layout now, so this only decides visibility.
+        view.findViewById<View>(R.id.tvCandidateCheck).visibility =
+            if (isSelected) View.VISIBLE else View.GONE
 
         val card = view.findViewById<CardView>(R.id.cardCandidate)
         card.setCardBackgroundColor(
-            if (isSelected) Color.parseColor("#E8F5E9") else Color.parseColor("#FFFFFF")
+            card.themeColor(if (isSelected) ThemeAttr.positiveContainer else ThemeAttr.surface)
         )
-        card.cardElevation = if (isSelected) dp(view, 4) else dp(view, 1)
+        card.cardElevation = if (isSelected) view.dpF(4f) else view.dpF(1f)
         card.setOnClickListener { onToggle(groupIndex, transaction.id) }
         card.setOnLongClickListener {
             onOpen(transaction.id)
@@ -362,9 +357,4 @@ private class GroupAdapter(
         return view
     }
 
-    private fun dp(view: View, value: Int): Float = TypedValue.applyDimension(
-        TypedValue.COMPLEX_UNIT_DIP,
-        value.toFloat(),
-        view.resources.displayMetrics
-    )
 }

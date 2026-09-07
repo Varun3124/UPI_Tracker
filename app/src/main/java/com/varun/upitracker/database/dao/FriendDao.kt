@@ -73,12 +73,6 @@ interface FriendDao {
     @Query("SELECT * FROM friends ORDER BY name COLLATE NOCASE ASC, id ASC")
     suspend fun getAliasBundles(): List<com.varun.upitracker.database.model.FriendAliasBundle>
 
-    @Query("UPDATE friend_raw_names SET friendId = :friendId WHERE id = :mappingId")
-    suspend fun reassignRawName(mappingId: Long, friendId: Long)
-
-    @Query("UPDATE friend_upi_ids SET friendId = :friendId WHERE id = :mappingId")
-    suspend fun reassignUpiId(mappingId: Long, friendId: Long)
-
     @Query("UPDATE friend_raw_names SET friendId = :targetId WHERE friendId = :sourceId")
     suspend fun moveAllRawNames(sourceId: Long, targetId: Long)
 

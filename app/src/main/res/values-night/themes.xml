@@ -1,7 +1,13 @@
-<resources xmlns:tools="http://schemas.android.com/tools">
-    <!-- Base application theme. -->
-    <style name="Base.Theme.UPITracker" parent="Theme.Material3.DayNight.NoActionBar">
-        <!-- Customize your dark theme here. -->
-        <!-- <item name="colorPrimary">@color/my_dark_primary</item> -->
+<resources>
+
+    <!--
+      Night gets its colours from values-night/colors.xml, which redeclares every @color/app_* token
+      the shared Base.Theme.UPITracker already references. The only thing that a colour swap cannot
+      express is the status/navigation bar icon tint, so that is all this file overrides.
+    -->
+    <style name="Theme.UPITracker" parent="Base.Theme.UPITracker">
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
     </style>
+
 </resources>

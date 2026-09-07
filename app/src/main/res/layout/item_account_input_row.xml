@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="horizontal"
@@ -44,12 +45,13 @@
             android:clickable="true"/>
     </LinearLayout>
 
-    <TextView
+    <ImageButton
         android:id="@+id/btnRemoveRow"
-        android:layout_width="32dp"
-        android:layout_height="32dp"
-        android:text="✕"
-        android:gravity="center"
-        android:textSize="16sp"
-        android:textColor="#C62828"/>
+        style="@style/Widget.UPI.IconButton"
+        android:layout_width="40dp"
+        android:layout_height="40dp"
+        android:padding="@dimen/space_s"
+        android:src="@drawable/ic_close"
+        app:tint="?attr/appNegative"
+        android:contentDescription="@string/cd_remove" />
 </LinearLayout>

@@ -2,10 +2,10 @@ package com.varun.upitracker.ui
 
 import android.content.Intent
 import android.graphics.Color
-import android.graphics.drawable.GradientDrawable
 import android.app.DatePickerDialog
 import android.os.Bundle
-import android.util.TypedValue
+import android.view.MotionEvent
+import android.view.ViewConfiguration
 import android.view.LayoutInflater
 import android.view.Menu
 import android.view.View
@@ -19,8 +19,6 @@ import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.view.ViewCompat
-import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.ViewModelProvider
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
@@ -36,6 +34,9 @@ import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
+import android.widget.ImageButton
+import com.varun.upitracker.ui.theme.padRootForSystemBars
+import com.varun.upitracker.ui.theme.dp
 
 class AllTransactionsActivity : AppCompatActivity() {
 
@@ -51,6 +52,7 @@ class AllTransactionsActivity : AppCompatActivity() {
     private lateinit var btnPickMonth: TextView
     private lateinit var btnPendingOnly: TextView
     private lateinit var btnAccountFilter: TextView
+    private lateinit var btnThirdPartyOnly: TextView
     private lateinit var cbShowBalance: CheckBox
     private var transactionsAdapter: AllTransactionsAdapter? = null
 
@@ -59,21 +61,20 @@ class AllTransactionsActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_all_transactions)
 
-        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main)) { v, insets ->
-            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            v.setPadding(bars.left, bars.top, bars.right, bars.bottom)
-            insets
-        }
+        padRootForSystemBars(R.id.main)
 
-        findViewById<TextView>(R.id.btnBackAll).setOnClickListener { finish() }
+        findViewById<ImageButton>(R.id.btnBackAll).setOnClickListener { finish() }
         btnPickMonth = findViewById(R.id.btnPickMonth)
         btnPickMonth.setOnClickListener {
-            showMonthPicker(viewModel.uiState.value?.rangeStartEpoch ?: startOfCurrentMonth())
+            val state = viewModel.uiState.value
+            val initial = if (state == null || state.isAllTime) startOfCurrentMonth() else state.rangeStartEpoch
+            showMonthPicker(initial)
         }
         btnPickMonth.setOnLongClickListener {
-            showRangePicker()
+            showRangeChoiceMenu()
             true
         }
+        wireMonthSwipeGesture()
 
         viewModel = ViewModelProvider(
             this,
@@ -87,6 +88,11 @@ class AllTransactionsActivity : AppCompatActivity() {
 
         btnAccountFilter = findViewById(R.id.btnAccountFilter)
         btnAccountFilter.setOnClickListener { showAccountFilterMenu() }
+
+        btnThirdPartyOnly = findViewById(R.id.btnThirdPartyOnly)
+        btnThirdPartyOnly.setOnClickListener {
+            viewModel.setThirdPartyOnly(viewModel.uiState.value?.thirdPartyOnly != true)
+        }
 
         cbShowBalance = findViewById(R.id.cbShowBalance)
         cbShowBalance.setOnCheckedChangeListener { _, checked -> viewModel.setShowBalance(checked) }
@@ -133,10 +139,20 @@ class AllTransactionsActivity : AppCompatActivity() {
     }
 
     private fun rangeLabel(state: AllTransactionsUiState): String {
+        if (state.isAllTime) return "All time"
         if (!state.isCustomRange) return monthFmt.format(Date(state.rangeStartEpoch))
         // The stored end is exclusive; show the inclusive day the user actually picked.
         val lastDay = Date(state.rangeEndExclusiveEpoch - 1)
         return "${shortDateFmt.format(Date(state.rangeStartEpoch))} - ${shortDateFmt.format(lastDay)}"
+    }
+
+    /** Long-press on the month button: "All time" jumps straight there; otherwise pick a range. */
+    private fun showRangeChoiceMenu() {
+        AlertDialog.Builder(this)
+            .setItems(arrayOf("All time", "Custom date range")) { _, which ->
+                if (which == 0) viewModel.loadAllTime() else showRangePicker()
+            }
+            .show()
     }
 
     /** Long-press on the month button: pick From, then To. Both ends inclusive. */
@@ -150,6 +166,57 @@ class AllTransactionsActivity : AppCompatActivity() {
                 }
                 // toEpoch is the start of the chosen day; the range must cover all of it.
                 viewModel.loadRange(fromEpoch, toEpoch + DAY_MILLIS, isCustom = true)
+            }
+        }
+    }
+
+    /**
+     * Any vertical drag on the month button changes the month on finger-up, whatever its length or
+     * speed — up for next, down for previous. Only [ViewConfiguration.getScaledTouchSlop] worth of
+     * movement is required, purely to tell a drag apart from a stationary tap; there is no minimum
+     * swipe distance or fling velocity beyond that.
+     *
+     * Implemented as a raw [View.OnTouchListener] rather than a [android.view.GestureDetector]
+     * because a fling detector requires velocity and is built to reject slow drags, which is
+     * exactly what this needs to accept. Once slop is crossed we dispatch ACTION_CANCEL into the
+     * button's own touch handling so its pressed state clears and no click fires alongside the
+     * swipe; a movement that stays under slop is left untouched so tap and long-press keep working.
+     */
+    private fun wireMonthSwipeGesture() {
+        val touchSlop = ViewConfiguration.get(this).scaledTouchSlop
+        var startY = 0f
+        var isDragging = false
+
+        btnPickMonth.setOnTouchListener { view, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    startY = event.rawY
+                    isDragging = false
+                    false
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    if (!isDragging && kotlin.math.abs(event.rawY - startY) > touchSlop) {
+                        isDragging = true
+                        val cancel = MotionEvent.obtain(event).apply { action = MotionEvent.ACTION_CANCEL }
+                        view.onTouchEvent(cancel)
+                        cancel.recycle()
+                    }
+                    isDragging
+                }
+                MotionEvent.ACTION_UP -> {
+                    if (isDragging) {
+                        val movedUp = event.rawY - startY < 0
+                        viewModel.shiftMonth(if (movedUp) 1 else -1)
+                    }
+                    val wasDragging = isDragging
+                    isDragging = false
+                    wasDragging
+                }
+                MotionEvent.ACTION_CANCEL -> {
+                    isDragging = false
+                    false
+                }
+                else -> false
             }
         }
     }
@@ -199,13 +266,14 @@ class AllTransactionsActivity : AppCompatActivity() {
     }
 
     private fun renderFilterBar(state: AllTransactionsUiState) {
-        stylePill(btnPendingOnly, state.pendingOnly)
+        btnPendingOnly.isSelected = state.pendingOnly
+        btnThirdPartyOnly.isSelected = state.thirdPartyOnly
 
         val scope = state.selectedAccountId?.let { id ->
             state.accounts.firstOrNull { it.id == id }?.label ?: state.accountLabels[id]
         }
         btnAccountFilter.text = scope ?: ALL_ACCOUNTS
-        stylePill(btnAccountFilter, scope != null)
+        btnAccountFilter.isSelected = scope != null
 
         findViewById<TextView>(R.id.tvFilterHint).text = if (state.isFiltered) {
             "${state.entries.size} of ${state.totalEntryCount}"
@@ -217,27 +285,18 @@ class AllTransactionsActivity : AppCompatActivity() {
 
         val empty = findViewById<TextView>(R.id.tvAllTransactionsEmpty)
         empty.visibility = if (state.entries.isEmpty()) View.VISIBLE else View.GONE
-        empty.text = when {
-            state.pendingOnly && scope != null -> "Nothing pending review in $scope this month."
-            state.pendingOnly -> "Nothing pending review this month."
-            scope != null -> "Nothing on $scope this month."
-            else -> "No transactions this month."
+        empty.text = if (state.isFiltered) {
+            val reasons = buildList {
+                if (state.pendingOnly) add("pending review")
+                if (state.thirdPartyOnly) add("with neither side me")
+                if (scope != null) add("on $scope")
+            }
+            "Nothing ${reasons.joinToString(", ")} this month."
+        } else {
+            "No transactions this month."
         }
     }
 
-    /**
-     * The app has no selector drawables, so the checked look is built the same way
-     * TransactionEntryActivity styles its actor tiles.
-     */
-    private fun stylePill(view: TextView, active: Boolean) {
-        view.background = GradientDrawable().apply {
-            shape = GradientDrawable.RECTANGLE
-            cornerRadius = dp(16).toFloat()
-            setColor(if (active) Color.parseColor("#006064") else Color.parseColor("#EEEEEE"))
-            setStroke(dp(1), if (active) Color.parseColor("#006064") else Color.parseColor("#DDDDDD"))
-        }
-        view.setTextColor(if (active) Color.parseColor("#FFFFFF") else Color.parseColor("#212121"))
-    }
 
     private fun showAccountFilterMenu() {
         val state = viewModel.uiState.value ?: return
@@ -254,12 +313,6 @@ class AllTransactionsActivity : AppCompatActivity() {
         }
         popup.show()
     }
-
-    private fun dp(value: Int): Int = TypedValue.applyDimension(
-        TypedValue.COMPLEX_UNIT_DIP,
-        value.toFloat(),
-        resources.displayMetrics
-    ).toInt()
 
     private fun showMonthPicker(monthStartEpoch: Long) {
         val selected = Calendar.getInstance().apply { timeInMillis = monthStartEpoch }
@@ -336,7 +389,9 @@ class AllTransactionsActivity : AppCompatActivity() {
             .setMessage(message)
             .setPositiveButton("Delete") { _, _ ->
                 when (entry) {
-                    is LedgerEntry.Tx -> viewModel.deleteTransaction(entry.transaction.id)
+                    is LedgerEntry.Tx -> viewModel.deleteTransaction(entry.transaction.id) { error ->
+                        Toast.makeText(this, error, Toast.LENGTH_LONG).show()
+                    }
                     is LedgerEntry.Transfer -> viewModel.deleteTransfer(entry.transfer.id) { error ->
                         Toast.makeText(this, error, Toast.LENGTH_SHORT).show()
                     }
@@ -410,7 +465,7 @@ class AllTransactionsAdapter(
                     holder.tvPayee.text = withContext(Dispatchers.IO) { tx.resolvePrimaryDisplay(db) }
                 }
                 holder.tvAmount.text = tx.formatPerspectiveAmount()
-                holder.tvAmount.setTextColor(tx.perspectiveColor())
+                holder.tvAmount.setTextColor(tx.perspectiveColor(holder.tvAmount.context))
                 holder.tvNote.text = tx.resolveTypeLabel()
             }
 
@@ -418,7 +473,7 @@ class AllTransactionsAdapter(
                 val transfer = entry.transfer
                 holder.tvPayee.text = transfer.resolvePrimaryDisplay()
                 holder.tvAmount.text = transfer.formatTransferAmount()
-                holder.tvAmount.setTextColor(AmountPerspective.NEUTRAL.color())
+                holder.tvAmount.setTextColor(AmountPerspective.NEUTRAL.color(holder.tvAmount.context))
                 holder.tvNote.text = transfer.resolveRouteLabel(accountLabels)
             }
         }

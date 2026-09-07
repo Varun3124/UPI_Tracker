@@ -4,33 +4,20 @@
     android:layout_width="match_parent"
     android:layout_height="match_parent"
     android:orientation="vertical"
-    android:background="#F5F5F5">
+    android:background="?android:attr/colorBackground">
 
     <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="56dp"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
-        android:padding="12dp"
-        android:background="#FFFFFF">
+        style="@style/Widget.UPI.TopBar">
 
-        <TextView
+        <ImageButton
             android:id="@+id/btnBackResolved"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="←"
-            android:textSize="20sp"
-            android:layout_marginEnd="12dp"
-            android:textColor="#212121" />
+            style="@style/Widget.UPI.IconButton"
+            android:src="@drawable/ic_arrow_back"
+            android:contentDescription="@string/cd_back" />
 
         <TextView
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="Resolved UPI entries"
-            android:textSize="18sp"
-            android:textStyle="bold"
-            android:textColor="#212121" />
+            style="@style/Widget.UPI.TopBarTitle"
+            android:text="Resolved UPI entries" />
     </LinearLayout>
 
     <androidx.recyclerview.widget.RecyclerView

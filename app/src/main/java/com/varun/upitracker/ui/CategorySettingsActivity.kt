@@ -7,15 +7,19 @@ import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.view.ViewCompat
-import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.ViewModelProvider
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.varun.upitracker.R
 import com.varun.upitracker.database.entity.Category
+import com.varun.upitracker.database.entity.CategoryKind
 import com.varun.upitracker.ui.settings.AppViewModelFactory
 import com.varun.upitracker.ui.settings.CategorySettingsViewModel
+import android.widget.ImageButton
+import android.view.View
+import com.varun.upitracker.ui.theme.ThemeAttr
+import com.varun.upitracker.ui.theme.themeColor
+import com.varun.upitracker.ui.theme.padRootForSystemBars
 
 class CategorySettingsActivity : AppCompatActivity() {
 
@@ -33,11 +37,7 @@ class CategorySettingsActivity : AppCompatActivity() {
             AppViewModelFactory(applicationContext)
         )[CategorySettingsViewModel::class.java]
 
-        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main)) { view, insets ->
-            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            view.setPadding(bars.left, bars.top, bars.right, bars.bottom)
-            insets
-        }
+        padRootForSystemBars(R.id.main)
 
         tvEmpty = findViewById(R.id.tvEmptyCategories)
         adapter = CategorySettingsAdapter(
@@ -45,8 +45,8 @@ class CategorySettingsActivity : AppCompatActivity() {
             onDelete = ::showDeleteDialog
         )
 
-        findViewById<TextView>(R.id.btnBackCategories).setOnClickListener { finish() }
-        findViewById<TextView>(R.id.btnAddCategoryToolbar).setOnClickListener { showCreateDialog() }
+        findViewById<ImageButton>(R.id.btnBackCategories).setOnClickListener { finish() }
+        findViewById<View>(R.id.btnAddCategoryToolbar).setOnClickListener { showCreateDialog() }
         findViewById<RecyclerView>(R.id.rvCategories).apply {
             layoutManager = LinearLayoutManager(this@CategorySettingsActivity)
             adapter = this@CategorySettingsActivity.adapter
@@ -66,13 +66,25 @@ class CategorySettingsActivity : AppCompatActivity() {
         viewModel.loadCategories()
     }
 
+    /**
+     * Kind first, then name: it makes the name dialog's title say which direction is being
+     * created, and a category's kind is fixed once splits exist against it.
+     */
     private fun showCreateDialog() {
-        showNameDialog(
-            title = "Add category",
-            initialValue = ""
-        ) { value ->
-            viewModel.createCategory(value, ::showMutationError)
-        }
+        val kinds = arrayOf("Expense - money you spend", "Income - money you receive")
+        AlertDialog.Builder(this)
+            .setTitle("New category")
+            .setItems(kinds) { _, which ->
+                val kind = if (which == 0) CategoryKind.EXPENSE else CategoryKind.INCOME
+                showNameDialog(
+                    title = "Add ${kind.name.lowercase()} category",
+                    initialValue = ""
+                ) { value ->
+                    viewModel.createCategory(value, kind, ::showMutationError)
+                }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     private fun showRenameDialog(category: Category) {
@@ -98,11 +110,11 @@ class CategorySettingsActivity : AppCompatActivity() {
                 return@isCategoryInUse
             }
 
-            viewModel.replacementCategories(category.id) { replacements ->
+            viewModel.replacementCategories(category.id, category.kind) { replacements ->
             if (replacements.isEmpty()) {
                 Toast.makeText(
                     this@CategorySettingsActivity,
-                    "Create another category first so this one can be reassigned.",
+                    "Create another ${category.kind.name.lowercase()} category first so this one can be reassigned.",
                     Toast.LENGTH_SHORT
                 ).show()
                 return@replacementCategories
@@ -165,12 +177,18 @@ private class CategorySettingsAdapter(
     override fun onBindViewHolder(holder: VH, position: Int) {
         val category = items[position]
         holder.tvName.text = category.name
+        val isExpense = category.kind == CategoryKind.EXPENSE
+        holder.tvKind.text = if (isExpense) "Expense" else "Income"
+        holder.tvKind.setTextColor(
+            holder.tvKind.themeColor(if (isExpense) ThemeAttr.negative else ThemeAttr.positive)
+        )
         holder.btnRename.setOnClickListener { onRename(category) }
         holder.btnDelete.setOnClickListener { onDelete(category) }
     }
 
     class VH(view: android.view.View) : RecyclerView.ViewHolder(view) {
         val tvName: TextView = view.findViewById(R.id.tvCategoryName)
+        val tvKind: TextView = view.findViewById(R.id.tvCategoryKind)
         val btnRename: TextView = view.findViewById(R.id.btnRenameCategory)
         val btnDelete: TextView = view.findViewById(R.id.btnDeleteCategory)
     }

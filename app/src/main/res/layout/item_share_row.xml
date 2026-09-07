@@ -1,10 +1,11 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/shareRowCard"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:layout_marginTop="8dp"
-    android:background="#202020"
+    android:background="@drawable/bg_surface_variant_rounded"
     android:gravity="center_vertical"
     android:orientation="horizontal"
     android:paddingStart="10dp"
@@ -14,12 +15,8 @@
 
     <TextView
         android:id="@+id/tvShareAvatar"
-        android:layout_width="36dp"
-        android:layout_height="36dp"
-        android:gravity="center"
-        android:textColor="#FFFFFF"
-        android:textSize="12sp"
-        android:textStyle="bold" />
+        style="@style/Widget.UPI.Avatar.Small"
+        android:contentDescription="@string/cd_avatar" />
 
     <AutoCompleteTextView
         android:id="@+id/etShareName"
@@ -32,8 +29,8 @@
         android:hint="Alias"
         android:imeOptions="actionDone"
         android:inputType="textCapWords"
-        android:textColor="#FFFFFF"
-        android:textColorHint="#555555"
+        android:textColor="?attr/colorOnSurface"
+        android:textColorHint="?attr/appTextMuted"
         android:textSize="14sp" />
 
     <EditText
@@ -46,16 +43,17 @@
         android:hint="0"
         android:imeOptions="actionDone"
         android:inputType="numberDecimal"
-        android:textColor="#FFFFFF"
-        android:textColorHint="#555555"
+        android:textColor="?attr/colorOnSurface"
+        android:textColorHint="?attr/appTextMuted"
         android:textSize="14sp" />
 
-    <TextView
+    <ImageButton
         android:id="@+id/btnRemoveShare"
-        android:layout_width="32dp"
-        android:layout_height="32dp"
-        android:gravity="center"
-        android:text="x"
-        android:textColor="#C62828"
-        android:textSize="16sp" />
+        style="@style/Widget.UPI.IconButton"
+        android:layout_width="40dp"
+        android:layout_height="40dp"
+        android:padding="@dimen/space_s"
+        android:src="@drawable/ic_close"
+        app:tint="?attr/appNegative"
+        android:contentDescription="@string/cd_remove" />
 </LinearLayout>

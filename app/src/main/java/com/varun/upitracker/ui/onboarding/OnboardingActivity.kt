@@ -25,8 +25,6 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
-import androidx.core.view.ViewCompat
-import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
@@ -34,6 +32,8 @@ import androidx.lifecycle.repeatOnLifecycle
 import com.varun.upitracker.R
 import com.varun.upitracker.ui.dashboard.DashboardActivity
 import kotlinx.coroutines.launch
+import com.varun.upitracker.ui.theme.padRootForSystemBars
+import android.widget.ImageButton
 
 class OnboardingActivity : AppCompatActivity() {
 
@@ -77,11 +77,7 @@ class OnboardingActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_onboarding)
 
-        ViewCompat.setOnApplyWindowInsetsListener(findViewById(R.id.main)) { v, insets ->
-            val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            v.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom)
-            insets
-        }
+        padRootForSystemBars(R.id.main)
 
         // Screens
         screenPermissions = findViewById(R.id.screenPermissions)
@@ -192,7 +188,7 @@ class OnboardingActivity : AppCompatActivity() {
             if (savingsIndex >= 0) spFirst.setSelection(savingsIndex)
 
             // Hide/remove button for the compulsory row
-            val btnRemoveFirst = firstRow.findViewById<TextView>(R.id.btnRemoveRow)
+            val btnRemoveFirst = firstRow.findViewById<ImageButton>(R.id.btnRemoveRow)
             btnRemoveFirst.visibility = View.GONE
 
             // Prefill label to 'Savings' if empty
@@ -205,7 +201,7 @@ class OnboardingActivity : AppCompatActivity() {
         val row = LayoutInflater.from(this)
             .inflate(R.layout.item_account_input_row, accountInputContainer, false)
 
-        val btnRemove = row.findViewById<TextView>(R.id.btnRemoveRow)
+        val btnRemove = row.findViewById<ImageButton>(R.id.btnRemoveRow)
         btnRemove.setOnClickListener {
             accountInputContainer.removeView(row)
         }

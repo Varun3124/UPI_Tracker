@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <androidx.cardview.widget.CardView xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
@@ -21,7 +21,19 @@
             android:layout_weight="1"
             android:textSize="15sp"
             android:textStyle="bold"
-            android:textColor="#212121" />
+            android:textColor="?attr/colorOnSurface" />
+
+        <TextView
+            android:id="@+id/tvCategoryKind"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="8dp"
+            android:paddingStart="8dp"
+            android:paddingEnd="8dp"
+            android:paddingTop="2dp"
+            android:paddingBottom="2dp"
+            android:textSize="11sp"
+            android:textAllCaps="true" />
 
         <TextView
             android:id="@+id/btnRenameCategory"
@@ -29,7 +41,7 @@
             android:layout_height="wrap_content"
             android:text="Rename"
             android:textSize="12sp"
-            android:textColor="#2E7D32"
+            android:textColor="?attr/appPositive"
             android:paddingStart="12dp"
             android:paddingEnd="12dp" />
 
@@ -39,6 +51,6 @@
             android:layout_height="wrap_content"
             android:text="Delete"
             android:textSize="12sp"
-            android:textColor="#C62828" />
+            android:textColor="?attr/appNegative" />
     </LinearLayout>
 </androidx.cardview.widget.CardView>

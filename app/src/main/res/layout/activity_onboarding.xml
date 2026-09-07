@@ -1,9 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/main"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#FFFFFF">
+    android:background="?attr/colorSurface">
 
     <!-- Screen 1: Permissions -->
     <LinearLayout
@@ -20,7 +21,7 @@
             android:layout_height="wrap_content"
             android:layout_marginBottom="8dp"
             android:text="UPI Tracker"
-            android:textColor="#212121"
+            android:textColor="?attr/colorOnSurface"
             android:textSize="28sp"
             android:textStyle="bold" />
 
@@ -29,7 +30,7 @@
             android:layout_height="wrap_content"
             android:layout_marginBottom="48dp"
             android:text="Grant permissions to get started"
-            android:textColor="#888888"
+            android:textColor="?attr/appTextMuted"
             android:textSize="15sp" />
 
         <Button
@@ -68,7 +69,7 @@
             android:layout_height="wrap_content"
             android:layout_marginBottom="8dp"
             android:text="Add your accounts"
-            android:textColor="#212121"
+            android:textColor="?attr/colorOnSurface"
             android:textSize="24sp"
             android:textStyle="bold" />
 
@@ -77,7 +78,7 @@
             android:layout_height="wrap_content"
             android:layout_marginBottom="24dp"
             android:text="You can add more later from the dashboard"
-            android:textColor="#888888"
+            android:textColor="?attr/appTextMuted"
             android:textSize="13sp" />
 
         <ScrollView
@@ -98,7 +99,9 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginBottom="12dp"
-            android:text="+ Add Account" />
+            android:text="Add account"
+            app:icon="@drawable/ic_add"
+            app:iconGravity="start" />
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -135,7 +138,7 @@
             android:layout_height="wrap_content"
             android:text="Scanning your last 30 days of messages…"
             android:textSize="16sp"
-            android:textColor="#212121"
+            android:textColor="?attr/colorOnSurface"
             android:gravity="center"/>
     </LinearLayout>
 

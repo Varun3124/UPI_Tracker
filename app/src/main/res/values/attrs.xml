@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!--
+      Material3 has no attribute meaning "an amount that went up" or "a merchant's avatar", so the
+      app declares its own. Everything that maps cleanly onto a stock M3 role (primary, surface,
+      outline, error, ...) uses the stock attribute instead and is not repeated here.
+
+      Read these with MaterialColors.getColor(view, R.attr.appPositive) from Kotlin, or ?attr/
+      from a layout.
+    -->
+    <attr name="appPositive" format="color" />
+    <attr name="appNegative" format="color" />
+    <attr name="appWarning" format="color" />
+    <attr name="appAmountNeutral" format="color" />
+
+    <attr name="appPositiveContainer" format="color" />
+    <attr name="appOnPositiveContainer" format="color" />
+    <attr name="appNegativeContainer" format="color" />
+    <attr name="appOnNegativeContainer" format="color" />
+
+    <attr name="appTextMuted" format="color" />
+
+    <attr name="appAvatarMe" format="color" />
+    <attr name="appOnAvatarMe" format="color" />
+    <attr name="appAvatarFriend" format="color" />
+    <attr name="appOnAvatarFriend" format="color" />
+    <attr name="appAvatarMerchant" format="color" />
+    <attr name="appOnAvatarMerchant" format="color" />
+
+    <attr name="appChartGrid" format="color" />
+    <attr name="appChartZeroLine" format="color" />
+    <attr name="appChartAxisLabel" format="color" />
+    <attr name="appChartTrack" format="color" />
+    <attr name="appChartNeutral" format="color" />
+
+</resources>

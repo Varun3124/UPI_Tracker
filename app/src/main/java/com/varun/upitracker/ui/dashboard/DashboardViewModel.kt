@@ -9,15 +9,17 @@ import androidx.lifecycle.viewModelScope
 import com.varun.upitracker.data.repository.AccountRepository
 import com.varun.upitracker.data.repository.LedgerRepository
 import com.varun.upitracker.database.AppDatabase
+import com.varun.upitracker.domain.statistics.StatisticsPeriods
+import com.varun.upitracker.domain.statistics.StatsPeriod
 import com.varun.upitracker.sms.SmsBacklogScanner
 import com.varun.upitracker.ui.LedgerEntry
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.util.Calendar
 
 data class DashboardUiState(
     val dailySpendPaise: Long = 0L,
+    val weeklySpendPaise: Long = 0L,
     val monthlySpendPaise: Long = 0L,
     val recentEntries: List<LedgerEntry> = emptyList(),
     val accountLabels: Map<String, String> = emptyMap(),
@@ -38,8 +40,9 @@ class DashboardViewModel(private val context: Context) : ViewModel() {
                 val transactions = db.transactionDao().getRecentTransactions(5).map(LedgerEntry::Tx)
                 val transfers = db.accountTransferDao().getRecentTransfers(5).map(LedgerEntry::Transfer)
                 DashboardUiState(
-                    dailySpendPaise = accountRepository.getSpendSince(startOfDay(now)),
-                    monthlySpendPaise = accountRepository.getSpendSince(startOfMonth(now)),
+                    dailySpendPaise = accountRepository.getSpendSince(spendFrom(StatsPeriod.DAILY, now)),
+                    weeklySpendPaise = accountRepository.getSpendSince(spendFrom(StatsPeriod.WEEKLY, now)),
+                    monthlySpendPaise = accountRepository.getSpendSince(spendFrom(StatsPeriod.MONTHLY, now)),
                     recentEntries = (transactions + transfers)
                         .sortedByDescending { it.dateEpoch }
                         .take(5),
@@ -55,24 +58,17 @@ class DashboardViewModel(private val context: Context) : ViewModel() {
         viewModelScope.launch(Dispatchers.IO) { SmsBacklogScanner(context.applicationContext).scan() }
     }
 
-    private fun startOfDay(now: Long): Long {
-        val cal = Calendar.getInstance().apply { timeInMillis = now }
-        cal.set(Calendar.HOUR_OF_DAY, 0)
-        cal.set(Calendar.MINUTE, 0)
-        cal.set(Calendar.SECOND, 0)
-        cal.set(Calendar.MILLISECOND, 0)
-        return cal.timeInMillis
-    }
-
-    private fun startOfMonth(now: Long): Long {
-        val cal = Calendar.getInstance().apply { timeInMillis = now }
-        cal.set(Calendar.DAY_OF_MONTH, 1)
-        cal.set(Calendar.HOUR_OF_DAY, 0)
-        cal.set(Calendar.MINUTE, 0)
-        cal.set(Calendar.SECOND, 0)
-        cal.set(Calendar.MILLISECOND, 0)
-        return cal.timeInMillis
-    }
+    /**
+     * The lower bound [AccountRepository.getSpendSince] wants, which is **exclusive**.
+     *
+     * Passing a start-of-period epoch straight in drops anything dated exactly at midnight, and
+     * `XlsStatementReader.parseDate` gives every statement-imported row exactly midnight -- so a
+     * row imported today was never counted in Today, and one dated the 1st never counted in This
+     * Month. [StatisticsPeriods] already returns the corrected bound, and using it here is also
+     * what keeps these figures agreeing with the statistics screen they open.
+     */
+    private fun spendFrom(period: StatsPeriod, now: Long): Long =
+        StatisticsPeriods.rangeFor(period, now).fromExclusive
 }
 
 class DashboardViewModelFactory(private val context: Context) : ViewModelProvider.Factory {

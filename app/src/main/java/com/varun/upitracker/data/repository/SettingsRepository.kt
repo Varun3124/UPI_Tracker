@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.room.withTransaction
 import com.varun.upitracker.database.AppDatabase
 import com.varun.upitracker.database.entity.Category
+import com.varun.upitracker.database.entity.CategoryKind
 import com.varun.upitracker.database.entity.Friend
 import com.varun.upitracker.database.entity.FriendRawName
 import com.varun.upitracker.database.entity.FriendUpiId
@@ -15,6 +16,7 @@ import com.varun.upitracker.database.entity.TransactionCategorySplit
 import com.varun.upitracker.database.model.FriendAliasBundle
 import com.varun.upitracker.database.model.MerchantAliasBundle
 import com.varun.upitracker.sms.SmsBacklogScanner
+import com.varun.upitracker.util.initialsOf
 
 class SettingsRepository(private val context: Context) {
 
@@ -31,18 +33,24 @@ class SettingsRepository(private val context: Context) {
             db.categoryDao().getSplitCount(categoryId) > 0
     }
 
-    suspend fun getReplacementCategories(excludingCategoryId: Long): List<Category> {
+    /**
+     * Reassignment targets for a category being deleted.
+     *
+     * Same-kind only: reassigning expense splits onto an income category would move that money
+     * out of expense reporting entirely.
+     */
+    suspend fun getReplacementCategories(excludingCategoryId: Long, kind: CategoryKind): List<Category> {
         return db.categoryDao()
-            .getAllCategoriesSync()
+            .getCategoriesByKindSync(kind)
             .filter { it.id != excludingCategoryId }
     }
 
-    suspend fun createCategory(name: String) {
+    suspend fun createCategory(name: String, kind: CategoryKind) {
         val normalizedName = requireName(name, "Category")
         db.withTransaction {
-            val existing = db.categoryDao().findByNormalizedName(normalizedName)
+            val existing = db.categoryDao().findByNormalizedName(normalizedName, kind)
             if (existing == null) {
-                db.categoryDao().insertCategory(Category(name = normalizedName))
+                db.categoryDao().insertCategory(Category(name = normalizedName, kind = kind))
             } else if (existing.name != normalizedName) {
                 db.categoryDao().updateCategory(existing.copy(name = normalizedName))
             }
@@ -54,7 +62,9 @@ class SettingsRepository(private val context: Context) {
         db.withTransaction {
             val source = db.categoryDao().getCategoryById(categoryId)
                 ?: throw SettingsMutationException("Category no longer exists.")
-            val existing = db.categoryDao().findByNormalizedName(normalizedName)
+            // Scoped to the source's own kind: without it, renaming the expense "Gift given" to
+            // "Gift received" would find the INCOME row and merge every expense split into it.
+            val existing = db.categoryDao().findByNormalizedName(normalizedName, source.kind)
             when {
                 existing == null -> db.categoryDao().updateCategory(source.copy(name = normalizedName))
                 existing.id == source.id -> db.categoryDao().updateCategory(source.copy(name = normalizedName))
@@ -85,6 +95,9 @@ class SettingsRepository(private val context: Context) {
             }
             val replacement = db.categoryDao().getCategoryById(replacementId)
                 ?: throw SettingsMutationException("Replacement category no longer exists.")
+            if (replacement.kind != category.kind) {
+                throw SettingsMutationException("Replacement must be a ${category.kind.name.lowercase()} category.")
+            }
             mergeCategoryInto(category.id, replacement.id)
         }
     }
@@ -195,73 +208,17 @@ class SettingsRepository(private val context: Context) {
         db.withTransaction { db.merchantDao().deleteUpiId(upiId) }
     }
 
-    suspend fun moveFriendRawName(mappingId: Long, destinationAlias: String) {
-        db.withTransaction {
-            val target = getOrCreateFriendAlias(destinationAlias)
-            db.friendDao().reassignRawName(mappingId, target.id)
-        }
-    }
 
-    suspend fun moveFriendUpiId(mappingId: Long, destinationAlias: String) {
-        db.withTransaction {
-            val target = getOrCreateFriendAlias(destinationAlias)
-            db.friendDao().reassignUpiId(mappingId, target.id)
-        }
-    }
-
-    suspend fun moveMerchantRawName(mappingId: Long, destinationAlias: String) {
-        db.withTransaction {
-            val target = getOrCreateMerchantAlias(destinationAlias)
-            db.merchantDao().reassignRawName(mappingId, target.id)
-        }
-    }
-
-    suspend fun moveMerchantUpiId(mappingId: Long, destinationAlias: String) {
-        db.withTransaction {
-            val target = getOrCreateMerchantAlias(destinationAlias)
-            db.merchantDao().reassignUpiId(mappingId, target.id)
-        }
-    }
-
-    private suspend fun getOrCreateFriendAlias(name: String): Friend {
-        val alias = requireName(name, "Destination alias")
-        val existing = db.friendDao().findByNormalizedName(alias)
-        if (existing != null) {
-            if (existing.name != alias) {
-                db.friendDao().updateFriend(existing.copy(name = alias, avatarInitials = aliasInitials(alias)))
-            }
-            return existing.copy(name = alias, avatarInitials = aliasInitials(alias))
-        }
-        val id = db.friendDao().insertFriend(
-            Friend(
-                name = alias,
-                avatarInitials = aliasInitials(alias),
-                addedEpoch = System.currentTimeMillis()
-            )
-        )
-        return db.friendDao().getFriendById(id) ?: throw SettingsMutationException("Could not create destination alias.")
-    }
-
-    private suspend fun getOrCreateMerchantAlias(name: String): Merchant {
-        val alias = requireName(name, "Destination alias")
-        val existing = db.merchantDao().findByNormalizedName(alias)
-        if (existing != null) {
-            if (existing.name != alias) {
-                db.merchantDao().updateMerchant(existing.copy(name = alias))
-            }
-            return existing.copy(name = alias)
-        }
-        val id = db.merchantDao().insertMerchant(
-            Merchant(
-                name = alias,
-                addedEpoch = System.currentTimeMillis()
-            )
-        )
-        return db.merchantDao().getMerchantById(id) ?: throw SettingsMutationException("Could not create destination alias.")
-    }
-
+    /** Folds [sourceId]'s merchant links and splits into [targetId], then deletes the source. */
     private suspend fun mergeCategoryInto(sourceId: Long, targetId: Long) {
         if (sourceId == targetId) return
+        // Last line of defence: every caller is meant to have kind-scoped its lookup already,
+        // and a cross-kind merge silently moves money between income and expense reporting.
+        val source = db.categoryDao().getCategoryById(sourceId)
+        val target = db.categoryDao().getCategoryById(targetId)
+        if (source != null && target != null && source.kind != target.kind) {
+            throw SettingsMutationException("Cannot merge an income category with an expense one.")
+        }
         db.categoryDao().getMerchantIdsForCategory(sourceId).forEach { merchantId ->
             db.categoryDao().linkMerchantCategory(MerchantCategory(merchantId = merchantId, categoryId = targetId))
             db.categoryDao().unlinkMerchantCategory(MerchantCategory(merchantId = merchantId, categoryId = sourceId))
@@ -328,13 +285,8 @@ class SettingsRepository(private val context: Context) {
         return db.transactionDao().countReferencesForMerchant(merchantId) > 0
     }
 
-    private fun aliasInitials(label: String): String {
-        val initials = label.split(" ")
-            .filter { it.isNotBlank() }
-            .take(2)
-            .joinToString("") { it.first().uppercaseChar().toString() }
-        return initials.ifBlank { "F" }
-    }
+    /** Stored in `Friend.avatarInitials`, so the fallback stays "F" exactly as it was. */
+    private fun aliasInitials(label: String): String = initialsOf(label, fallback = "F")
 
     private fun requireName(value: String, label: String): String {
         val name = value.trim()

@@ -1,23 +1,32 @@
 package com.varun.upitracker.domain.transactionentry.persistence
 
-import com.varun.upitracker.database.AppDatabase
+import com.varun.upitracker.database.entity.LedgerEffect
 import com.varun.upitracker.database.entity.TransactionShare
-import com.varun.upitracker.ledger.LedgerManager
+import com.varun.upitracker.ledger.LedgerPort
 import com.varun.upitracker.ui.ActorRef
 import com.varun.upitracker.ui.ActorType
 import com.varun.upitracker.ui.meShareOnSide
 
 class LedgerPostingService {
 
+    /**
+     * Applies [transactionId]'s effect on what ME and friends owe each other.
+     *
+     * [ledgerEffect] is the only explicit input; everything below it still infers
+     * settlement-vs-new-debt from actor types and share emptiness, exactly as before.
+     */
     suspend fun postLedger(
-        db: AppDatabase,
+        ledger: LedgerPort,
         transactionId: Long,
         payer: ActorRef,
         payee: ActorRef,
         shares: List<TransactionShare>,
-        amountPaise: Long
+        amountPaise: Long,
+        ledgerEffect: LedgerEffect
     ) {
-        val ledger = LedgerManager(db)
+        // A gift in either direction. Without this the FRIEND -> ME branch below would treat it
+        // as a repayment and settle debt the friend still genuinely owes.
+        if (ledgerEffect == LedgerEffect.NONE) return
 
         if (payer.actorType == ActorType.FRIEND
             && payee.actorType == ActorType.ME

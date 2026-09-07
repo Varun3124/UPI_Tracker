@@ -2,7 +2,11 @@ package com.varun.upitracker.data.repository
 
 import androidx.lifecycle.LiveData
 import androidx.room.withTransaction
+import com.varun.upitracker.domain.AccountTypes
+import com.varun.upitracker.database.model.CategoryTotal
+import com.varun.upitracker.database.model.PayeeTotal
 import com.varun.upitracker.database.AppDatabase
+import com.varun.upitracker.database.entity.CategoryKind
 import com.varun.upitracker.database.entity.Account
 import com.varun.upitracker.database.entity.AccountTransfer
 import com.varun.upitracker.database.entity.AccountTransferType
@@ -77,7 +81,7 @@ class AccountRepository private constructor(
     }
 
     suspend fun getTransactionAccounts(): List<Account> {
-        return database.accountDao().getActiveByTypes(listOf(AccountType.CASH, AccountType.SAVINGS))
+        return database.accountDao().getActiveByTypes(AccountTypes.LIQUID)
     }
 
     suspend fun setDefault(accountId: String) {
@@ -303,8 +307,8 @@ class AccountRepository private constructor(
      * `transactions.id`; they are removed explicitly anyway so the cleanup does not depend on the
      * foreign-keys pragma being on.
      *
-     * @throws AccountMutationException if the transfer is invalid, or if its `statementRefNo` is
-     *   already held by another transfer.
+     * @throws AccountMutationException if the transfer is invalid, if its `statementRefNo` is
+     *   already held by another transfer, or if a refund is linked to the transaction.
      */
     suspend fun convertTransactionToTransfer(transactionId: Long, transfer: AccountTransfer) {
         validateTransfer(transfer)
@@ -312,6 +316,13 @@ class AccountRepository private constructor(
             if (database.accountTransferDao().findByStatementRefNo(ref) != null) {
                 throw AccountMutationException("A transfer for this statement row already exists.")
             }
+        }
+        // `refundsTransactionId` is RESTRICT, so this delete would throw a raw
+        // SQLiteConstraintException from inside the transaction. Fail with a readable message.
+        if (database.transactionDao().getRefundIdsForOriginal(transactionId).isNotEmpty()) {
+            throw AccountMutationException(
+                "A refund is linked to this transaction. Delete or unlink the refund first."
+            )
         }
         database.withTransaction {
             database.iouDao().deleteForTransaction(transactionId)
@@ -363,15 +374,45 @@ class AccountRepository private constructor(
     }
 
     /**
-     * Total spend since [fromEpoch], as the negated sum of every account's spend delta. Transfers
-     * contribute automatically: equal legs net to zero, a fee shows up as spend.
-     *
-     * Uses [sumSpendDeltas], not [sumDeltas] — see the former for why the two differ.
+     * Total spend since [fromEpoch]: ME's expense total (not scoped to an account — see
+     * [TransactionDao.getExpenseTotalBetween] for why) plus every account's transfer delta, negated.
+     * Transfers contribute automatically: equal legs net to zero, a fee shows up as spend.
      */
-    suspend fun getSpendSince(fromEpoch: Long): Long =
-        -database.accountDao().getAllSync().sumOf { account ->
-            sumSpendDeltas(account.id, fromEpoch, Long.MAX_VALUE)
+    suspend fun getSpendSince(fromEpoch: Long): Long {
+        val expense = database.transactionDao()
+            .getExpenseTotalBetween(fromEpoch, Long.MAX_VALUE)
+        val transferSpend = -database.accountDao().getAllSync().sumOf { account ->
+            sumTransferDeltas(account.id, fromEpoch, Long.MAX_VALUE)
         }
+        return expense + transferSpend
+    }
+
+    /**
+     * Category breakdown over `(fromEpoch, toEpoch]`, newest-largest first.
+     *
+     * Shares its rules with [getSpendSince] by construction -- both legs come from
+     * [com.varun.upitracker.database.dao.TransactionDao.getTotalsByCategoryBetween], which mirrors
+     * `getExpenseTotalBetween`. The one deliberate difference is transfers: a transfer fee is
+     * spend but belongs to no category, so it counts in [getSpendSince] and not here.
+     */
+    suspend fun getTotalsByCategory(
+        kind: CategoryKind,
+        fromEpoch: Long,
+        toEpoch: Long = Long.MAX_VALUE
+    ): List<CategoryTotal> = database.transactionDao()
+        .getTotalsByCategoryBetween(kind, fromEpoch, toEpoch)
+
+    /**
+     * Who was paid within [categoryId] over `(fromEpoch, toEpoch]`. Sums to that category's own
+     * total from [getTotalsByCategory] over the same window.
+     */
+    suspend fun getPayeeTotalsForCategory(
+        kind: CategoryKind,
+        categoryId: Long,
+        fromEpoch: Long,
+        toEpoch: Long = Long.MAX_VALUE
+    ): List<PayeeTotal> = database.transactionDao()
+        .getPayeeTotalsForCategoryBetween(kind, categoryId, fromEpoch, toEpoch)
 
     suspend fun bookFixedDeposit(
         accountId: String,
@@ -431,22 +472,6 @@ class AccountRepository private constructor(
         return transactionDelta + sumTransferDeltas(accountId, fromEpochExclusive, toEpochInclusive)
     }
 
-    /**
-     * The spend equivalent of [sumDeltas]. Deliberately a narrower question: only your share of
-     * reviewed merchant transactions, so money lent to a friend and later repaid never counts as
-     * spend even though it does move the balance.
-     */
-    private suspend fun sumSpendDeltas(
-        accountId: String,
-        fromEpochExclusive: Long,
-        toEpochInclusive: Long
-    ): Long {
-        val spendDelta = balanceDataSource
-            .getSpendDeltaSum(accountId, fromEpochExclusive, toEpochInclusive)
-
-        return spendDelta + sumTransferDeltas(accountId, fromEpochExclusive, toEpochInclusive)
-    }
-
     private suspend fun sumTransferDeltas(
         accountId: String,
         fromEpochExclusive: Long,
@@ -462,13 +487,6 @@ internal interface AccountBalanceDataSource {
 
     /** Balance movement: whole amounts, any counterparty, pending rows included. */
     suspend fun getTransactionDeltaSum(
-        accountId: String,
-        fromEpochExclusive: Long,
-        toEpochInclusive: Long
-    ): Long
-
-    /** Spend: your share of reviewed merchant transactions only. */
-    suspend fun getSpendDeltaSum(
         accountId: String,
         fromEpochExclusive: Long,
         toEpochInclusive: Long
@@ -495,15 +513,6 @@ private class RoomAccountBalanceDataSource(private val db: AppDatabase) : Accoun
     ): Long {
         return db.transactionDao()
             .getAccountBalanceDeltaBetween(accountId, fromEpochExclusive, toEpochInclusive) ?: 0L
-    }
-
-    override suspend fun getSpendDeltaSum(
-        accountId: String,
-        fromEpochExclusive: Long,
-        toEpochInclusive: Long
-    ): Long {
-        return db.transactionDao()
-            .getTotalDeltaBetweenForAccount(accountId, fromEpochExclusive, toEpochInclusive) ?: 0L
     }
 
     override suspend fun getTransferDeltasBetween(

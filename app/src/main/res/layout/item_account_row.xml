@@ -34,7 +34,7 @@
                     android:layout_height="wrap_content"
                     android:textSize="15sp"
                     android:textStyle="bold"
-                    android:textColor="#212121" />
+                    android:textColor="?attr/colorOnSurface" />
 
                 <TextView
                     android:id="@+id/tvAccountMeta"
@@ -42,7 +42,7 @@
                     android:layout_height="wrap_content"
                     android:layout_marginTop="3dp"
                     android:textSize="12sp"
-                    android:textColor="#757575" />
+                    android:textColor="?attr/colorOnSurfaceVariant" />
             </LinearLayout>
 
             <TextView
@@ -51,7 +51,7 @@
                 android:layout_height="wrap_content"
                 android:textSize="15sp"
                 android:textStyle="bold"
-                android:textColor="#212121" />
+                android:textColor="?attr/colorOnSurface" />
         </LinearLayout>
 
         <LinearLayout

@@ -43,6 +43,20 @@ interface AccountTransferDao {
     suspend fun getTransfersBetween(fromEpoch: Long, toEpoch: Long): List<AccountTransfer>
 
     /**
+     * The oldest transfer touching any scoped account, or null if there is none.
+     *
+     * Either leg counts: money arriving is as much a starting point for the balance line as money
+     * leaving. An external leg is null and is excluded for free.
+     */
+    @Query(
+        """
+        SELECT MIN(dateEpoch) FROM account_transfer
+        WHERE fromAccountId IN (:accountIds) OR toAccountId IN (:accountIds)
+        """
+    )
+    suspend fun getEarliestDateEpochForAccounts(accountIds: List<String>): Long?
+
+    /**
      * Half-open `(fromEpochExclusive, toEpochInclusive]` because this serves snapshot-relative
      * balance derivation: a transfer dated exactly at the anchoring snapshot must not be counted
      * on top of that snapshot's balance.

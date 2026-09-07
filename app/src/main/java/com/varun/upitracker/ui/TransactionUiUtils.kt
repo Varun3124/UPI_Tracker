@@ -1,9 +1,12 @@
 package com.varun.upitracker.ui
 
-import android.graphics.Color
+import android.content.Context
 import com.varun.upitracker.database.AppDatabase
 import com.varun.upitracker.database.entity.Transaction
 import com.varun.upitracker.database.entity.TransactionShare
+import com.varun.upitracker.ui.theme.ThemeAttr
+import com.varun.upitracker.ui.theme.themeColor
+import com.varun.upitracker.util.AmountFormat
 
 object ActorType {
     const val ME = "ME"
@@ -89,30 +92,30 @@ fun Transaction.amountPerspective(): AmountPerspective {
     }
 }
 
-fun AmountPerspective.color(): Int = when (this) {
-    AmountPerspective.OUTGOING -> Color.parseColor("#C62828")
-    AmountPerspective.INCOMING -> Color.parseColor("#2E7D32")
-    AmountPerspective.NEUTRAL -> Color.parseColor("#AAAAAA")
+/**
+ * The theme attribute an amount of this direction is painted with. Kept separate from [color] so a
+ * caller holding only a `View` can tint without reaching for a Context.
+ */
+fun AmountPerspective.colorAttr(): Int = when (this) {
+    AmountPerspective.OUTGOING -> ThemeAttr.negative
+    AmountPerspective.INCOMING -> ThemeAttr.positive
+    AmountPerspective.NEUTRAL -> ThemeAttr.amountNeutral
 }
 
-fun Transaction.perspectiveColor(): Int = amountPerspective().color()
+fun AmountPerspective.color(context: Context): Int = context.themeColor(colorAttr())
+
+fun Transaction.perspectiveColor(context: Context): Int = amountPerspective().color(context)
 
 /**
- * Rupees with thousands separators, e.g. `Rs1,23,456`. Signed, so a negative balance reads
- * `-Rs500` rather than `Rs-500`.
- *
- * The project otherwise hand-inlines `"Rs" + paise / 100.0` at around twenty sites across three
- * precisions; new code should come here instead of adding a fourth.
+ * The UI layer's name for [AmountFormat.rupees]. Kept because a good many call sites read better
+ * with it, but it holds no formatting logic of its own -- the rules, including the grouping
+ * threshold, live in one place.
  */
-fun formatRupees(paise: Long): String {
-    val sign = if (paise < 0) "-" else ""
-    val whole = kotlin.math.abs(paise) / 100.0
-    return sign + "Rs" + java.text.NumberFormat.getIntegerInstance(java.util.Locale("en", "IN"))
-        .format(whole.toLong())
-}
+fun formatRupees(paise: Long): String = AmountFormat.rupees(paise)
 
+/** Signed by direction: an amount you paid reads `-`, one you received reads `+`. */
 fun Transaction.formatPerspectiveAmount(): String {
-    val amount = "Rs${"%.0f".format(amountPaise / 100.0)}"
+    val amount = AmountFormat.rupees(amountPaise)
     return when (amountPerspective()) {
         AmountPerspective.OUTGOING -> "-$amount"
         AmountPerspective.INCOMING -> "+$amount"

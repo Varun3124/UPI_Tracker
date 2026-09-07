@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+
+    <!--
+      Category fills - DARK. Same sixteen hues in the same order as values/arrays.xml, lifted to
+      ~300 weights so they read as fills on the navy card (#242E49) rather than disappearing into
+      it. Keep the two arrays the same length and the same order; only the tone differs.
+    -->
+    <array name="chart_category_colors">
+        <item>#6FB3F0</item> <!-- blue -->
+        <item>#E8798D</item> <!-- crimson (brand) -->
+        <item>#58C9A2</item> <!-- teal green -->
+        <item>#FDA481</item> <!-- peach (brand) -->
+        <item>#C08BE0</item> <!-- purple -->
+        <item>#4FC5D8</item> <!-- cyan -->
+        <item>#F080AC</item> <!-- pink -->
+        <item>#A8CE74</item> <!-- olive green -->
+        <item>#97A4D4</item> <!-- slate (brand) -->
+        <item>#F79268</item> <!-- deep orange -->
+        <item>#4FC3B4</item> <!-- teal -->
+        <item>#A396EE</item> <!-- deep purple -->
+        <item>#D2D96B</item> <!-- lime -->
+        <item>#6EC1F5</item> <!-- light blue -->
+        <item>#C69A86</item> <!-- brown -->
+        <item>#9AA7BC</item> <!-- blue grey -->
+    </array>
+
+</resources>

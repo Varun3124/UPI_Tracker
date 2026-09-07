@@ -1,0 +1,415 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/main"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="?android:attr/colorBackground"
+    android:orientation="vertical">
+
+    <LinearLayout
+        style="@style/Widget.UPI.TopBar">
+
+        <ImageButton
+            android:id="@+id/btnBackStats"
+            style="@style/Widget.UPI.IconButton"
+            android:src="@drawable/ic_arrow_back"
+            android:contentDescription="@string/cd_back" />
+
+        <TextView
+            style="@style/Widget.UPI.TopBarTitle"
+            android:text="Statistics" />
+
+        <!-- Same shape and styling as btnPickMonth on All Transactions: flat, not a pill. -->
+        <TextView
+            android:id="@+id/btnPickPeriod"
+            android:layout_width="wrap_content"
+            android:layout_height="36dp"
+            android:background="?attr/colorSurfaceVariant"
+            android:gravity="center"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:textColor="?attr/colorOnSurface"
+            android:textSize="13sp"
+            android:textStyle="bold" />
+    </LinearLayout>
+
+    <!-- Two pills rather than a TabLayout: the app has none, and the closest existing idiom for a
+         mutually exclusive choice is the pill row on All Transactions. -->
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="?attr/colorSurface"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:paddingBottom="10dp">
+
+        <TextView
+            style="@style/Widget.UPI.Pill"
+            android:id="@+id/btnSectionCategories"
+            android:text="Categories"
+            android:textSize="12sp" />
+
+        <TextView
+            style="@style/Widget.UPI.Pill"
+            android:id="@+id/btnSectionTrends"
+            android:layout_marginStart="@dimen/space_s"
+            android:text="Trends"
+            android:textSize="12sp" />
+
+        <!-- Beside the section pills, because it scopes everything under Trends: both the balance
+             line and the in-and-out figures read the same accounts. Hidden on Categories, whose
+             totals are per category and carry no account. Same flat shape as the period control. -->
+        <TextView
+            android:id="@+id/btnPickScope"
+            android:layout_width="wrap_content"
+            android:layout_height="30dp"
+            android:layout_marginStart="12dp"
+            android:background="?attr/colorSurfaceVariant"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:textColor="?attr/colorOnSurface"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:visibility="gone" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:background="?attr/colorSurface"
+        android:gravity="center_vertical"
+        android:orientation="horizontal"
+        android:paddingStart="16dp"
+        android:paddingEnd="16dp"
+        android:paddingBottom="10dp">
+
+        <ImageButton
+            android:id="@+id/btnPrevPeriod"
+            style="@style/Widget.UPI.IconButton"
+            android:src="@drawable/ic_chevron_left"
+            app:tint="?attr/colorPrimary"
+            android:contentDescription="@string/cd_previous_period" />
+
+        <TextView
+            android:id="@+id/tvRangeLabel"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:gravity="center"
+            android:textColor="?attr/colorOnSurface"
+            android:textSize="14sp"
+            android:textStyle="bold" />
+
+        <ImageButton
+            android:id="@+id/btnNextPeriod"
+            style="@style/Widget.UPI.IconButton"
+            android:src="@drawable/ic_chevron_right"
+            app:tint="?attr/colorPrimary"
+            android:contentDescription="@string/cd_next_period" />
+    </LinearLayout>
+
+    <!-- Wraps the Categories scroller only, so a horizontal drag anywhere over its charts steps
+         the period while vertical drags still scroll. Trends is a SIBLING of this rather than a
+         child: this container decides the gesture axis in onInterceptTouchEvent, and a chart that
+         pans horizontally could never win a drag from inside it. -->
+    <com.varun.upitracker.ui.statistics.SwipeableFrameLayout
+        android:id="@+id/swipeContainer"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1">
+
+    <ScrollView
+        android:id="@+id/statsScroll"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <androidx.cardview.widget.CardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="16dp"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="2dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginBottom="12dp"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <TextView
+                            android:id="@+id/tvCategoryCardTitle"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:letterSpacing="0.1"
+                            android:text="BY CATEGORY"
+                            android:textColor="?attr/appTextMuted"
+                            android:textSize="11sp" />
+
+                        <!-- Only visible while drilled into a category. -->
+                        <TextView
+                            android:id="@+id/btnClearDrill"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:clickable="true"
+                            android:focusable="true"
+                            android:paddingStart="12dp"
+                            android:paddingTop="2dp"
+                            android:paddingBottom="2dp"
+                            android:text="Show all ✕"
+                            android:textColor="?attr/colorPrimary"
+                            android:textSize="12sp"
+                            android:textStyle="bold"
+                            android:visibility="gone" />
+                    </LinearLayout>
+
+                    <FrameLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content">
+
+                        <com.varun.upitracker.ui.statistics.PieChartView
+                            android:id="@+id/pieChart"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content" />
+
+                        <!-- The centre figure is a real TextView so it formats like every other
+                             amount in the app; the chart itself draws no text. -->
+                        <LinearLayout
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_gravity="center"
+                            android:gravity="center_horizontal"
+                            android:orientation="vertical">
+
+                            <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="Categorised"
+                                android:textColor="?attr/appTextMuted"
+                                android:textSize="11sp" />
+
+                            <TextView
+                                android:id="@+id/tvPieTotal"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:textColor="?attr/colorOnSurface"
+                                android:textSize="20sp"
+                                android:textStyle="bold" />
+                        </LinearLayout>
+                    </FrameLayout>
+
+                    <TextView
+                        android:id="@+id/tvStatsEmpty"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="12dp"
+                        android:gravity="center"
+                        android:text="No spending in this period"
+                        android:textColor="?attr/appTextMuted"
+                        android:textSize="13sp"
+                        android:visibility="gone" />
+
+                    <LinearLayout
+                        android:id="@+id/legendContainer"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="12dp"
+                        android:orientation="vertical" />
+                </LinearLayout>
+            </androidx.cardview.widget.CardView>
+
+            <androidx.cardview.widget.CardView
+                android:id="@+id/cardWeekBars"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:visibility="gone"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="2dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:letterSpacing="0.1"
+                        android:text="PER DAY"
+                        android:textColor="?attr/appTextMuted"
+                        android:textSize="11sp" />
+
+                    <TextView
+                        android:id="@+id/tvPeakDay"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginBottom="8dp"
+                        android:textColor="?attr/appTextMuted"
+                        android:textSize="12sp" />
+
+                    <com.varun.upitracker.ui.statistics.StackedBarChartView
+                        android:id="@+id/weekBars"
+                        android:layout_width="match_parent"
+                        android:layout_height="180dp" />
+                </LinearLayout>
+            </androidx.cardview.widget.CardView>
+        </LinearLayout>
+    </ScrollView>
+    </com.varun.upitracker.ui.statistics.SwipeableFrameLayout>
+
+    <!-- Only one of the two sections is ever visible, so whichever it is takes the whole weight. -->
+    <ScrollView
+        android:id="@+id/trendsScroll"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <androidx.cardview.widget.CardView
+                android:id="@+id/cardBalanceTrend"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="16dp"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="2dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:letterSpacing="0.1"
+                        android:text="BALANCE"
+                        android:textColor="?attr/appTextMuted"
+                        android:textSize="11sp" />
+
+                    <!-- The figure is a real TextView so it formats like every other amount in the
+                         app; the chart draws no text but its own axis. -->
+                    <TextView
+                        android:id="@+id/tvBalanceLatest"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:textColor="?attr/colorOnSurface"
+                        android:textSize="22sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/tvBalanceChange"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginBottom="8dp"
+                        android:textColor="?attr/appTextMuted"
+                        android:textSize="12sp" />
+
+                    <com.varun.upitracker.ui.statistics.LineChartView
+                        android:id="@+id/balanceLine"
+                        android:layout_width="match_parent"
+                        android:layout_height="180dp" />
+
+                    <TextView
+                        android:id="@+id/tvTrendsEmpty"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:gravity="center"
+                        android:textColor="?attr/appTextMuted"
+                        android:textSize="13sp"
+                        android:visibility="gone" />
+                </LinearLayout>
+            </androidx.cardview.widget.CardView>
+
+            <androidx.cardview.widget.CardView
+                android:id="@+id/cardFlowTrend"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="2dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginBottom="8dp"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal">
+
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:letterSpacing="0.1"
+                            android:text="IN AND OUT"
+                            android:textColor="?attr/appTextMuted"
+                            android:textSize="11sp" />
+
+                        <!-- A literal bullet, as every other glyph in the app is: there are no
+                             drawable assets anywhere in it. -->
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="● In"
+                            android:textColor="?attr/appPositive"
+                            android:textSize="11sp"
+                            android:textStyle="bold" />
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginStart="10dp"
+                            android:text="● Out"
+                            android:textColor="?attr/appNegative"
+                            android:textSize="11sp"
+                            android:textStyle="bold" />
+                    </LinearLayout>
+
+                    <TextView
+                        android:id="@+id/tvFlowSummary"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginBottom="8dp"
+                        android:textColor="?attr/appTextMuted"
+                        android:textSize="12sp" />
+
+                    <com.varun.upitracker.ui.statistics.IncomeExpenseChartView
+                        android:id="@+id/flowChart"
+                        android:layout_width="match_parent"
+                        android:layout_height="180dp" />
+                </LinearLayout>
+            </androidx.cardview.widget.CardView>
+        </LinearLayout>
+    </ScrollView>
+</LinearLayout>

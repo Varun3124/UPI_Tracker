@@ -20,14 +20,14 @@
             android:layout_weight="1"
             android:textSize="17sp"
             android:textStyle="bold"
-            android:textColor="#212121" />
+            android:textColor="?attr/colorOnSurface" />
 
         <TextView
             android:id="@+id/tvGroupDate"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:textSize="12sp"
-            android:textColor="#757575" />
+            android:textColor="?attr/colorOnSurfaceVariant" />
     </LinearLayout>
 
     <TextView
@@ -36,7 +36,7 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="2dp"
         android:textSize="12sp"
-        android:textColor="#757575" />
+        android:textColor="?attr/colorOnSurfaceVariant" />
 
     <TextView
         android:id="@+id/tvGroupStatus"
@@ -44,7 +44,7 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="8dp"
         android:textSize="11sp"
-        android:textColor="#FF6F00" />
+        android:textColor="?attr/appWarning" />
 
     <LinearLayout
         android:id="@+id/containerCandidates"

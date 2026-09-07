@@ -14,3 +14,6 @@
 .cxx
 local.properties
 .claude/
+
+# Kotlin daemon crash logs
+.kotlin
