@@ -72,6 +72,16 @@
                 android:value="Showing an interactive overlay to categorize a newly detected UPI transaction from SMS." />
         </service>
 
+        <service
+            android:name=".notification.BankNotificationListenerService"
+            android:label="@string/app_name"
+            android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="android.service.notification.NotificationListenerService" />
+            </intent-filter>
+        </service>
+
     </application>
 
 </manifest>

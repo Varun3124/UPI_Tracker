@@ -2,6 +2,7 @@ package com.varun.upitracker.ui.settings
 
 import android.content.Intent
 import android.os.Bundle
+import android.provider.Settings
 import android.view.View
 import android.widget.ImageButton
 import androidx.activity.enableEdgeToEdge
@@ -35,6 +36,9 @@ class SettingsActivity : AppCompatActivity() {
         }
         findViewById<View>(R.id.cardMerchantAliases).setOnClickListener {
             startActivity(AliasMappingsActivity.createIntent(this, AliasMappingsActivity.MODE_MERCHANT))
+        }
+        findViewById<View>(R.id.cardNotificationAccess).setOnClickListener {
+            startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
         }
     }
 }

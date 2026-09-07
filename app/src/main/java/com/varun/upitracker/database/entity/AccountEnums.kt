@@ -22,6 +22,7 @@ enum class AccountTransferType {
 
 enum class EntrySource {
     SMS,
+    NOTIFICATION,
     MANUAL,
     BANK_STATEMENT
 }

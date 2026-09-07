@@ -298,7 +298,7 @@ class TransactionEntryActivity : AppCompatActivity() {
     private suspend fun setupUi(db: AppDatabase) {
         val tx = currentTransaction
         val transfer = currentTransfer
-        isSmsSource = transfer == null && tx?.source == "SMS"
+        isSmsSource = transfer == null && (tx?.source == "SMS" || tx?.source == "NOTIFICATION")
         selectedDateEpoch = tx?.dateEpoch ?: transfer?.dateEpoch ?: System.currentTimeMillis()
         tvTopInfo.text = when {
             transfer != null -> "${transfer.type.displayName()} - ${fmtDateTime(selectedDateEpoch)}"
@@ -1622,6 +1622,7 @@ class TransactionEntryActivity : AppCompatActivity() {
     /** `Transaction.source` is a free string; `AccountTransfer.source` is the typed enum. */
     private fun Transaction.entrySource(): EntrySource = when (source) {
         "SMS" -> EntrySource.SMS
+        "NOTIFICATION" -> EntrySource.NOTIFICATION
         StatementImportRepository.SOURCE_BANK_STATEMENT -> EntrySource.BANK_STATEMENT
         else -> EntrySource.MANUAL
     }

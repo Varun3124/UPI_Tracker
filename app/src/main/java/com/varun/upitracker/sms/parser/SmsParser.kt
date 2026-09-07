@@ -1,12 +1,6 @@
 package com.varun.upitracker.sms.parser
 
-data class ParsedSms(
-    val amountPaise: Long,
-    val direction: String,       // "DEBIT" or "CREDIT"
-    val payeeRaw: String,        // UPI ID for credits, display name for debits
-    val upiRefId: String,
-    val dateEpoch: Long
-)
+import com.varun.upitracker.parser.ParsedTransaction
 
 object SmsParser {
 
@@ -25,9 +19,9 @@ object SmsParser {
     private val AXIS_DEBIT_REF_PAYEE   = Regex("""UPI/[^/]+/(\d+)/(.+)""")
 
     /**
-     * Returns a ParsedSms if the message is a recognized HDFC or AXIS UPI SMS, null otherwise.
+     * Returns a ParsedTransaction if the message is a recognized HDFC or AXIS UPI SMS, null otherwise.
      */
-    fun parse(sender: String, body: String, timestamp: Long): ParsedSms? {
+    fun parse(sender: String, body: String, timestamp: Long): ParsedTransaction? {
         return when {
             sender.contains("HDFC", ignoreCase = true)   -> parseHdfc(body, timestamp)
             sender.contains("AXISBK", ignoreCase = true) -> parseAxis(body, timestamp)
@@ -35,18 +29,18 @@ object SmsParser {
         }
     }
 
-    private fun parseHdfc(body: String, timestamp: Long): ParsedSms? = when {
+    private fun parseHdfc(body: String, timestamp: Long): ParsedTransaction? = when {
         body.contains("Credit Alert!", ignoreCase = true) -> parseHdfcCredit(body, timestamp)
         body.contains("Sent Rs.", ignoreCase = true)      -> parseHdfcDebit(body, timestamp)
         else -> null
     }
 
-    private fun parseHdfcCredit(body: String, timestamp: Long): ParsedSms? {
+    private fun parseHdfcCredit(body: String, timestamp: Long): ParsedTransaction? {
         val amount  = HDFC_CREDIT_AMOUNT.find(body)?.groupValues?.get(1) ?: return null
         val vpa     = HDFC_CREDIT_VPA.find(body)?.groupValues?.get(1)    ?: return null
         val ref     = HDFC_CREDIT_REF.find(body)?.groupValues?.get(1)    ?: return null
 
-        return ParsedSms(
+        return ParsedTransaction(
             amountPaise = toP(amount),
             direction   = "CREDIT",
             payeeRaw    = vpa.trim(),
@@ -55,12 +49,12 @@ object SmsParser {
         )
     }
 
-    private fun parseHdfcDebit(body: String, timestamp: Long): ParsedSms? {
+    private fun parseHdfcDebit(body: String, timestamp: Long): ParsedTransaction? {
         val amount  = HDFC_DEBIT_AMOUNT.find(body)?.groupValues?.get(1) ?: return null
         val payee   = HDFC_DEBIT_PAYEE.find(body)?.groupValues?.get(1)  ?: return null
         val ref     = HDFC_DEBIT_REF.find(body)?.groupValues?.get(1)    ?: return null
 
-        return ParsedSms(
+        return ParsedTransaction(
             amountPaise = toP(amount),
             direction   = "DEBIT",
             payeeRaw    = payee.trim(),
@@ -70,18 +64,18 @@ object SmsParser {
     }
 
     // AXIS credit-alert parsing isn't implemented yet — no confirmed sample SMS to match against.
-    private fun parseAxis(body: String, timestamp: Long): ParsedSms? = when {
+    private fun parseAxis(body: String, timestamp: Long): ParsedTransaction? = when {
         body.contains("debited", ignoreCase = true) -> parseAxisDebit(body, timestamp)
         else -> null
     }
 
-    private fun parseAxisDebit(body: String, timestamp: Long): ParsedSms? {
+    private fun parseAxisDebit(body: String, timestamp: Long): ParsedTransaction? {
         val amount      = AXIS_DEBIT_AMOUNT.find(body)?.groupValues?.get(1) ?: return null
         val refPayee    = AXIS_DEBIT_REF_PAYEE.find(body) ?: return null
         val ref         = refPayee.groupValues[1]
         val payee       = refPayee.groupValues[2]
 
-        return ParsedSms(
+        return ParsedTransaction(
             amountPaise = toP(amount),
             direction   = "DEBIT",
             payeeRaw    = payee.trim(),
