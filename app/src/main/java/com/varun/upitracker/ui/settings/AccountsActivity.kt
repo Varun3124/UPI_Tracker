@@ -437,6 +437,13 @@ private class AccountsAdapter(
         holder.tvLabel.text = account.label
         holder.tvMeta.text = buildMeta(account)
         holder.tvBalance.text = row.balancePaise.formatPaise()
+        // Set on both paths, never only when speculative: a recycled holder would otherwise carry
+        // the brown over onto the next account.
+        holder.tvBalance.setTextColor(
+            holder.tvBalance.themeColor(
+                if (row.isSpeculative) ThemeAttr.speculative else ThemeAttr.onSurface
+            )
+        )
         holder.header.setOnClickListener { onToggle(account.id) }
         holder.header.setOnLongClickListener {
             onActions(account)

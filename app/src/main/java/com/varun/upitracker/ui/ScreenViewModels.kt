@@ -17,6 +17,7 @@ import com.varun.upitracker.database.entity.Account
 import com.varun.upitracker.database.entity.AccountTransfer
 import com.varun.upitracker.database.entity.AccountType
 import com.varun.upitracker.domain.AccountTypes
+import com.varun.upitracker.domain.BalanceConfidence
 import com.varun.upitracker.database.entity.Category
 import com.varun.upitracker.database.entity.Friend
 import com.varun.upitracker.database.entity.Merchant
@@ -125,9 +126,22 @@ data class AllTransactionsUiState(
     /** True when at least one account is in scope, so the figures mean something. */
     val hasBalance: Boolean = false,
     /** Balance standing after each entry, keyed by [stableId]. */
-    val runningBalances: Map<String, Long> = emptyMap()
+    val runningBalances: Map<String, Long> = emptyMap(),
+    /**
+     * When the in-scope balances stop being a reconstruction; null when they never do.
+     *
+     * Entries older than this show their running balance in the speculative colour -- see
+     * [BalanceConfidence].
+     */
+    val balanceCertainFromEpoch: Long? = null
 ) {
     val isFiltered: Boolean get() = pendingOnly || thirdPartyOnly || selectedAccountId != null
+
+    val isOpeningSpeculative: Boolean
+        get() = BalanceConfidence.isSpeculative(rangeStartEpoch - 1, balanceCertainFromEpoch)
+
+    val isClosingSpeculative: Boolean
+        get() = BalanceConfidence.isSpeculative(rangeEndExclusiveEpoch - 1, balanceCertainFromEpoch)
 }
 
 class AllTransactionsViewModel(context: Context) : ViewModel() {
@@ -266,12 +280,15 @@ class AllTransactionsViewModel(context: Context) : ViewModel() {
             .toSet()
     }
 
+    private var balanceCertainFromEpoch: Long? = null
+
     private suspend fun loadOpeningBalance() {
         val scope = balanceScopeIds()
         hasBalance = scope.isNotEmpty()
         // One millisecond before the range: getBalance's upper bound is inclusive, and an entry
         // dated exactly at the range start belongs inside the range, not before it.
         openingBalancePaise = scope.sumOf { accountRepository.getBalance(it, rangeStartEpoch - 1) }
+        balanceCertainFromEpoch = accountRepository.balanceCertainFrom(scope)
     }
 
     private fun emitState() {
@@ -308,7 +325,8 @@ class AllTransactionsViewModel(context: Context) : ViewModel() {
                 ?.let { balances[it.stableId()] }
                 ?: openingBalancePaise,
             hasBalance = hasBalance,
-            runningBalances = balances
+            runningBalances = balances,
+            balanceCertainFromEpoch = balanceCertainFromEpoch
         )
     }
 

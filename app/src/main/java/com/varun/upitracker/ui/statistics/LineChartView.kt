@@ -63,15 +63,46 @@ class LineChartView @JvmOverloads constructor(
         textAlign = Paint.Align.RIGHT
     }
 
+    private val speculativePaint = Paint(linePaint).apply {
+        color = context.themeColor(ThemeAttr.speculative)
+    }
+    private val speculativeDotPaint = Paint(dotPaint).apply {
+        color = context.themeColor(ThemeAttr.speculative)
+    }
+    private val checkpointPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        color = context.themeColor(ThemeAttr.speculative)
+        strokeWidth = dpF(1.5f)
+        pathEffect = android.graphics.DashPathEffect(floatArrayOf(dpF(4f), dpF(4f)), 0f)
+    }
+
     private var values: List<Long> = emptyList()
     private var labels: List<String?> = emptyList()
     private var axis: ValueAxis? = null
     private val path = Path()
 
-    /** [labels] is parallel to [values]; a null entry draws no label under that point. */
-    fun setSeries(values: List<Long>, labels: List<String?>) {
+    /** Leading points drawn as speculation; see [com.varun.upitracker.domain.BalanceConfidence]. */
+    private var speculativeCount: Int = 0
+    private var checkpointFraction: Float? = null
+
+    /**
+     * [labels] is parallel to [values]; a null entry draws no label under that point.
+     *
+     * @param speculativeCount how many leading points were reconstructed rather than derived from a
+     *   reconciliation. Those are drawn in the speculative colour.
+     * @param checkpointFraction where across the plot the first reconciliation falls, 0 to 1, or
+     *   null to draw no checkpoint.
+     */
+    fun setSeries(
+        values: List<Long>,
+        labels: List<String?>,
+        speculativeCount: Int = 0,
+        checkpointFraction: Float? = null
+    ) {
         this.values = values
         this.labels = labels
+        this.speculativeCount = speculativeCount.coerceIn(0, values.size)
+        this.checkpointFraction = checkpointFraction
         axis = if (values.isEmpty()) null else axisFor(values)
         panBucketCount = values.size
         invalidate()
@@ -132,16 +163,28 @@ class LineChartView @JvmOverloads constructor(
         fun xAt(index: Int) = left + slot * (index + 0.5f)
         fun yAt(index: Int) = bottom - plotHeight * axis.fractionOf(values[index])
 
+        // Drawn before the line so the line sits on top of it rather than being interrupted.
+        checkpointFraction?.let { fraction ->
+            val x = left + (right - left) * fraction
+            canvas.drawLine(x, top, x, bottom, checkpointPaint)
+        }
+
         if (values.size > 1) {
-            path.reset()
-            path.moveTo(xAt(0), yAt(0))
-            for (index in 1 until values.size) path.lineTo(xAt(index), yAt(index))
-            canvas.drawPath(path, linePaint)
+            // Two passes rather than one, so the run before the first reconciliation reads as the
+            // guess it is. They overlap by one segment on purpose: the segment spanning the
+            // checkpoint belongs to both, and drawing the certain pass second leaves it solid.
+            drawRun(canvas, 0, speculativeCount, ::xAt, ::yAt, speculativePaint)
+            drawRun(canvas, (speculativeCount - 1).coerceAtLeast(0), values.size, ::xAt, ::yAt, linePaint)
         }
 
         // Dots only while they stay apart; a month of them reads as a thick line.
         if (values.size <= MAX_DOTS) {
-            values.indices.forEach { canvas.drawCircle(xAt(it), yAt(it), dpF(DOT_RADIUS_DP), dotPaint) }
+            values.indices.forEach { index ->
+                canvas.drawCircle(
+                    xAt(index), yAt(index), dpF(DOT_RADIUS_DP),
+                    if (index < speculativeCount) speculativeDotPaint else dotPaint
+                )
+            }
         }
 
         labels.forEachIndexed { index, label ->
@@ -153,6 +196,22 @@ class LineChartView @JvmOverloads constructor(
             )
             canvas.drawText(label, x, bottom + spF(12f), labelPaint)
         }
+    }
+
+    /** One contiguous stretch of the series, `[from, toExclusive)`. */
+    private fun drawRun(
+        canvas: Canvas,
+        from: Int,
+        toExclusive: Int,
+        xAt: (Int) -> Float,
+        yAt: (Int) -> Float,
+        paint: Paint
+    ) {
+        if (toExclusive - from < 2) return
+        path.reset()
+        path.moveTo(xAt(from), yAt(from))
+        for (index in from + 1 until toExclusive) path.lineTo(xAt(index), yAt(index))
+        canvas.drawPath(path, paint)
     }
 
     /** Whole rupees, the same form the stacked bar's axis uses. */

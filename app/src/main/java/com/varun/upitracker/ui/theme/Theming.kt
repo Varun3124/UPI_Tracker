@@ -119,6 +119,9 @@ object ThemeAttr {
     val onNegativeContainer = R.attr.appOnNegativeContainer
     val textMuted = R.attr.appTextMuted
 
+    /** A balance the app worked out rather than one it was told. */
+    val speculative = R.attr.appSpeculative
+
     val avatarMe = R.attr.appAvatarMe
     val onAvatarMe = R.attr.appOnAvatarMe
     val avatarFriend = R.attr.appAvatarFriend

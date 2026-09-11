@@ -18,6 +18,7 @@ import com.varun.upitracker.database.AppDatabase
 import com.varun.upitracker.database.entity.Account
 import com.varun.upitracker.database.entity.AccountType
 import com.varun.upitracker.domain.AccountTypes
+import com.varun.upitracker.domain.BalanceConfidence
 import com.varun.upitracker.database.entity.BalanceSnapshot
 import com.varun.upitracker.database.entity.BalanceSnapshotSource
 import com.varun.upitracker.database.entity.CategoryKind
@@ -72,7 +73,19 @@ data class AccountRowUi(
     val account: Account,
     val balancePaise: Long,
     val snapshots: List<BalanceSnapshot>
-)
+) {
+    /**
+     * True when [balancePaise] was reconstructed rather than derived from a reconciliation.
+     *
+     * The balance shown here is today's, so this comes to "has this account ever been reconciled,
+     * on or before now" -- a snapshot dated in the future does not make the present certain.
+     */
+    val isSpeculative: Boolean
+        get() = BalanceConfidence.isSpeculative(
+            atEpoch = System.currentTimeMillis(),
+            certainFrom = snapshots.minOfOrNull { it.snapshotEpoch }
+        )
+}
 
 data class AccountsUiState(
     val rows: List<AccountRowUi> = emptyList(),

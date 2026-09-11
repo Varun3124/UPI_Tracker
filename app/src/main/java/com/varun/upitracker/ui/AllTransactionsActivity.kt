@@ -35,6 +35,9 @@ import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 import android.widget.ImageButton
+import com.varun.upitracker.domain.BalanceConfidence
+import com.varun.upitracker.ui.theme.ThemeAttr
+import com.varun.upitracker.ui.theme.themeColor
 import com.varun.upitracker.ui.theme.padRootForSystemBars
 import com.varun.upitracker.ui.theme.dp
 
@@ -123,7 +126,9 @@ class AllTransactionsActivity : AppCompatActivity() {
         val recycler = findViewById<RecyclerView>(R.id.rvAllTransactions)
         val existing = transactionsAdapter
         if (existing != null && existing.entries === state.entries) {
-            existing.updateBalances(state.runningBalances, state.showBalance)
+            existing.updateBalances(
+                state.runningBalances, state.showBalance, state.balanceCertainFromEpoch
+            )
             return
         }
         transactionsAdapter = AllTransactionsAdapter(
@@ -133,6 +138,7 @@ class AllTransactionsActivity : AppCompatActivity() {
             dateFmt = dateFmt,
             balances = state.runningBalances,
             showBalance = state.showBalance,
+            balanceCertainFromEpoch = state.balanceCertainFromEpoch,
             onTap = ::openEntry,
             onLongPress = ::showEntryActions
         ).also { recycler.adapter = it }
@@ -239,6 +245,9 @@ class AllTransactionsActivity : AppCompatActivity() {
         ).apply { setTitle(title) }.show()
     }
 
+    private fun speculationColor(speculative: Boolean): Int =
+        themeColor(if (speculative) ThemeAttr.speculative else ThemeAttr.onSurfaceVariant)
+
     private fun renderBalanceRow(state: AllTransactionsUiState, scope: String?) {
         findViewById<TextView>(R.id.tvBalanceScope).text = when {
             !state.hasBalance -> "No cash or savings account"
@@ -250,9 +259,15 @@ class AllTransactionsActivity : AppCompatActivity() {
         if (state.hasBalance) {
             opening.text = formatRupees(state.openingBalancePaise)
             closing.text = formatRupees(state.closingBalancePaise)
+            // A range that opens before the first reconciliation starts from a figure the app
+            // worked out. It can close on a counted one, so the two are judged separately.
+            opening.setTextColor(speculationColor(state.isOpeningSpeculative))
+            closing.setTextColor(speculationColor(state.isClosingSpeculative))
         } else {
             opening.text = "-"
             closing.text = "-"
+            opening.setTextColor(speculationColor(false))
+            closing.setTextColor(speculationColor(false))
         }
 
         cbShowBalance.isEnabled = state.hasBalance
@@ -419,14 +434,18 @@ class AllTransactionsAdapter(
     private val dateFmt: SimpleDateFormat,
     private var balances: Map<String, Long>,
     private var showBalance: Boolean,
+    private var balanceCertainFromEpoch: Long?,
     private val onTap: (LedgerEntry) -> Unit,
     private val onLongPress: (LedgerEntry) -> Unit
 ) : RecyclerView.Adapter<AllTransactionsAdapter.VH>() {
 
-    fun updateBalances(updated: Map<String, Long>, show: Boolean) {
-        if (show == showBalance && updated == balances) return
+    fun updateBalances(updated: Map<String, Long>, show: Boolean, certainFromEpoch: Long?) {
+        if (show == showBalance && updated == balances && certainFromEpoch == balanceCertainFromEpoch) {
+            return
+        }
         balances = updated
         showBalance = show
+        balanceCertainFromEpoch = certainFromEpoch
         notifyDataSetChanged()
     }
 
@@ -454,6 +473,15 @@ class AllTransactionsAdapter(
         if (showBalance && balance != null) {
             holder.tvBalance.visibility = android.view.View.VISIBLE
             holder.tvBalance.text = formatRupees(balance)
+            // Everything before the first reconciliation is worked out from the transaction record
+            // alone, which is the part nobody has ever checked. Coloured on both paths so a
+            // recycled row cannot keep the brown.
+            val speculative = BalanceConfidence.isSpeculative(entry.dateEpoch, balanceCertainFromEpoch)
+            holder.tvBalance.setTextColor(
+                holder.tvBalance.themeColor(
+                    if (speculative) ThemeAttr.speculative else ThemeAttr.textMuted
+                )
+            )
         } else {
             holder.tvBalance.visibility = android.view.View.GONE
         }

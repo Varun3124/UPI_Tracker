@@ -34,6 +34,7 @@
     <color name="app_negative">#F0697D</color>
     <color name="app_warning">#F0B366</color>
     <color name="app_amount_neutral">#79839E</color>
+    <color name="app_speculative">#C6A184</color>
 
     <color name="app_negative_container">@color/brand_maroon</color>
     <color name="app_on_negative_container">#FFD7DC</color>

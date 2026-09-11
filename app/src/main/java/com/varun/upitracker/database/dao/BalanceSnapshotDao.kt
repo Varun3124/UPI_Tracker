@@ -74,6 +74,29 @@ interface BalanceSnapshotDao {
     @Query("SELECT MIN(snapshotEpoch) FROM balance_snapshot WHERE accountId IN (:accountIds)")
     suspend fun getEarliestSnapshotEpoch(accountIds: List<String>): Long?
 
+    /**
+     * Each account's first reconciliation, for
+     * [com.varun.upitracker.domain.BalanceConfidence].
+     *
+     * Per account rather than [getEarliestSnapshotEpoch]'s single MIN, because a combined balance
+     * turns trustworthy at the *latest* of these, and a MIN across the set cannot express that.
+     * Accounts with no snapshot are simply absent from the result -- the caller has the id list and
+     * treats a missing row as "never reconciled".
+     */
+    @Query(
+        """
+        SELECT accountId AS accountId, MIN(snapshotEpoch) AS firstEpoch
+        FROM balance_snapshot
+        WHERE accountId IN (:accountIds)
+        GROUP BY accountId
+        """
+    )
+    suspend fun getFirstSnapshotEpochs(accountIds: List<String>): List<AccountFirstSnapshot>
+
+    /** Every account that has at least one snapshot, for the FD backfill's "which are missing". */
+    @Query("SELECT DISTINCT accountId FROM balance_snapshot")
+    suspend fun getAccountIdsWithSnapshots(): List<String>
+
     @Query(
         """
         SELECT * FROM balance_snapshot
@@ -94,3 +117,9 @@ interface BalanceSnapshotDao {
     )
     suspend fun getEarliestAfter(accountId: String, atEpoch: Long): BalanceSnapshot?
 }
+
+/** One row of [BalanceSnapshotDao.getFirstSnapshotEpochs]. */
+data class AccountFirstSnapshot(
+    val accountId: String,
+    val firstEpoch: Long
+)

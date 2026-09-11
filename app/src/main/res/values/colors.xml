@@ -50,6 +50,10 @@
     <color name="app_warning">#B26A00</color>
     <color name="app_amount_neutral">#7A8299</color>
 
+    <!-- Speculation: a balance derived from an unchecked transaction history. Warm brown, well
+         away from the amber warning above so the two never read as the same signal. -->
+    <color name="app_speculative">#7A5230</color>
+
     <color name="app_negative_container">#FFE0E3</color>
     <color name="app_on_negative_container">#5E0B18</color>
     <color name="app_positive_container">#CFEEE2</color>

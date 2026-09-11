@@ -21,6 +21,11 @@
 
     <attr name="appTextMuted" format="color" />
 
+    <!-- A balance the app worked out rather than one it was told; see BalanceConfidence. Brown,
+         because it has to read as "not quite real" without colliding with the money semantics
+         above: positive, negative and warning all already mean something. -->
+    <attr name="appSpeculative" format="color" />
+
     <attr name="appAvatarMe" format="color" />
     <attr name="appOnAvatarMe" format="color" />
     <attr name="appAvatarFriend" format="color" />

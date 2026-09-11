@@ -16,6 +16,7 @@ import com.varun.upitracker.database.entity.BalanceSnapshotSource
 import com.varun.upitracker.database.entity.EntrySource
 import com.varun.upitracker.database.entity.FixedDepositDetail
 import com.varun.upitracker.database.entity.FixedDepositStatus
+import com.varun.upitracker.domain.BalanceConfidence
 import com.varun.upitracker.domain.BalanceDeltaCalculator
 import com.varun.upitracker.domain.TransferDeltaInput
 import kotlinx.coroutines.flow.Flow
@@ -74,6 +75,20 @@ class AccountRepository private constructor(
 
     suspend fun getSnapshots(accountId: String): List<BalanceSnapshot> =
         observeSnapshots(accountId).first()
+
+    /**
+     * The instant from which these accounts' combined balance stops being a reconstruction, or null
+     * when it never does. See [BalanceConfidence.certainFrom] for why a combination takes the
+     * latest of the accounts' first snapshots rather than the earliest.
+     */
+    suspend fun balanceCertainFrom(accountIds: Collection<String>): Long? {
+        if (accountIds.isEmpty()) return null
+        val firstByAccount = database.balanceSnapshotDao()
+            .getFirstSnapshotEpochs(accountIds.toList())
+            .associate { it.accountId to it.firstEpoch }
+        // Missing means never reconciled, which certainFrom reads as "never certain".
+        return BalanceConfidence.certainFrom(accountIds.map { firstByAccount[it] })
+    }
 
     suspend fun getDefaultAccountByType(type: AccountType): Account? {
         return database.accountDao().getByType(type).firstOrNull { it.isDefault && !it.isArchived }
@@ -187,6 +202,22 @@ class AccountRepository private constructor(
                     dateEpoch = request.bookedEpoch,
                     source = request.source,
                     statementRefNo = request.statementRefNo
+                )
+            )
+            // A deposit's opening balance is the one figure nobody is guessing at, so it is
+            // recorded as a reconciliation rather than left to be derived from the transfer above.
+            // Without it every total containing this account would read as speculation for all
+            // time -- see [com.varun.upitracker.domain.BalanceConfidence]. Dated at the booking
+            // instant, which the transfer shares: getBalance sums (snapshotEpoch, atEpoch], so the
+            // principal is counted once, not twice.
+            database.balanceSnapshotDao().insert(
+                BalanceSnapshot(
+                    id = UUID.randomUUID().toString(),
+                    accountId = request.accountId,
+                    snapshotEpoch = request.bookedEpoch,
+                    balancePaise = request.principalPaise,
+                    source = BalanceSnapshotSource.MANUAL,
+                    notes = "Principal at booking"
                 )
             )
         }

@@ -18,6 +18,7 @@ import com.varun.upitracker.domain.statistics.CategorySlice
 import com.varun.upitracker.domain.statistics.DateRange
 import com.varun.upitracker.domain.statistics.StatisticsPeriods
 import com.varun.upitracker.domain.statistics.AccountScope
+import com.varun.upitracker.domain.BalanceConfidence
 import com.varun.upitracker.domain.statistics.BalanceTimeline
 import com.varun.upitracker.domain.TransferDeltaInput
 import com.varun.upitracker.domain.statistics.PanMath
@@ -81,10 +82,32 @@ data class TrendsUiState(
     val scope: AccountScope = AccountScope.Liquid,
     /** Every account, for the scope picker -- archived ones included, since one can be named. */
     val accounts: List<Account> = emptyList(),
-    val isLoading: Boolean = true
+    val isLoading: Boolean = true,
+    /**
+     * When the scope's combined balance stops being a reconstruction; null when it never does.
+     *
+     * The latest of the in-scope accounts' first snapshots, so a total is only trusted once every
+     * part of it has been counted at least once. See [BalanceConfidence].
+     */
+    val balanceCertainFromEpoch: Long? = null
 ) {
     val latestBalancePaise: Long get() = balanceSeries.lastOrNull() ?: 0L
     val changePaise: Long get() = latestBalancePaise - openingPaise
+
+    /** Leading points of [balanceSeries] the app worked out rather than was told. */
+    val speculativePointCount: Int
+        get() = BalanceConfidence.speculativePointCount(
+            bucketStarts, windowEndExclusive, balanceCertainFromEpoch
+        )
+
+    /** Where across the plot to mark the first reconciliation, or null when it says nothing. */
+    val checkpointFraction: Float?
+        get() = BalanceConfidence.checkpointFraction(
+            bucketStarts, windowEndExclusive, balanceCertainFromEpoch
+        )
+
+    val isLatestSpeculative: Boolean
+        get() = BalanceConfidence.isSpeculative(windowEndExclusive - 1, balanceCertainFromEpoch)
 }
 
 data class StatisticsUiState(
@@ -414,7 +437,8 @@ class StatisticsViewModel(context: Context) : ViewModel() {
                 anchorsByAccount = inputs.anchorsByAccount
             ),
             hasAccounts = true,
-            isLoading = false
+            isLoading = false,
+            balanceCertainFromEpoch = repository.balanceCertainFrom(ids)
         )
     }
 
