@@ -20,6 +20,12 @@
             style="@style/Widget.UPI.TopBarTitle"
             android:id="@+id/tvFriendDetailName" />
 
+        <ImageButton
+            android:id="@+id/btnShareParcel"
+            style="@style/Widget.UPI.IconButton"
+            android:src="@drawable/ic_share"
+            android:contentDescription="@string/cd_share_transactions" />
+
         <TextView
             android:id="@+id/tvFriendDetailBalance"
             android:layout_width="wrap_content"
@@ -31,7 +37,64 @@
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/rvFriendTransactions"
         android:layout_width="match_parent"
-        android:layout_height="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
         android:padding="12dp"
         android:clipToPadding="false"/>
+
+    <!-- Shown only in selection mode; the RecyclerView above is weighted so this has room. -->
+    <LinearLayout
+        android:id="@+id/barExportActions"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:visibility="gone"
+        android:background="?attr/colorSurface"
+        android:padding="@dimen/space_l">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:gravity="center_vertical"
+            android:layout_marginBottom="8dp">
+
+            <TextView
+                android:id="@+id/tvSelectionCount"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:textSize="13sp"
+                android:textColor="?attr/appTextMuted" />
+
+            <Button
+                android:id="@+id/btnSelectAll"
+                style="?attr/borderlessButtonStyle"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Select all" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="horizontal">
+
+            <Button
+                android:id="@+id/btnCopyParcel"
+                style="?attr/materialButtonOutlinedStyle"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginEnd="8dp"
+                android:text="Copy" />
+
+            <Button
+                android:id="@+id/btnSendParcel"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="Send" />
+        </LinearLayout>
+    </LinearLayout>
 </LinearLayout>

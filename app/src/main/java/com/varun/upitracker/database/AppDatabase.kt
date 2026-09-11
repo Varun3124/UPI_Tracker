@@ -61,7 +61,7 @@ import kotlinx.coroutines.launch
         AccountTransfer::class,
         BalanceSnapshot::class
     ],
-    version = 14,
+    version = 15,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -349,6 +349,27 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        private val MIGRATION_14_15 = object : Migration(14, 15) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Both columns are nullable with no DEFAULT and neither is a foreign key, so
+                // ADD COLUMN is legal outright -- no table rebuild, unlike 8->9 and 9->10.
+                if (!hasColumn(db, "transactions", "sharedRefId")) {
+                    db.execSQL("ALTER TABLE `transactions` ADD COLUMN `sharedRefId` TEXT")
+                }
+                // Unique like index_transactions_upiRefId: re-applying a parcel already applied
+                // must fail at the insert rather than duplicate the row. Existing rows all hold
+                // NULL here, and SQLite counts NULLs as distinct, so none of them collide.
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS `index_transactions_sharedRefId` " +
+                        "ON `transactions`(`sharedRefId`)"
+                )
+
+                if (!hasColumn(db, "transaction_shares", "rawLabel")) {
+                    db.execSQL("ALTER TABLE `transaction_shares` ADD COLUMN `rawLabel` TEXT")
+                }
+            }
+        }
+
         private fun hasColumn(db: SupportSQLiteDatabase, table: String, column: String): Boolean {
             db.query("PRAGMA table_info(`$table`)").use { cursor ->
                 val nameColumnIndex = cursor.getColumnIndex("name")
@@ -369,7 +390,7 @@ abstract class AppDatabase : RoomDatabase() {
                 )
                     .addMigrations(
                         MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12,
-                        MIGRATION_12_13, MIGRATION_13_14
+                        MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15
                     )
                     .addCallback(object : Callback() {
                         override fun onCreate(db: SupportSQLiteDatabase) {

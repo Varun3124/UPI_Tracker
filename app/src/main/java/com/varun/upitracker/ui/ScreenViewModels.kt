@@ -10,6 +10,7 @@ import androidx.room.withTransaction
 import com.varun.upitracker.data.repository.AccountMutationException
 import com.varun.upitracker.data.repository.AccountRepository
 import com.varun.upitracker.data.repository.LedgerRepository
+import com.varun.upitracker.data.repository.ParcelExportRepository
 import com.varun.upitracker.data.repository.SettingsRepository
 import com.varun.upitracker.database.AppDatabase
 import com.varun.upitracker.database.entity.Account
@@ -381,25 +382,91 @@ data class FriendDetailUiState(
     val isLoading: Boolean = true,
     val friend: Friend? = null,
     val summary: com.varun.upitracker.data.repository.FriendLedgerSummary? = null,
-    val transactions: List<Transaction> = emptyList()
-)
+    val transactions: List<Transaction> = emptyList(),
+    /** Ids that can be shared with this friend. See [ParcelExportRepository.eligibility]. */
+    val exportable: Set<Long> = emptySet(),
+    /** Why each of the others cannot be, shown on the row rather than hiding it. */
+    val blockedReasons: Map<Long, String> = emptyMap(),
+    val selectionMode: Boolean = false,
+    val selected: Set<Long> = emptySet()
+) {
+    val canExport: Boolean get() = selected.isNotEmpty()
+}
 
 class FriendDetailViewModel(context: Context) : ViewModel() {
     private val db = AppDatabase.getInstance(context.applicationContext)
+    private val exportRepository = ParcelExportRepository(db, context.applicationContext)
     private val _uiState = MutableLiveData(FriendDetailUiState())
     val uiState: LiveData<FriendDetailUiState> = _uiState
 
     fun load(friendId: Long) {
         viewModelScope.launch {
+            val current = _uiState.value ?: FriendDetailUiState()
             _uiState.value = FriendDetailUiState(isLoading = true)
             _uiState.value = withContext(Dispatchers.IO) {
+                val transactions = db.transactionDao().getTransactionsForFriendSync(friendId)
+                val eligibility = exportRepository.eligibility(friendId, transactions)
                 FriendDetailUiState(
                     isLoading = false,
                     friend = db.friendDao().getFriendById(friendId),
                     summary = LedgerRepository(db).getSummaryForFriend(friendId),
-                    transactions = db.transactionDao().getTransactionsForFriendSync(friendId)
+                    transactions = transactions,
+                    exportable = eligibility.exportable,
+                    blockedReasons = eligibility.blockedReasons,
+                    selectionMode = current.selectionMode,
+                    // A reload can happen under a selection -- keep it, minus anything that has
+                    // since gone or stopped being shareable.
+                    selected = current.selected.intersect(eligibility.exportable)
                 )
             }
+        }
+    }
+
+    fun enterSelection(transactionId: Long? = null) {
+        val current = _uiState.value ?: return
+        _uiState.value = current.copy(
+            selectionMode = true,
+            selected = setOfNotNull(transactionId?.takeIf { it in current.exportable })
+        )
+    }
+
+    fun exitSelection() {
+        val current = _uiState.value ?: return
+        _uiState.value = current.copy(selectionMode = false, selected = emptySet())
+    }
+
+    fun toggleSelection(transactionId: Long) {
+        val current = _uiState.value ?: return
+        if (transactionId !in current.exportable) return
+        _uiState.value = current.copy(
+            selected = if (transactionId in current.selected) {
+                current.selected - transactionId
+            } else {
+                current.selected + transactionId
+            }
+        )
+    }
+
+    fun selectAllExportable() {
+        val current = _uiState.value ?: return
+        _uiState.value = current.copy(
+            selected = current.transactions.map { it.id }
+                .filter { it in current.exportable }
+                .take(ParcelExportRepository.MAX_TRANSACTIONS)
+                .toSet()
+        )
+    }
+
+    /** Hands the encoded parcel back rather than sharing it: the Activity owns the clipboard. */
+    fun buildParcel(friendId: Long, onReady: (String) -> Unit, onError: (String) -> Unit) {
+        val selected = _uiState.value?.selected.orEmpty()
+        if (selected.isEmpty()) {
+            onError("Pick at least one transaction to share.")
+            return
+        }
+        viewModelScope.launch {
+            val parcel = withContext(Dispatchers.IO) { exportRepository.buildParcel(friendId, selected) }
+            onReady(parcel)
         }
     }
 

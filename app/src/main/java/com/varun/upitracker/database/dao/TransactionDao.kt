@@ -30,6 +30,13 @@ interface TransactionDao {
     suspend fun findByRefId(refId: String): Transaction?
 
     /**
+     * Re-import guard for shared parcels. Unscoped, because the origin token already qualifies the
+     * sender's transaction id -- see [Transaction.sharedRefId].
+     */
+    @Query("SELECT * FROM transactions WHERE sharedRefId = :sharedRefId LIMIT 1")
+    suspend fun findBySharedRefId(sharedRefId: String): Transaction?
+
+    /**
      * Re-import guard for bank-statement rows that carry no UPI ref id. Scoped to the account
      * because [Transaction.statementRefNo] is intentionally not globally unique.
      */

@@ -33,6 +33,11 @@
         <activity android:name=".ui.dashboard.DashboardActivity" android:exported="false" />
         <activity android:name=".ui.settings.SettingsActivity" android:exported="false" />
         <activity android:name=".ui.statement.StatementImportActivity" android:exported="false" />
+
+        <!-- Not exported, and deliberately without an ACTION_SEND filter: accepting a
+             parcel straight from a chat app would let any app on the device hand text to a
+             screen that writes to the ledger. Parcels are pasted in from Settings. -->
+        <activity android:name=".ui.parcel.ParcelImportActivity" android:exported="false" />
         <activity android:name=".ui.statement.StatementResolvedActivity" android:exported="false" />
         <activity android:name=".ui.settings.AccountsActivity" android:exported="false" />
         <activity android:name=".ui.CategorySettingsActivity" android:exported="false" />

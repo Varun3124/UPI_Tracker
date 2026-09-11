@@ -15,6 +15,18 @@
         android:padding="14dp"
         android:gravity="center_vertical">
 
+        <!-- Selection tick, shown only while sharing to a friend from the friend detail screen.
+             Not clickable itself: the whole row owns the tap, so the two cannot disagree. -->
+        <CheckBox
+            android:id="@+id/cbFriendTxSelect"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="8dp"
+            android:clickable="false"
+            android:focusable="false"
+            android:visibility="gone"
+            android:contentDescription="@string/cd_selected" />
+
         <LinearLayout
             android:layout_width="0dp"
             android:layout_height="wrap_content"
