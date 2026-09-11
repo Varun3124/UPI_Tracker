@@ -374,26 +374,35 @@ class AccountRepository private constructor(
     }
 
     /**
-     * Total spend since [fromEpoch]: ME's expense total (not scoped to an account — see
-     * [TransactionDao.getExpenseTotalBetween] for why) plus every account's transfer delta, negated.
-     * Transfers contribute automatically: equal legs net to zero, a fee shows up as spend.
+     * Net spend since [fromEpoch]: money that actually left net worth, not just what was spent.
+     *
+     * ME's expense total minus ME's income total (neither scoped to an account — see
+     * [TransactionDao.getExpenseTotalBetween] for why), plus every account's transfer delta,
+     * negated. Transfers contribute automatically: equal legs net to zero, a fee shows up as spend.
+     *
+     * Both totals share the same merchant-or-gift gate, so lending to or borrowing from a friend
+     * (`ledgerEffect = DEBT`) moves into neither leg -- it reclassifies cash as a receivable (or
+     * back), which does not change net worth and so is not spend.
      */
     suspend fun getSpendSince(fromEpoch: Long): Long {
         val expense = database.transactionDao()
             .getExpenseTotalBetween(fromEpoch, Long.MAX_VALUE)
+        val income = database.transactionDao()
+            .getIncomeTotalBetween(fromEpoch, Long.MAX_VALUE)
         val transferSpend = -database.accountDao().getAllSync().sumOf { account ->
             sumTransferDeltas(account.id, fromEpoch, Long.MAX_VALUE)
         }
-        return expense + transferSpend
+        return expense - income + transferSpend
     }
 
     /**
      * Category breakdown over `(fromEpoch, toEpoch]`, newest-largest first.
      *
-     * Shares its rules with [getSpendSince] by construction -- both legs come from
+     * Shares its rules with [getSpendSince]'s two legs by construction -- both come from
      * [com.varun.upitracker.database.dao.TransactionDao.getTotalsByCategoryBetween], which mirrors
-     * `getExpenseTotalBetween`. The one deliberate difference is transfers: a transfer fee is
-     * spend but belongs to no category, so it counts in [getSpendSince] and not here.
+     * `getExpenseTotalBetween` and `getIncomeTotalBetween`. The one deliberate difference is
+     * transfers: a transfer fee is spend but belongs to no category, so it counts in [getSpendSince]
+     * and not here.
      */
     suspend fun getTotalsByCategory(
         kind: CategoryKind,

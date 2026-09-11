@@ -114,6 +114,44 @@ interface TransactionDao {
     ): Long
 
     /**
+     * ME's income over `(fromEpochExclusive, toEpochInclusive]`.
+     *
+     * Mirrors [getExpenseTotalBetween]'s outflow leg on the PAYEE side instead of PAYER: ME's share
+     * of a transaction where money came from a MERCHANT or a ledger-neutral gift. The same gate
+     * excludes a friend settling a debt (`ledgerEffect = DEBT`, no merchant involved) -- getting
+     * repaid is not income, it is a receivable turning back into cash.
+     *
+     * `refundsTransactionId IS NULL` excludes a refund's own credit: unlike a fresh merchant credit,
+     * that money is already counted as reduced expense in the ORIGINAL purchase's period (see
+     * [getExpenseTotalBetween]'s second leg), so counting it again here would double it.
+     *
+     * There is no second leg: refunds only ever reverse EXPENSE, never INCOME.
+     */
+    @Query(
+        """
+        SELECT COALESCE(SUM(s.amountPaise), 0)
+        FROM transaction_shares s
+        INNER JOIN transactions t ON t.id = s.transactionId
+        WHERE t.dateEpoch > :fromEpochExclusive
+          AND t.dateEpoch <= :toEpochInclusive
+          AND s.participantType = 'ME'
+          AND COALESCE(
+                s.side,
+                CASE WHEN t.payerActorType = 'ME' THEN 'PAYER'
+                     WHEN t.payeeActorType = 'ME' THEN 'PAYEE' END
+              ) = 'PAYEE'
+          AND t.refundsTransactionId IS NULL
+          AND (t.payerActorType = 'MERCHANT'
+               OR t.payeeActorType = 'MERCHANT'
+               OR t.ledgerEffect = 'NONE')
+        """
+    )
+    suspend fun getIncomeTotalBetween(
+        fromEpochExclusive: Long,
+        toEpochInclusive: Long
+    ): Long
+
+    /**
      * How much [accountId]'s balance moved over `(fromEpochExclusive, toEpochInclusive]`.
      *
      * Unlike [getExpenseTotalBetween], which measures spend, this counts the whole amount

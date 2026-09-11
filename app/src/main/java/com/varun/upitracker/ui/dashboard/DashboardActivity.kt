@@ -1,6 +1,10 @@
 package com.varun.upitracker.ui.dashboard
 
 import android.content.Intent
+import android.graphics.LinearGradient
+import android.graphics.Shader
+import android.graphics.drawable.Drawable
+import android.graphics.drawable.PaintDrawable
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
@@ -46,6 +50,9 @@ class DashboardActivity : AppCompatActivity() {
     private lateinit var tvDailySpend: TextView
     private lateinit var tvWeeklySpend: TextView
     private lateinit var tvMonthlySpend: TextView
+    private lateinit var cardSpendingGradient: View
+    private lateinit var dividerCashFlow1: View
+    private lateinit var dividerCashFlow2: View
     private lateinit var recentRow: LinearLayout
     private lateinit var iouContainer: LinearLayout
     private lateinit var btnToggleInsignificantIou: TextView
@@ -66,6 +73,9 @@ class DashboardActivity : AppCompatActivity() {
         tvDailySpend = findViewById(R.id.tvDailySpend)
         tvWeeklySpend = findViewById(R.id.tvWeeklySpend)
         tvMonthlySpend = findViewById(R.id.tvMonthlySpend)
+        cardSpendingGradient = findViewById(R.id.cardSpendingGradient)
+        dividerCashFlow1 = findViewById(R.id.dividerCashFlow1)
+        dividerCashFlow2 = findViewById(R.id.dividerCashFlow2)
         recentRow = findViewById(R.id.recentTransactionsRow)
         iouContainer = findViewById(R.id.iouContainer)
         btnToggleInsignificantIou = findViewById(R.id.btnToggleInsignificantIou)
@@ -87,9 +97,12 @@ class DashboardActivity : AppCompatActivity() {
 
         findViewById<Button>(R.id.btnAddManual).setOnClickListener { launchManualEntry() }
         viewModel.uiState.observe(this) { state ->
-            tvDailySpend.text = AmountFormat.rupees(state.dailySpendPaise)
-            tvWeeklySpend.text = AmountFormat.rupees(state.weeklySpendPaise)
-            tvMonthlySpend.text = AmountFormat.rupees(state.monthlySpendPaise)
+            // Sign is carried by color alone here (see styleCashFlowCard), so the figure itself
+            // never needs a minus sign.
+            tvDailySpend.text = AmountFormat.rupees(kotlin.math.abs(state.dailySpendPaise))
+            tvWeeklySpend.text = AmountFormat.rupees(kotlin.math.abs(state.weeklySpendPaise))
+            tvMonthlySpend.text = AmountFormat.rupees(kotlin.math.abs(state.monthlySpendPaise))
+            styleCashFlowCard(state.dailySpendPaise, state.weeklySpendPaise, state.monthlySpendPaise)
             buildRecentRow(state.recentEntries)
             latestIouSummaries = state.iouSummaries
             buildIouSection(latestIouSummaries)
@@ -105,6 +118,77 @@ class DashboardActivity : AppCompatActivity() {
 
     private fun loadData() {
         viewModel.loadData()
+    }
+
+    /**
+     * Tints each segment by its own sign -- the card's usual accent for a net outflow, green for a
+     * net inflow -- and paints the card as one gradient across the three rather than three flat
+     * blocks, with the color changing right where the segment itself does.
+     */
+    private fun styleCashFlowCard(dailyPaise: Long, weeklyPaise: Long, monthlyPaise: Long) {
+        val (dailyBg, dailyFg) = cashFlowColors(dailyPaise)
+        val (weeklyBg, weeklyFg) = cashFlowColors(weeklyPaise)
+        val (monthlyBg, monthlyFg) = cashFlowColors(monthlyPaise)
+
+        tvDailySpend.setTextColor(dailyFg)
+        tvWeeklySpend.setTextColor(weeklyFg)
+        tvMonthlySpend.setTextColor(monthlyFg)
+
+        // The dividers' positions are only meaningful once the row has been laid out. Posting
+        // defers this to right after that, which by the time this runs has always already
+        // happened.
+        cardSpendingGradient.post {
+            cardSpendingGradient.background = buildCashFlowGradient(dailyBg, weeklyBg, monthlyBg)
+        }
+    }
+
+    /**
+     * A left-to-right gradient whose two blends sit exactly on [dividerCashFlow1] and
+     * [dividerCashFlow2] -- the same rules the Today / This week / This month columns are split
+     * by -- each [BORDER_BLEND_DP] wide, rather than spread evenly across the whole card. That
+     * makes the color change read as a steep edge right at the segment boundary instead of a slow
+     * wash from one third of the card to the next.
+     */
+    private fun buildCashFlowGradient(dailyBg: Int, weeklyBg: Int, monthlyBg: Int): Drawable {
+        val card = cardSpendingGradient.parent as View
+        val width = cardSpendingGradient.width.toFloat()
+        val border1 = dividerCashFlow1.centerXRelativeTo(card) / width
+        val border2 = dividerCashFlow2.centerXRelativeTo(card) / width
+        val halfBlend = dp(BORDER_BLEND_DP) / width
+
+        return PaintDrawable().apply {
+            setCornerRadius(dp(16).toFloat())
+            paint.shader = LinearGradient(
+                0f, 0f, width, 0f,
+                intArrayOf(dailyBg, dailyBg, weeklyBg, weeklyBg, monthlyBg, monthlyBg),
+                floatArrayOf(
+                    0f,
+                    border1 - halfBlend, border1 + halfBlend,
+                    border2 - halfBlend, border2 + halfBlend,
+                    1f
+                ),
+                Shader.TileMode.CLAMP
+            )
+        }
+    }
+
+    /** This view's horizontal center, in [ancestor]'s coordinate space. */
+    private fun View.centerXRelativeTo(ancestor: View): Float {
+        var x = width / 2f
+        var v: View = this
+        while (v !== ancestor) {
+            x += v.left
+            v = v.parent as View
+        }
+        return x
+    }
+
+    /** A net inflow (negative net spend) reads as a gain, so it borrows the app's green -- the same
+     *  role [FriendLedgerSummary] uses for "owes you". A net outflow keeps the card's usual accent. */
+    private fun cashFlowColors(netPaise: Long): Pair<Int, Int> = if (netPaise < 0) {
+        themeColor(ThemeAttr.positiveContainer) to themeColor(ThemeAttr.onPositiveContainer)
+    } else {
+        themeColor(ThemeAttr.primaryContainer) to themeColor(ThemeAttr.onPrimaryContainer)
     }
 
     private fun buildRecentRow(entries: List<LedgerEntry>) {
@@ -245,5 +329,8 @@ class DashboardActivity : AppCompatActivity() {
     private companion object {
         /** Rs100, below which an IOU balance is treated as noise and hidden by default. */
         const val INSIGNIFICANT_IOU_THRESHOLD_PAISE = 10_000L
+
+        /** Half-width, each side of a segment border, of the cash flow card's color blend. */
+        const val BORDER_BLEND_DP = 10
     }
 }
