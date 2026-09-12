@@ -60,6 +60,10 @@ import androidx.room.PrimaryKey
         // across unrelated rows, so a unique index would reject valid imports.
         Index("statementRefNo"),
         Index("refundsTransactionId"),
+        // Unique for the same reason `upiRefId` is: applying a parcel that was already applied
+        // has to fail at the insert rather than quietly duplicate the row. SQLite treats NULLs
+        // as distinct here, so every transaction that never came from a parcel is unaffected.
+        Index("sharedRefId", unique = true),
         // Every date-range query filters on this alone. Without it, and with no ANALYZE to build
         // sqlite_stat1, the planner reaches for index_transactions_refundsTransactionId instead --
         // a nonsense choice for a date range, and measurably slower than a plain scan would be.
@@ -86,6 +90,15 @@ data class Transaction(
     val upiRefId: String? = null,
     /** `Chq./Ref.No.` of the bank-statement row this came from, or was matched to. */
     val statementRefNo: String? = null,
+    /**
+     * The reference of the shared parcel this row was imported from, `"<originToken>.<their id>"`,
+     * or null for everything entered here.
+     *
+     * The sender's own transaction id is not enough on its own -- two friends both sharing their
+     * row 41 would collide -- so it is qualified by a token this install keeps per recipient. That
+     * makes re-importing the same parcel a no-op without the parcel having to name who wrote it.
+     */
+    val sharedRefId: String? = null,
     val myAccountId: String? = null,
     val dateEpoch: Long,
     val source: String,

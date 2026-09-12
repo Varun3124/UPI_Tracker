@@ -16,6 +16,7 @@ import com.varun.upitracker.database.entity.BalanceSnapshotSource
 import com.varun.upitracker.database.entity.EntrySource
 import com.varun.upitracker.database.entity.FixedDepositDetail
 import com.varun.upitracker.database.entity.FixedDepositStatus
+import com.varun.upitracker.domain.BalanceConfidence
 import com.varun.upitracker.domain.BalanceDeltaCalculator
 import com.varun.upitracker.domain.TransferDeltaInput
 import kotlinx.coroutines.flow.Flow
@@ -74,6 +75,20 @@ class AccountRepository private constructor(
 
     suspend fun getSnapshots(accountId: String): List<BalanceSnapshot> =
         observeSnapshots(accountId).first()
+
+    /**
+     * The instant from which these accounts' combined balance stops being a reconstruction, or null
+     * when it never does. See [BalanceConfidence.certainFrom] for why a combination takes the
+     * latest of the accounts' first snapshots rather than the earliest.
+     */
+    suspend fun balanceCertainFrom(accountIds: Collection<String>): Long? {
+        if (accountIds.isEmpty()) return null
+        val firstByAccount = database.balanceSnapshotDao()
+            .getFirstSnapshotEpochs(accountIds.toList())
+            .associate { it.accountId to it.firstEpoch }
+        // Missing means never reconciled, which certainFrom reads as "never certain".
+        return BalanceConfidence.certainFrom(accountIds.map { firstByAccount[it] })
+    }
 
     suspend fun getDefaultAccountByType(type: AccountType): Account? {
         return database.accountDao().getByType(type).firstOrNull { it.isDefault && !it.isArchived }
@@ -187,6 +202,22 @@ class AccountRepository private constructor(
                     dateEpoch = request.bookedEpoch,
                     source = request.source,
                     statementRefNo = request.statementRefNo
+                )
+            )
+            // A deposit's opening balance is the one figure nobody is guessing at, so it is
+            // recorded as a reconciliation rather than left to be derived from the transfer above.
+            // Without it every total containing this account would read as speculation for all
+            // time -- see [com.varun.upitracker.domain.BalanceConfidence]. Dated at the booking
+            // instant, which the transfer shares: getBalance sums (snapshotEpoch, atEpoch], so the
+            // principal is counted once, not twice.
+            database.balanceSnapshotDao().insert(
+                BalanceSnapshot(
+                    id = UUID.randomUUID().toString(),
+                    accountId = request.accountId,
+                    snapshotEpoch = request.bookedEpoch,
+                    balancePaise = request.principalPaise,
+                    source = BalanceSnapshotSource.MANUAL,
+                    notes = "Principal at booking"
                 )
             )
         }
@@ -374,26 +405,35 @@ class AccountRepository private constructor(
     }
 
     /**
-     * Total spend since [fromEpoch]: ME's expense total (not scoped to an account — see
-     * [TransactionDao.getExpenseTotalBetween] for why) plus every account's transfer delta, negated.
-     * Transfers contribute automatically: equal legs net to zero, a fee shows up as spend.
+     * Net spend since [fromEpoch]: money that actually left net worth, not just what was spent.
+     *
+     * ME's expense total minus ME's income total (neither scoped to an account — see
+     * [TransactionDao.getExpenseTotalBetween] for why), plus every account's transfer delta,
+     * negated. Transfers contribute automatically: equal legs net to zero, a fee shows up as spend.
+     *
+     * Both totals share the same merchant-or-gift gate, so lending to or borrowing from a friend
+     * (`ledgerEffect = DEBT`) moves into neither leg -- it reclassifies cash as a receivable (or
+     * back), which does not change net worth and so is not spend.
      */
     suspend fun getSpendSince(fromEpoch: Long): Long {
         val expense = database.transactionDao()
             .getExpenseTotalBetween(fromEpoch, Long.MAX_VALUE)
+        val income = database.transactionDao()
+            .getIncomeTotalBetween(fromEpoch, Long.MAX_VALUE)
         val transferSpend = -database.accountDao().getAllSync().sumOf { account ->
             sumTransferDeltas(account.id, fromEpoch, Long.MAX_VALUE)
         }
-        return expense + transferSpend
+        return expense - income + transferSpend
     }
 
     /**
      * Category breakdown over `(fromEpoch, toEpoch]`, newest-largest first.
      *
-     * Shares its rules with [getSpendSince] by construction -- both legs come from
+     * Shares its rules with [getSpendSince]'s two legs by construction -- both come from
      * [com.varun.upitracker.database.dao.TransactionDao.getTotalsByCategoryBetween], which mirrors
-     * `getExpenseTotalBetween`. The one deliberate difference is transfers: a transfer fee is
-     * spend but belongs to no category, so it counts in [getSpendSince] and not here.
+     * `getExpenseTotalBetween` and `getIncomeTotalBetween`. The one deliberate difference is
+     * transfers: a transfer fee is spend but belongs to no category, so it counts in [getSpendSince]
+     * and not here.
      */
     suspend fun getTotalsByCategory(
         kind: CategoryKind,

@@ -336,6 +336,17 @@
                         android:layout_width="match_parent"
                         android:layout_height="180dp" />
 
+                    <!-- Shown only while part of the line is a reconstruction, so the brown and
+                         the dashed mark are not left to be guessed at. -->
+                    <TextView
+                        android:id="@+id/tvSpeculationNote"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:textColor="?attr/appSpeculative"
+                        android:textSize="11sp"
+                        android:visibility="gone" />
+
                     <TextView
                         android:id="@+id/tvTrendsEmpty"
                         android:layout_width="match_parent"

@@ -125,7 +125,15 @@ class TransactionEntryActivity : AppCompatActivity() {
         val label: String,
         val initials: String,
         var amountPaise: Long
-    )
+    ) {
+        /**
+         * The name to persist alongside a share with no friend behind it, so opening and saving an
+         * imported transaction does not quietly erase who the sender said this was. Null once the
+         * row names a real friend -- their name lives on the friend, not on every share.
+         */
+        fun carriedLabel(): String? =
+            label.takeIf { participantType == ActorType.FRIEND && friendId == null && it.isNotBlank() && it != "Friend" }
+    }
 
     private val shareCalculator = ShareCalculator()
     private val shareManager = ShareManager()
@@ -298,7 +306,7 @@ class TransactionEntryActivity : AppCompatActivity() {
     private suspend fun setupUi(db: AppDatabase) {
         val tx = currentTransaction
         val transfer = currentTransfer
-        isSmsSource = transfer == null && tx?.source == "SMS"
+        isSmsSource = transfer == null && (tx?.source == "SMS" || tx?.source == "NOTIFICATION")
         selectedDateEpoch = tx?.dateEpoch ?: transfer?.dateEpoch ?: System.currentTimeMillis()
         tvTopInfo.text = when {
             transfer != null -> "${transfer.type.displayName()} - ${fmtDateTime(selectedDateEpoch)}"
@@ -878,12 +886,14 @@ class TransactionEntryActivity : AppCompatActivity() {
             ShareRow("ME", ActorType.ME, null, "Me", "ME", share.amountPaise)
         } else {
             val friend = allFriends.firstOrNull { it.id == share.friendId }
+            // rawLabel is how a shared parcel names someone this database cannot identify. Without
+            // it the row reads "Friend", and the user has no way to tell three of them apart.
             ShareRow(
                 key = "F:${share.friendId}",
                 participantType = ActorType.FRIEND,
                 friendId = share.friendId,
-                label = friend?.name ?: "Friend",
-                initials = friend?.avatarInitials ?: "F",
+                label = friend?.name ?: share.rawLabel ?: "Friend",
+                initials = friend?.avatarInitials ?: share.rawLabel?.let { initialsOf(it, "F") } ?: "F",
                 amountPaise = share.amountPaise
             )
         }
@@ -1622,6 +1632,7 @@ class TransactionEntryActivity : AppCompatActivity() {
     /** `Transaction.source` is a free string; `AccountTransfer.source` is the typed enum. */
     private fun Transaction.entrySource(): EntrySource = when (source) {
         "SMS" -> EntrySource.SMS
+        "NOTIFICATION" -> EntrySource.NOTIFICATION
         StatementImportRepository.SOURCE_BANK_STATEMENT -> EntrySource.BANK_STATEMENT
         else -> EntrySource.MANUAL
     }
@@ -1721,7 +1732,8 @@ class TransactionEntryActivity : AppCompatActivity() {
                         side = "PAYER",
                         participantType = row.participantType,
                         friendId = row.friendId,
-                        amountPaise = row.amountPaise
+                        amountPaise = row.amountPaise,
+                        rawLabel = row.carriedLabel()
                     )
                 )
             }
@@ -1734,7 +1746,8 @@ class TransactionEntryActivity : AppCompatActivity() {
                         side = "PAYEE",
                         participantType = row.participantType,
                         friendId = row.friendId,
-                        amountPaise = row.amountPaise
+                        amountPaise = row.amountPaise,
+                        rawLabel = row.carriedLabel()
                     )
                 )
             }

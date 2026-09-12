@@ -2,6 +2,7 @@ package com.varun.upitracker.ui.settings
 
 import android.content.Intent
 import android.os.Bundle
+import android.provider.Settings
 import android.view.View
 import android.widget.ImageButton
 import androidx.activity.enableEdgeToEdge
@@ -9,6 +10,7 @@ import androidx.appcompat.app.AppCompatActivity
 import com.varun.upitracker.R
 import com.varun.upitracker.ui.AliasMappingsActivity
 import com.varun.upitracker.ui.CategorySettingsActivity
+import com.varun.upitracker.ui.parcel.ParcelImportActivity
 import com.varun.upitracker.ui.statement.StatementImportActivity
 import com.varun.upitracker.ui.theme.padRootForSystemBars
 
@@ -27,6 +29,10 @@ class SettingsActivity : AppCompatActivity() {
         findViewById<View>(R.id.cardImportStatement).setOnClickListener {
             startActivity(Intent(this, StatementImportActivity::class.java))
         }
+
+        findViewById<View>(R.id.cardImportParcel).setOnClickListener {
+            startActivity(Intent(this, ParcelImportActivity::class.java))
+        }
         findViewById<View>(R.id.cardAccounts).setOnClickListener {
             startActivity(Intent(this, AccountsActivity::class.java))
         }
@@ -35,6 +41,9 @@ class SettingsActivity : AppCompatActivity() {
         }
         findViewById<View>(R.id.cardMerchantAliases).setOnClickListener {
             startActivity(AliasMappingsActivity.createIntent(this, AliasMappingsActivity.MODE_MERCHANT))
+        }
+        findViewById<View>(R.id.cardNotificationAccess).setOnClickListener {
+            startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
         }
     }
 }

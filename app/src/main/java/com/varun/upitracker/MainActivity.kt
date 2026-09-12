@@ -5,6 +5,7 @@ import android.content.Intent
 import android.os.Bundle
 import androidx.appcompat.app.AppCompatActivity
 import com.varun.upitracker.maintenance.CategorySplitBackfill
+import com.varun.upitracker.maintenance.FixedDepositSnapshotBackfill
 import com.varun.upitracker.maintenance.MerchantCreditReviewBackfill
 import com.varun.upitracker.sms.SmsBacklogScanner
 import com.varun.upitracker.ui.dashboard.DashboardActivity
@@ -32,6 +33,7 @@ class MainActivity : AppCompatActivity() {
         CoroutineScope(Dispatchers.IO).launch {
             CategorySplitBackfill(applicationContext).run()
             MerchantCreditReviewBackfill(applicationContext).run()
+            FixedDepositSnapshotBackfill(applicationContext).run()
         }
 
         finish()

@@ -17,4 +17,7 @@ interface FixedDepositDao {
 
     @Query("SELECT * FROM fixed_deposit_detail WHERE accountId = :accountId LIMIT 1")
     suspend fun getByAccountId(accountId: String): FixedDepositDetail?
+
+    @Query("SELECT * FROM fixed_deposit_detail ORDER BY bookedEpoch ASC")
+    suspend fun getAllSync(): List<FixedDepositDetail>
 }

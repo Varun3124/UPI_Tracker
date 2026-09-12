@@ -56,7 +56,7 @@
             android:paddingEnd="@dimen/page_gutter"
             android:paddingBottom="@dimen/space_xxl">
 
-            <!-- Spending. The one card carrying the accent fill, so the eye lands here first. -->
+            <!-- Net cash flow. The one card carrying the accent fill, so the eye lands here first. -->
             <com.google.android.material.card.MaterialCardView
                 android:id="@+id/cardSpending"
                 style="@style/Widget.UPI.Card.Accent"
@@ -65,6 +65,15 @@
                 android:layout_marginBottom="@dimen/space_xl"
                 android:clickable="true"
                 android:focusable="true">
+
+                <!-- Painted in code: a left-to-right gradient of each segment's own outflow/inflow
+                     tint, blending right at dividerCashFlow1/2 rather than across the whole card.
+                     Sized and rounded to match the card exactly, sitting behind the content
+                     below. -->
+                <View
+                    android:id="@+id/cardSpendingGradient"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent" />
 
                 <LinearLayout
                     android:layout_width="match_parent"
@@ -83,7 +92,7 @@
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
-                            android:text="Spending"
+                            android:text="Net cash flow"
                             android:textAppearance="@style/TextAppearance.UPI.SectionHeader"
                             android:textColor="?attr/colorOnPrimaryContainer"
                             android:alpha="0.75" />
@@ -131,6 +140,7 @@
                         </LinearLayout>
 
                         <View
+                            android:id="@+id/dividerCashFlow1"
                             android:layout_width="@dimen/stroke_hairline"
                             android:layout_height="match_parent"
                             android:layout_marginStart="@dimen/space_s"
@@ -166,6 +176,7 @@
                         </LinearLayout>
 
                         <View
+                            android:id="@+id/dividerCashFlow2"
                             android:layout_width="@dimen/stroke_hairline"
                             android:layout_height="match_parent"
                             android:layout_marginStart="@dimen/space_s"

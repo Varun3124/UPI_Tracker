@@ -61,6 +61,7 @@
         <item name="appNegativeContainer">@color/app_negative_container</item>
         <item name="appOnNegativeContainer">@color/app_on_negative_container</item>
         <item name="appTextMuted">@color/app_on_surface_muted</item>
+        <item name="appSpeculative">@color/app_speculative</item>
 
         <item name="appAvatarMe">@color/app_avatar_me</item>
         <item name="appOnAvatarMe">@color/app_on_avatar_me</item>

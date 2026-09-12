@@ -58,6 +58,7 @@ class StatisticsActivity : AppCompatActivity() {
     private lateinit var balanceLine: LineChartView
     private lateinit var tvBalanceLatest: TextView
     private lateinit var tvBalanceChange: TextView
+    private lateinit var tvSpeculationNote: TextView
     private lateinit var tvTrendsEmpty: TextView
     private lateinit var flowChart: IncomeExpenseChartView
     private lateinit var tvFlowSummary: TextView
@@ -107,6 +108,7 @@ class StatisticsActivity : AppCompatActivity() {
         balanceLine = findViewById(R.id.balanceLine)
         tvBalanceLatest = findViewById(R.id.tvBalanceLatest)
         tvBalanceChange = findViewById(R.id.tvBalanceChange)
+        tvSpeculationNote = findViewById(R.id.tvSpeculationNote)
         tvTrendsEmpty = findViewById(R.id.tvTrendsEmpty)
         flowChart = findViewById(R.id.flowChart)
         tvFlowSummary = findViewById(R.id.tvFlowSummary)
@@ -222,6 +224,9 @@ class StatisticsActivity : AppCompatActivity() {
         btnPickScope.text = "${scopeLabel(trends.scope, trends.accounts)}  \u25BE"
 
         balanceLine.visibility = if (empty) View.GONE else View.VISIBLE
+        // Hidden here as well as in renderSpeculationNote: the early return below skips that call,
+        // and the note would otherwise sit under an empty card describing the last scope's line.
+        if (empty) tvSpeculationNote.visibility = View.GONE
         cardFlowTrend.visibility = if (empty) View.GONE else View.VISIBLE
         tvTrendsEmpty.visibility = if (empty) View.VISIBLE else View.GONE
         tvTrendsEmpty.text = when {
@@ -231,6 +236,12 @@ class StatisticsActivity : AppCompatActivity() {
         }
 
         tvBalanceLatest.text = if (empty) "" else formatRupees(trends.latestBalancePaise)
+        // The headline figure follows the line: brown while it is still a reconstruction.
+        tvBalanceLatest.setTextColor(
+            tvBalanceLatest.themeColor(
+                if (trends.isLatestSpeculative) ThemeAttr.speculative else ThemeAttr.onSurface
+            )
+        )
         if (empty) {
             tvBalanceChange.text = ""
             tvBalanceChange.setCompoundDrawablesRelativeWithIntrinsicBounds(0, 0, 0, 0)
@@ -246,12 +257,41 @@ class StatisticsActivity : AppCompatActivity() {
         }
         balanceLine.isPanEnabled = trends.canPan
         flowChart.isPanEnabled = trends.canPan
-        balanceLine.setSeries(series, labels)
+        balanceLine.setSeries(
+            values = series,
+            labels = labels,
+            speculativeCount = trends.speculativePointCount,
+            checkpointFraction = trends.checkpointFraction
+        )
+
+        renderSpeculationNote(trends)
 
         // The same labels on both, because the two charts share a bucket layout so that a peak in
         // one can be read directly above the peak in the other.
         flowChart.setSeries(trends.incomeSeries, trends.expenseSeries, labels)
         tvFlowSummary.text = flowSummary(trends)
+    }
+
+    /**
+     * Says out loud what the brown means, since a colour on its own does not.
+     *
+     * Only while some of the line is a reconstruction. The wording separates the two cases, because
+     * "no snapshot yet" is fixable by adding one and "before your first snapshot" is not.
+     */
+    private fun renderSpeculationNote(trends: TrendsUiState) {
+        val speculative = trends.speculativePointCount
+        if (speculative == 0) {
+            tvSpeculationNote.visibility = View.GONE
+            return
+        }
+        tvSpeculationNote.visibility = View.VISIBLE
+        tvSpeculationNote.text = if (trends.balanceCertainFromEpoch == null) {
+            "Brown: worked out from transactions alone. Add a balance snapshot on the Accounts " +
+                "screen to anchor these figures."
+        } else {
+            "Brown, up to the dashed mark: worked out from transactions alone, before the first " +
+                "balance snapshot in this scope."
+        }
     }
 
     /**

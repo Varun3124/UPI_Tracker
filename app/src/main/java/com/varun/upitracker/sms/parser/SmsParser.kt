@@ -1,12 +1,6 @@
 package com.varun.upitracker.sms.parser
 
-data class ParsedSms(
-    val amountPaise: Long,
-    val direction: String,       // "DEBIT" or "CREDIT"
-    val payeeRaw: String,        // UPI ID for credits, display name for debits
-    val upiRefId: String,
-    val dateEpoch: Long
-)
+import com.varun.upitracker.parser.ParsedTransaction
 
 object SmsParser {
 
@@ -24,29 +18,42 @@ object SmsParser {
     private val AXIS_DEBIT_AMOUNT      = Regex("""INR\s+(\d+(?:\.\d+)?)\s+debited""", RegexOption.IGNORE_CASE)
     private val AXIS_DEBIT_REF_PAYEE   = Regex("""UPI/[^/]+/(\d+)/(.+)""")
 
+    // ICICI credit pattern — "Dear Customer, Acct XX458 is credited with Rs 691.00 on 16-Jul-26 from HET RASHMINKUMA. UPI:619720049955-ICICI Bank."
+    private val ICICI_CREDIT_AMOUNT = Regex("""credited with Rs\s*(\d+(?:\.\d+)?)""", RegexOption.IGNORE_CASE)
+    private val ICICI_CREDIT_PAYEE  = Regex("""from (.+?)\.\s*UPI:""", RegexOption.IGNORE_CASE)
+
+    // ICICI debit pattern — "ICICI Bank Acct XX458 debited for Rs 1117.00 on 17-Aug-26; EKLINGJI ENTERP credited. UPI:659555777792. Call ..."
+    private val ICICI_DEBIT_AMOUNT = Regex("""debited for Rs\s*(\d+(?:\.\d+)?)""", RegexOption.IGNORE_CASE)
+    private val ICICI_DEBIT_PAYEE  = Regex(""";\s*(.+?)\s*credited\.""", RegexOption.IGNORE_CASE)
+
+    // Shared by both ICICI alerts — "UPI:619720049955-ICICI Bank." or "UPI:659555777792."
+    private val ICICI_REF = Regex("""UPI:(\d+)""")
+
     /**
-     * Returns a ParsedSms if the message is a recognized HDFC or AXIS UPI SMS, null otherwise.
+     * Returns a ParsedTransaction if the message is a recognized HDFC, AXIS or ICICI UPI SMS,
+     * null otherwise.
      */
-    fun parse(sender: String, body: String, timestamp: Long): ParsedSms? {
+    fun parse(sender: String, body: String, timestamp: Long): ParsedTransaction? {
         return when {
             sender.contains("HDFC", ignoreCase = true)   -> parseHdfc(body, timestamp)
             sender.contains("AXISBK", ignoreCase = true) -> parseAxis(body, timestamp)
+            sender.contains("ICICIT", ignoreCase = true) -> parseIcici(body, timestamp)
             else -> null
         }
     }
 
-    private fun parseHdfc(body: String, timestamp: Long): ParsedSms? = when {
+    private fun parseHdfc(body: String, timestamp: Long): ParsedTransaction? = when {
         body.contains("Credit Alert!", ignoreCase = true) -> parseHdfcCredit(body, timestamp)
         body.contains("Sent Rs.", ignoreCase = true)      -> parseHdfcDebit(body, timestamp)
         else -> null
     }
 
-    private fun parseHdfcCredit(body: String, timestamp: Long): ParsedSms? {
+    private fun parseHdfcCredit(body: String, timestamp: Long): ParsedTransaction? {
         val amount  = HDFC_CREDIT_AMOUNT.find(body)?.groupValues?.get(1) ?: return null
         val vpa     = HDFC_CREDIT_VPA.find(body)?.groupValues?.get(1)    ?: return null
         val ref     = HDFC_CREDIT_REF.find(body)?.groupValues?.get(1)    ?: return null
 
-        return ParsedSms(
+        return ParsedTransaction(
             amountPaise = toP(amount),
             direction   = "CREDIT",
             payeeRaw    = vpa.trim(),
@@ -55,12 +62,12 @@ object SmsParser {
         )
     }
 
-    private fun parseHdfcDebit(body: String, timestamp: Long): ParsedSms? {
+    private fun parseHdfcDebit(body: String, timestamp: Long): ParsedTransaction? {
         val amount  = HDFC_DEBIT_AMOUNT.find(body)?.groupValues?.get(1) ?: return null
         val payee   = HDFC_DEBIT_PAYEE.find(body)?.groupValues?.get(1)  ?: return null
         val ref     = HDFC_DEBIT_REF.find(body)?.groupValues?.get(1)    ?: return null
 
-        return ParsedSms(
+        return ParsedTransaction(
             amountPaise = toP(amount),
             direction   = "DEBIT",
             payeeRaw    = payee.trim(),
@@ -70,18 +77,52 @@ object SmsParser {
     }
 
     // AXIS credit-alert parsing isn't implemented yet — no confirmed sample SMS to match against.
-    private fun parseAxis(body: String, timestamp: Long): ParsedSms? = when {
+    private fun parseAxis(body: String, timestamp: Long): ParsedTransaction? = when {
         body.contains("debited", ignoreCase = true) -> parseAxisDebit(body, timestamp)
         else -> null
     }
 
-    private fun parseAxisDebit(body: String, timestamp: Long): ParsedSms? {
+    private fun parseAxisDebit(body: String, timestamp: Long): ParsedTransaction? {
         val amount      = AXIS_DEBIT_AMOUNT.find(body)?.groupValues?.get(1) ?: return null
         val refPayee    = AXIS_DEBIT_REF_PAYEE.find(body) ?: return null
         val ref         = refPayee.groupValues[1]
         val payee       = refPayee.groupValues[2]
 
-        return ParsedSms(
+        return ParsedTransaction(
+            amountPaise = toP(amount),
+            direction   = "DEBIT",
+            payeeRaw    = payee.trim(),
+            upiRefId    = ref.trim(),
+            dateEpoch   = timestamp
+        )
+    }
+
+    private fun parseIcici(body: String, timestamp: Long): ParsedTransaction? = when {
+        body.contains("credited with", ignoreCase = true) -> parseIciciCredit(body, timestamp)
+        body.contains("debited for", ignoreCase = true)   -> parseIciciDebit(body, timestamp)
+        else -> null
+    }
+
+    private fun parseIciciCredit(body: String, timestamp: Long): ParsedTransaction? {
+        val amount = ICICI_CREDIT_AMOUNT.find(body)?.groupValues?.get(1) ?: return null
+        val payee  = ICICI_CREDIT_PAYEE.find(body)?.groupValues?.get(1)  ?: return null
+        val ref    = ICICI_REF.find(body)?.groupValues?.get(1)           ?: return null
+
+        return ParsedTransaction(
+            amountPaise = toP(amount),
+            direction   = "CREDIT",
+            payeeRaw    = payee.trim(),
+            upiRefId    = ref.trim(),
+            dateEpoch   = timestamp
+        )
+    }
+
+    private fun parseIciciDebit(body: String, timestamp: Long): ParsedTransaction? {
+        val amount = ICICI_DEBIT_AMOUNT.find(body)?.groupValues?.get(1) ?: return null
+        val payee  = ICICI_DEBIT_PAYEE.find(body)?.groupValues?.get(1)  ?: return null
+        val ref    = ICICI_REF.find(body)?.groupValues?.get(1)          ?: return null
+
+        return ParsedTransaction(
             amountPaise = toP(amount),
             direction   = "DEBIT",
             payeeRaw    = payee.trim(),

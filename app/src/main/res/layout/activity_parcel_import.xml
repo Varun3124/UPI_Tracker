@@ -1,0 +1,200 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/main"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="?android:attr/colorBackground">
+
+    <LinearLayout
+        style="@style/Widget.UPI.TopBar">
+
+        <ImageButton
+            android:id="@+id/btnBackParcel"
+            style="@style/Widget.UPI.IconButton"
+            android:src="@drawable/ic_arrow_back"
+            android:contentDescription="@string/cd_back" />
+
+        <TextView
+            style="@style/Widget.UPI.TopBarTitle"
+            android:text="Import shared parcel" />
+    </LinearLayout>
+
+    <!-- Setup state: say who sent it, then paste it. -->
+    <ScrollView
+        android:id="@+id/panelSetup"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:padding="12dp"
+        android:clipToPadding="false">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <androidx.cardview.widget.CardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="2dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Who sent this?"
+                        android:textSize="12sp"
+                        android:textColor="?attr/colorOnSurfaceVariant" />
+
+                    <Spinner
+                        android:id="@+id/spinnerSender"
+                        android:layout_width="match_parent"
+                        android:layout_height="48dp"
+                        android:layout_marginTop="4dp" />
+
+                    <TextView
+                        android:id="@+id/tvNoFriends"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:text="Add the person to your people list first, then come back."
+                        android:textSize="12sp"
+                        android:textColor="?attr/appWarning"
+                        android:visibility="gone" />
+                </LinearLayout>
+            </androidx.cardview.widget.CardView>
+
+            <androidx.cardview.widget.CardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                app:cardCornerRadius="12dp"
+                app:cardElevation="2dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="The parcel"
+                        android:textSize="12sp"
+                        android:textColor="?attr/colorOnSurfaceVariant" />
+
+                    <EditText
+                        android:id="@+id/etParcel"
+                        android:layout_width="match_parent"
+                        android:layout_height="120dp"
+                        android:layout_marginTop="4dp"
+                        android:gravity="top|start"
+                        android:hint="Paste the text they sent you"
+                        android:inputType="textMultiLine|textNoSuggestions"
+                        android:textSize="12sp"
+                        android:importantForAutofill="no"
+                        android:autofillHints="" />
+
+                    <Button
+                        android:id="@+id/btnPasteParcel"
+                        style="?attr/materialButtonOutlinedStyle"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="8dp"
+                        android:text="Paste from clipboard" />
+                </LinearLayout>
+            </androidx.cardview.widget.CardView>
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:text="Nothing is saved until you have looked through it. Everything lands as pending, for you to confirm."
+                android:textSize="12sp"
+                android:textColor="?attr/appTextMuted" />
+        </LinearLayout>
+    </ScrollView>
+
+    <TextView
+        android:id="@+id/btnRead"
+        android:layout_width="match_parent"
+        android:layout_height="52dp"
+        android:gravity="center"
+        android:background="?attr/colorPrimary"
+        android:text="Read parcel"
+        android:textSize="15sp"
+        android:textStyle="bold"
+        android:textColor="?attr/colorOnPrimary" />
+
+    <!-- Review state: what was in it, and what is already here. -->
+    <LinearLayout
+        android:id="@+id/panelReview"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:orientation="vertical"
+        android:visibility="gone">
+
+        <TextView
+            android:id="@+id/tvReviewSummary"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:paddingTop="12dp"
+            android:paddingBottom="4dp"
+            android:textSize="13sp"
+            android:textColor="?attr/colorOnSurfaceVariant" />
+
+        <TextView
+            android:id="@+id/tvUnmappedPeople"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:paddingBottom="8dp"
+            android:textSize="12sp"
+            android:textColor="?attr/appWarning"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/tvReviewEmpty"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:padding="24dp"
+            android:gravity="center"
+            android:text="Nothing new here — you already have everything in this parcel."
+            android:textSize="13sp"
+            android:textColor="?attr/colorOnSurfaceVariant"
+            android:visibility="gone" />
+
+        <androidx.recyclerview.widget.RecyclerView
+            android:id="@+id/rvParcelRows"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
+            android:layout_weight="1"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:paddingBottom="12dp"
+            android:clipToPadding="false" />
+
+        <TextView
+            android:id="@+id/btnCommitParcel"
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:gravity="center"
+            android:background="?attr/colorPrimary"
+            android:textSize="15sp"
+            android:textStyle="bold"
+            android:textColor="?attr/colorOnPrimary" />
+    </LinearLayout>
+</LinearLayout>

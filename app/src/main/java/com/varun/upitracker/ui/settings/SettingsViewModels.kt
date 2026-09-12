@@ -5,6 +5,7 @@ import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
+import com.varun.upitracker.ui.parcel.ParcelImportViewModel
 import com.varun.upitracker.ui.statement.StatementImportViewModel
 import androidx.lifecycle.viewModelScope
 import com.varun.upitracker.data.repository.AccountCreateRequest
@@ -17,6 +18,7 @@ import com.varun.upitracker.database.AppDatabase
 import com.varun.upitracker.database.entity.Account
 import com.varun.upitracker.database.entity.AccountType
 import com.varun.upitracker.domain.AccountTypes
+import com.varun.upitracker.domain.BalanceConfidence
 import com.varun.upitracker.database.entity.BalanceSnapshot
 import com.varun.upitracker.database.entity.BalanceSnapshotSource
 import com.varun.upitracker.database.entity.CategoryKind
@@ -71,7 +73,19 @@ data class AccountRowUi(
     val account: Account,
     val balancePaise: Long,
     val snapshots: List<BalanceSnapshot>
-)
+) {
+    /**
+     * True when [balancePaise] was reconstructed rather than derived from a reconciliation.
+     *
+     * The balance shown here is today's, so this comes to "has this account ever been reconciled,
+     * on or before now" -- a snapshot dated in the future does not make the present certain.
+     */
+    val isSpeculative: Boolean
+        get() = BalanceConfidence.isSpeculative(
+            atEpoch = System.currentTimeMillis(),
+            certainFrom = snapshots.minOfOrNull { it.snapshotEpoch }
+        )
+}
 
 data class AccountsUiState(
     val rows: List<AccountRowUi> = emptyList(),
@@ -164,6 +178,7 @@ class AppViewModelFactory(private val context: Context) : ViewModelProvider.Fact
             modelClass.isAssignableFrom(CategorySettingsViewModel::class.java) -> CategorySettingsViewModel(context) as T
             modelClass.isAssignableFrom(AccountsViewModel::class.java) -> AccountsViewModel(context) as T
             modelClass.isAssignableFrom(StatementImportViewModel::class.java) -> StatementImportViewModel(context) as T
+            modelClass.isAssignableFrom(ParcelImportViewModel::class.java) -> ParcelImportViewModel(context) as T
             else -> throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")
         }
     }
