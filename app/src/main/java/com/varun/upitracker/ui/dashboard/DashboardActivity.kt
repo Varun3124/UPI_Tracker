@@ -1,6 +1,8 @@
 package com.varun.upitracker.ui.dashboard
 
+import android.Manifest
 import android.content.Intent
+import android.content.pm.PackageManager
 import android.graphics.LinearGradient
 import android.graphics.Shader
 import android.graphics.drawable.Drawable
@@ -12,7 +14,9 @@ import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import com.varun.upitracker.R
@@ -58,6 +62,18 @@ class DashboardActivity : AppCompatActivity() {
     private lateinit var btnToggleInsignificantIou: TextView
     private val dateFmt = SimpleDateFormat("dd MMM", Locale.getDefault())
     private lateinit var viewModel: DashboardViewModel
+
+    /** Whether this screen has already asked for SMS access; see [onResume]. */
+    private var askedForSms = false
+
+    private val smsPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { results ->
+        if (results[Manifest.permission.READ_SMS] == true) {
+            viewModel.scanSmsBacklog()
+            loadData()
+        }
+    }
 
     /** IOUs this small are noise (loose change, rounding) - hidden by default. */
     private var showInsignificantIou = false
@@ -113,8 +129,25 @@ class DashboardActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         loadData()
-        viewModel.scanSmsBacklog()
+        if (hasSmsPermission()) {
+            viewModel.scanSmsBacklog()
+        } else if (!askedForSms) {
+            // Reaching the dashboard does not mean SMS access was ever granted: Android's backup can
+            // restore this app's data -- onboarding flag included -- onto a phone that never saw the
+            // onboarding permission screen, and the user can revoke access in settings at any time.
+            // Asked once per visit: the permission dialog itself pauses and resumes this screen, so
+            // without the flag a refusal would bring the prompt straight back, forever.
+            askedForSms = true
+            smsPermissionLauncher.launch(
+                arrayOf(Manifest.permission.RECEIVE_SMS, Manifest.permission.READ_SMS)
+            )
+        }
     }
+
+    private fun hasSmsPermission(): Boolean =
+        listOf(Manifest.permission.RECEIVE_SMS, Manifest.permission.READ_SMS).all {
+            ContextCompat.checkSelfPermission(this, it) == PackageManager.PERMISSION_GRANTED
+        }
 
     private fun loadData() {
         viewModel.loadData()
