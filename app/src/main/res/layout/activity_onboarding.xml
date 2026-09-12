@@ -53,6 +53,25 @@
             android:layout_height="wrap_content"
             android:enabled="false"
             android:text="Next →" />
+
+        <!-- For someone moving to a new phone, entering accounts by hand that are already in a
+             backup is pointless work. Placed under the main path, not competing with it. -->
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="32dp"
+            android:gravity="center"
+            android:text="Used DhanMoney before?"
+            android:textColor="?attr/appTextMuted"
+            android:textSize="13sp" />
+
+        <Button
+            android:id="@+id/btnRestoreFromDrive"
+            style="?attr/materialButtonOutlinedStyle"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:text="Restore from Google Drive" />
     </LinearLayout>
 
     <!-- Screen 2: Accounts -->

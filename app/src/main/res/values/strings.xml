@@ -21,4 +21,9 @@
     <string name="cd_avatar">Avatar</string>
     <string name="cd_statistics">Statistics</string>
     <string name="cd_share_transactions">Share transactions</string>
+
+    <!-- The audience identifier Credential Manager signs the user in against. Not a secret: an
+         OAuth client ID is public by design and ships inside every copy of the app. The client
+         SECRET that Google shows beside it is not used and must never be added here. -->
+    <string name="google_web_client_id" translatable="false">113059503285-t8fjhfoahu6hcd1c2scl9ajoh47re43b.apps.googleusercontent.com</string>
 </resources>

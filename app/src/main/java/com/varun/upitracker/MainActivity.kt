@@ -1,13 +1,13 @@
 package com.varun.upitracker
 
-import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import androidx.appcompat.app.AppCompatActivity
+import com.varun.upitracker.data.prefs.AppPrefs
 import com.varun.upitracker.maintenance.CategorySplitBackfill
 import com.varun.upitracker.maintenance.FixedDepositSnapshotBackfill
 import com.varun.upitracker.maintenance.MerchantCreditReviewBackfill
-import com.varun.upitracker.sms.SmsBacklogScanner
+import com.varun.upitracker.maintenance.OpportunisticBackup
 import com.varun.upitracker.ui.dashboard.DashboardActivity
 import com.varun.upitracker.ui.onboarding.OnboardingActivity
 import kotlinx.coroutines.CoroutineScope
@@ -19,8 +19,8 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        val prefs = getSharedPreferences(SmsBacklogScanner.PREF_NAME, Context.MODE_PRIVATE)
-        val onboardingDone = prefs.getBoolean("onboarding_complete", false)
+        val prefs = AppPrefs.of(this)
+        val onboardingDone = prefs.getBoolean(AppPrefs.ONBOARDING_COMPLETE, false)
 
         if (onboardingDone) {
             startActivity(Intent(this, DashboardActivity::class.java))
@@ -34,6 +34,9 @@ class MainActivity : AppCompatActivity() {
             CategorySplitBackfill(applicationContext).run()
             MerchantCreditReviewBackfill(applicationContext).run()
             FixedDepositSnapshotBackfill(applicationContext).run()
+            // Last, and deliberately so: the three above write to the database, and a backup taken
+            // while they were still running would capture a half-migrated state.
+            OpportunisticBackup(applicationContext).run()
         }
 
         finish()

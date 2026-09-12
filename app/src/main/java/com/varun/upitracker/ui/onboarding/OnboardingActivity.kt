@@ -30,6 +30,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import com.varun.upitracker.R
+import com.varun.upitracker.ui.backup.BackupActivity
 import com.varun.upitracker.ui.dashboard.DashboardActivity
 import kotlinx.coroutines.launch
 import com.varun.upitracker.ui.theme.padRootForSystemBars
@@ -46,6 +47,7 @@ class OnboardingActivity : AppCompatActivity() {
     private lateinit var btnGrantSms: Button
     private lateinit var btnGrantNotifications: Button
     private lateinit var btnNextToAccount: Button
+    private lateinit var btnRestoreFromDrive: Button
 
     // --- Accounts screen ---
     private lateinit var accountInputContainer: LinearLayout
@@ -88,6 +90,7 @@ class OnboardingActivity : AppCompatActivity() {
         btnGrantSms           = findViewById(R.id.btnGrantSms)
         btnGrantNotifications = findViewById(R.id.btnGrantNotifications)
         btnNextToAccount      = findViewById(R.id.btnNextToAccounts)
+        btnRestoreFromDrive   = findViewById(R.id.btnRestoreFromDrive)
 
         // Accounts screen
         accountInputContainer = findViewById(R.id.accountInputContainer)
@@ -133,6 +136,14 @@ class OnboardingActivity : AppCompatActivity() {
 
         btnNextToAccount.setOnClickListener {
             showScreen(screenAccounts)
+        }
+
+        // Sends the user straight to the Backup screen rather than running a restore here. That
+        // screen already owns the sign-in sheet, the Drive consent flow and the confirmation
+        // dialogs; duplicating any of that inside onboarding would mean two versions of the one
+        // decision that must never go wrong.
+        btnRestoreFromDrive.setOnClickListener {
+            startActivity(Intent(this, BackupActivity::class.java))
         }
     }
 

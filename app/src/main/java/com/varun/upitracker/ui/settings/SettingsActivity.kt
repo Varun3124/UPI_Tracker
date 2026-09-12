@@ -10,6 +10,7 @@ import androidx.appcompat.app.AppCompatActivity
 import com.varun.upitracker.R
 import com.varun.upitracker.ui.AliasMappingsActivity
 import com.varun.upitracker.ui.CategorySettingsActivity
+import com.varun.upitracker.ui.backup.BackupActivity
 import com.varun.upitracker.ui.parcel.ParcelImportActivity
 import com.varun.upitracker.ui.statement.StatementImportActivity
 import com.varun.upitracker.ui.theme.padRootForSystemBars
@@ -32,6 +33,10 @@ class SettingsActivity : AppCompatActivity() {
 
         findViewById<View>(R.id.cardImportParcel).setOnClickListener {
             startActivity(Intent(this, ParcelImportActivity::class.java))
+        }
+
+        findViewById<View>(R.id.cardBackup).setOnClickListener {
+            startActivity(Intent(this, BackupActivity::class.java))
         }
         findViewById<View>(R.id.cardAccounts).setOnClickListener {
             startActivity(Intent(this, AccountsActivity::class.java))

@@ -5,6 +5,7 @@ import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
+import com.varun.upitracker.ui.backup.BackupViewModel
 import com.varun.upitracker.ui.parcel.ParcelImportViewModel
 import com.varun.upitracker.ui.statement.StatementImportViewModel
 import androidx.lifecycle.viewModelScope
@@ -179,6 +180,7 @@ class AppViewModelFactory(private val context: Context) : ViewModelProvider.Fact
             modelClass.isAssignableFrom(AccountsViewModel::class.java) -> AccountsViewModel(context) as T
             modelClass.isAssignableFrom(StatementImportViewModel::class.java) -> StatementImportViewModel(context) as T
             modelClass.isAssignableFrom(ParcelImportViewModel::class.java) -> ParcelImportViewModel(context) as T
+            modelClass.isAssignableFrom(BackupViewModel::class.java) -> BackupViewModel(context) as T
             else -> throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")
         }
     }

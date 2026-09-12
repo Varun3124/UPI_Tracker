@@ -381,9 +381,19 @@ abstract class AppDatabase : RoomDatabase() {
             return false
         }
 
+        /**
+         * The re-check inside the lock is load-bearing, not ceremony.
+         *
+         * Without it two threads that both saw a null [INSTANCE] each build their own database, and
+         * the loser's copy stays alive holding an open connection that [INSTANCE] no longer names.
+         * That is not hypothetical here: an SMS arriving while the launcher opens the dashboard hits
+         * this from two threads at once, through [com.varun.upitracker.sms.receiver.SmsReceiver] and
+         * the UI. Any code that reasons about "the" database -- a restore, or a close -- would miss
+         * the orphan entirely.
+         */
         fun getInstance(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
-                Room.databaseBuilder(
+                INSTANCE ?: Room.databaseBuilder(
                     context.applicationContext,
                     AppDatabase::class.java,
                     "upi_tracker_db"

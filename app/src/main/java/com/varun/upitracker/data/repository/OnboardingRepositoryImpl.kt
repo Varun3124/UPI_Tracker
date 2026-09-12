@@ -2,6 +2,7 @@ package com.varun.upitracker.data.repository
 
 import android.content.Context
 import androidx.room.withTransaction
+import com.varun.upitracker.data.prefs.AppPrefs
 import com.varun.upitracker.database.AppDatabase
 import com.varun.upitracker.sms.SmsBacklogScanner
 import com.varun.upitracker.ui.onboarding.AccountInput
@@ -67,10 +68,6 @@ class DefaultOnboardingRepository(context: Context) : OnboardingRepository {
     }
 
     override fun markOnboardingComplete() {
-        prefs.edit { putBoolean(ONBOARDING_COMPLETE_KEY, true) }
-    }
-
-    private companion object {
-        const val ONBOARDING_COMPLETE_KEY = "onboarding_complete"
+        prefs.edit { putBoolean(AppPrefs.ONBOARDING_COMPLETE, true) }
     }
 }

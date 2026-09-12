@@ -5,6 +5,11 @@
         android:name="android.hardware.telephony"
         android:required="false" />
 
+    <!-- The app's first network permission, and the only thing that uses it is the opt-in
+         Google Drive backup. Everything else works with the radio off. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
     <uses-permission android:name="android.permission.RECEIVE_SMS" />
     <uses-permission android:name="android.permission.READ_SMS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
@@ -38,6 +43,8 @@
              parcel straight from a chat app would let any app on the device hand text to a
              screen that writes to the ledger. Parcels are pasted in from Settings. -->
         <activity android:name=".ui.parcel.ParcelImportActivity" android:exported="false" />
+
+        <activity android:name=".ui.backup.BackupActivity" android:exported="false" />
         <activity android:name=".ui.statement.StatementResolvedActivity" android:exported="false" />
         <activity android:name=".ui.settings.AccountsActivity" android:exported="false" />
         <activity android:name=".ui.CategorySettingsActivity" android:exported="false" />

@@ -109,6 +109,15 @@ dependencies {
     implementation("androidx.navigation:navigation-fragment-ktx:2.7.7")
     implementation("androidx.navigation:navigation-ui-ktx:2.7.7")
 
+    // Google sign-in and Drive backup. Credential Manager authenticates; play-services-auth's
+    // AuthorizationClient hands back a Drive access token. Deliberately NOT the Google API client
+    // libraries: Drive is four REST calls, and those libraries would add megabytes of dex to an
+    // APK that is already five dex files without minification.
+    implementation("androidx.credentials:credentials:1.3.0")
+    implementation("androidx.credentials:credentials-play-services-auth:1.3.0")
+    implementation("com.google.android.libraries.identity.googleid:googleid:1.1.1")
+    implementation("com.google.android.gms:play-services-auth:21.3.0")
+
     // Bank statement (.xls) import. HSSF/BIFF8 only - poi-ooxml would drag in xmlbeans
     // for a .xlsx path this app never takes.
     implementation(libs.poi)
