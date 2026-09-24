@@ -1,5 +1,6 @@
 package com.varun.upitracker.domain.parcel
 
+import com.varun.upitracker.database.entity.IouRecovery
 import com.varun.upitracker.database.entity.LedgerEffect
 import com.varun.upitracker.database.entity.Transaction
 import com.varun.upitracker.database.entity.TransactionShare
@@ -48,7 +49,8 @@ class ParcelPerspectiveTest {
         payeeFriendId: Long? = bInAsBook,
         payeeMerchantId: Long? = null,
         upiRefId: String? = null,
-        ledgerEffect: LedgerEffect = LedgerEffect.DEBT
+        ledgerEffect: LedgerEffect = LedgerEffect.DEBT,
+        iouRecovery: IouRecovery? = IouRecovery.FROM_SECONDARY_PAYERS
     ) = Transaction(
         id = id,
         amountPaise = amountPaise,
@@ -66,7 +68,8 @@ class ParcelPerspectiveTest {
         source = "SMS",
         isPending = false,
         refundsTransactionId = null,
-        ledgerEffect = ledgerEffect
+        ledgerEffect = ledgerEffect,
+        iouRecovery = iouRecovery
     )
 
     private fun share(side: String, participantType: String, amountPaise: Long, friendId: Long? = null) =
@@ -281,5 +284,85 @@ class ParcelPerspectiveTest {
         assertEquals(aInBsBook, local.transaction.payerFriendId)
         assertEquals(ActorType.MERCHANT, local.transaction.payeeActorType)
         assertEquals(30000L, local.shares.sumOf { it.amountPaise })
+    }
+
+    // --- which side pays back -----------------------------------------------------------------
+
+    @Test
+    fun `the writer's pay-back side travels and lands untouched`() {
+        val shares = listOf(
+            share("PAYER", ActorType.ME, 30000L),
+            share("PAYEE", ActorType.FRIEND, 20000L, bInAsBook),
+            share("PAYEE", ActorType.FRIEND, 10000L, charlieInAsBook)
+        )
+        listOf(IouRecovery.FROM_SECONDARY_PAYERS, IouRecovery.FROM_SECONDARY_PAYEES).forEach { recovery ->
+            val row = flip(tx(iouRecovery = recovery), shares)
+            assertEquals(recovery, row.iouRecovery)
+            assertEquals(recovery, toLocal(row).transaction.iouRecovery)
+        }
+    }
+
+    @Test
+    fun `a row from before the setting existed travels as the side the writer was on`() {
+        // B paid A, split between B and Charlie: the old inference recovered from A's side, the payee side.
+        val source = tx(
+            payerActorType = ActorType.FRIEND, payerFriendId = bInAsBook,
+            payeeActorType = ActorType.ME, payeeFriendId = null,
+            iouRecovery = null
+        )
+        val shares = listOf(
+            share("PAYER", ActorType.FRIEND, 20000L, bInAsBook),
+            share("PAYER", ActorType.FRIEND, 10000L, charlieInAsBook),
+            share("PAYEE", ActorType.ME, 30000L)
+        )
+        assertEquals(IouRecovery.FROM_SECONDARY_PAYEES, flip(source, shares).iouRecovery)
+    }
+
+    @Test
+    fun `an older parcel that never said lands as the side its sender was on`() {
+        val senderPaid = flip(
+            tx(),
+            listOf(share("PAYER", ActorType.ME, 30000L), share("PAYEE", ActorType.FRIEND, 30000L, bInAsBook))
+        ).copy(iouRecovery = null)
+        assertEquals(IouRecovery.FROM_SECONDARY_PAYERS, toLocal(senderPaid).transaction.iouRecovery)
+
+        val senderWasPaid = flip(
+            tx(
+                payerActorType = ActorType.FRIEND, payerFriendId = bInAsBook,
+                payeeActorType = ActorType.ME, payeeFriendId = null
+            ),
+            listOf(share("PAYER", ActorType.FRIEND, 30000L, bInAsBook), share("PAYEE", ActorType.ME, 30000L))
+        ).copy(iouRecovery = null)
+        assertEquals(IouRecovery.FROM_SECONDARY_PAYEES, toLocal(senderWasPaid).transaction.iouRecovery)
+    }
+
+    @Test
+    fun `a shop at either end decides the side, whatever the row says`() {
+        val refund = tx(
+            payerActorType = ActorType.MERCHANT, payerFriendId = null, payerMerchantId = 11L,
+            payeeActorType = ActorType.ME, payeeFriendId = null,
+            iouRecovery = IouRecovery.FROM_SECONDARY_PAYERS
+        )
+        val row = flip(
+            refund,
+            listOf(share("PAYEE", ActorType.ME, 20000L), share("PAYEE", ActorType.FRIEND, 10000L, bInAsBook))
+        )
+        assertEquals(IouRecovery.FROM_SECONDARY_PAYEES, row.iouRecovery)
+        assertEquals(
+            IouRecovery.FROM_SECONDARY_PAYEES,
+            toLocal(row.copy(iouRecovery = IouRecovery.FROM_SECONDARY_PAYERS)).transaction.iouRecovery
+        )
+    }
+
+    @Test
+    fun `which debts a split keeps travels and lands untouched`() {
+        val shares = listOf(
+            share("PAYER", ActorType.ME, 20000L),
+            share("PAYER", ActorType.FRIEND, 10000L, bInAsBook).copy(keepPayerLeg = false)
+        )
+        val row = flip(tx(payeeActorType = ActorType.MERCHANT, payeeFriendId = null, payeeMerchantId = 11L), shares)
+        val expected = listOf(true to true, true to false)
+        assertEquals(expected, row.shares.map { it.keepPayeeLeg to it.keepPayerLeg })
+        assertEquals(expected, toLocal(row).shares.map { it.keepPayeeLeg to it.keepPayerLeg })
     }
 }

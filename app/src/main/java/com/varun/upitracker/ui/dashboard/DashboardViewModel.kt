@@ -6,11 +6,14 @@ import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.varun.upitracker.data.mailbox.MailboxIdentityRepository
 import com.varun.upitracker.data.repository.AccountRepository
 import com.varun.upitracker.data.repository.LedgerRepository
 import com.varun.upitracker.database.AppDatabase
+import com.varun.upitracker.database.entity.MailboxMessageState
 import com.varun.upitracker.domain.statistics.StatisticsPeriods
 import com.varun.upitracker.domain.statistics.StatsPeriod
+import com.varun.upitracker.maintenance.MailboxCollection
 import com.varun.upitracker.sms.SmsBacklogScanner
 import com.varun.upitracker.ui.LedgerEntry
 import kotlinx.coroutines.Dispatchers
@@ -23,11 +26,16 @@ data class DashboardUiState(
     val monthlySpendPaise: Long = 0L,
     val recentEntries: List<LedgerEntry> = emptyList(),
     val accountLabels: Map<String, String> = emptyMap(),
-    val iouSummaries: List<com.varun.upitracker.data.repository.FriendLedgerSummary> = emptyList()
+    val iouSummaries: List<com.varun.upitracker.data.repository.FriendLedgerSummary> = emptyList(),
+    /** Parcels and invite replies from friends, collected and not yet looked at. */
+    val mailboxWaiting: Int = 0,
+    /** Whether this phone is signed in to the friends mailbox, which is what puts the bell there. */
+    val mailboxOn: Boolean = false
 )
 
 class DashboardViewModel(private val context: Context) : ViewModel() {
     private val db = AppDatabase.getInstance(context.applicationContext)
+    private val identities = MailboxIdentityRepository(context.applicationContext, db)
     private val _uiState = MutableLiveData(DashboardUiState())
     val uiState: LiveData<DashboardUiState> = _uiState
 
@@ -47,7 +55,9 @@ class DashboardViewModel(private val context: Context) : ViewModel() {
                         .sortedByDescending { it.dateEpoch }
                         .take(5),
                     accountLabels = db.accountDao().getAllSync().associate { it.id to it.label },
-                    iouSummaries = LedgerRepository(db).getAllSummaries()
+                    iouSummaries = LedgerRepository(db).getAllSummaries(),
+                    mailboxWaiting = db.mailboxDao().countInState(MailboxMessageState.NEW),
+                    mailboxOn = identities.isSignedIn()
                 )
             }
             _uiState.value = state
@@ -56,6 +66,18 @@ class DashboardViewModel(private val context: Context) : ViewModel() {
 
     fun scanSmsBacklog() {
         viewModelScope.launch(Dispatchers.IO) { SmsBacklogScanner(context.applicationContext).scan() }
+    }
+
+    /**
+     * Collects the friends mailbox as the dashboard comes back. Throttled inside [MailboxCollection],
+     * so flicking between screens costs nothing, and the count is only reloaded when a collection
+     * actually ran.
+     */
+    fun collectMailbox() {
+        viewModelScope.launch {
+            val report = withContext(Dispatchers.IO) { MailboxCollection(context.applicationContext).run() }
+            if (report != null) loadData()
+        }
     }
 
     /**

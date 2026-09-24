@@ -18,6 +18,7 @@ import com.varun.upitracker.database.entity.FixedDepositDetail
 import com.varun.upitracker.database.entity.FixedDepositStatus
 import com.varun.upitracker.domain.BalanceConfidence
 import com.varun.upitracker.domain.BalanceDeltaCalculator
+import com.varun.upitracker.domain.FixedDepositOpening
 import com.varun.upitracker.domain.TransferDeltaInput
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
@@ -41,7 +42,9 @@ data class FixedDepositCreateRequest(
     val maturityEpoch: Long,
     val source: EntrySource = EntrySource.MANUAL,
     val statementRefNo: String? = null,
-    val isDefault: Boolean = false
+    val isDefault: Boolean = false,
+    /** Where the opening snapshot sits; null puts it at [bookedEpoch]. See [FixedDepositOpening]. */
+    val snapshotEpoch: Long? = null
 )
 
 sealed class AccountDeleteResult {
@@ -207,17 +210,23 @@ class AccountRepository private constructor(
             // A deposit's opening balance is the one figure nobody is guessing at, so it is
             // recorded as a reconciliation rather than left to be derived from the transfer above.
             // Without it every total containing this account would read as speculation for all
-            // time -- see [com.varun.upitracker.domain.BalanceConfidence]. Dated at the booking
-            // instant, which the transfer shares: getBalance sums (snapshotEpoch, atEpoch], so the
-            // principal is counted once, not twice.
+            // time -- see [com.varun.upitracker.domain.BalanceConfidence]. The screen dates it at
+            // the source account's first snapshot, so a deposit booked later does not push that
+            // line forward; FixedDepositOpening decides whether the principal is in it yet.
+            val snapshotEpoch = request.snapshotEpoch ?: request.bookedEpoch
+            val opening = FixedDepositOpening.snapshotFor(
+                bookedEpoch = request.bookedEpoch,
+                principalPaise = request.principalPaise,
+                snapshotEpoch = snapshotEpoch
+            )
             database.balanceSnapshotDao().insert(
                 BalanceSnapshot(
                     id = UUID.randomUUID().toString(),
                     accountId = request.accountId,
-                    snapshotEpoch = request.bookedEpoch,
-                    balancePaise = request.principalPaise,
+                    snapshotEpoch = snapshotEpoch,
+                    balancePaise = opening.balancePaise,
                     source = BalanceSnapshotSource.MANUAL,
-                    notes = "Principal at booking"
+                    notes = opening.notes
                 )
             )
         }
@@ -338,14 +347,28 @@ class AccountRepository private constructor(
      * `transactions.id`; they are removed explicitly anyway so the cleanup does not depend on the
      * foreign-keys pragma being on.
      *
-     * @throws AccountMutationException if the transfer is invalid, if its `statementRefNo` is
-     *   already held by another transfer, or if a refund is linked to the transaction.
+     * The transaction's UPI and statement references move onto the transfer. They are what every
+     * importer dedupes on, and the SMS backlog is rescanned on every dashboard open: a reference
+     * left behind with the deleted row would bring the same payment back as a new transaction.
+     *
+     * @throws AccountMutationException if the transfer is invalid, if either reference is already
+     *   held by another transfer, or if a refund is linked to the transaction.
      */
     suspend fun convertTransactionToTransfer(transactionId: Long, transfer: AccountTransfer) {
-        validateTransfer(transfer)
-        transfer.statementRefNo?.let { ref ->
+        val original = database.transactionDao().getTransactionById(transactionId)
+        val stamped = transfer.copy(
+            upiRefId = transfer.upiRefId ?: original?.upiRefId,
+            statementRefNo = transfer.statementRefNo ?: original?.statementRefNo
+        )
+        validateTransfer(stamped)
+        stamped.statementRefNo?.let { ref ->
             if (database.accountTransferDao().findByStatementRefNo(ref) != null) {
                 throw AccountMutationException("A transfer for this statement row already exists.")
+            }
+        }
+        stamped.upiRefId?.let { ref ->
+            if (database.accountTransferDao().findByUpiRefId(ref) != null) {
+                throw AccountMutationException("A transfer for this payment already exists.")
             }
         }
         // `refundsTransactionId` is RESTRICT, so this delete would throw a raw
@@ -360,7 +383,7 @@ class AccountRepository private constructor(
             database.categorySplitDao().deleteForTransaction(transactionId)
             database.transactionShareDao().deleteForTransaction(transactionId)
             database.transactionDao().deleteById(transactionId)
-            database.accountTransferDao().insert(transfer)
+            database.accountTransferDao().insert(stamped)
         }
     }
 
@@ -411,9 +434,9 @@ class AccountRepository private constructor(
      * [TransactionDao.getExpenseTotalBetween] for why), plus every account's transfer delta,
      * negated. Transfers contribute automatically: equal legs net to zero, a fee shows up as spend.
      *
-     * Both totals share the same merchant-or-gift gate, so lending to or borrowing from a friend
-     * (`ledgerEffect = DEBT`) moves into neither leg -- it reclassifies cash as a receivable (or
-     * back), which does not change net worth and so is not spend.
+     * Both totals read category splits, which only exist where a transaction left ME up or down, so
+     * lending to or borrowing from a friend -- recorded in full as an IOU -- moves into neither leg: it
+     * reclassifies cash as a receivable (or back), which does not change net worth and so is not spend.
      */
     suspend fun getSpendSince(fromEpoch: Long): Long {
         val expense = database.transactionDao()

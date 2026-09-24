@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingStart="@dimen/space_xl"
+        android:paddingEnd="@dimen/space_xl"
+        android:paddingTop="@dimen/space_s">
+
+        <TextView
+            android:id="@+id/tvRecipientPrivacy"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textAppearance="@style/TextAppearance.UPI.Caption" />
+
+        <TextView
+            android:id="@+id/tvRecipientMailboxOff"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/space_s"
+            android:text="Your friends mailbox is off, so only parcels to paste can be made here. Turn it on in Settings to send straight to linked friends."
+            android:textAppearance="@style/TextAppearance.UPI.Caption"
+            android:textColor="?attr/appWarning"
+            android:visibility="gone" />
+
+        <LinearLayout
+            android:id="@+id/containerRecipients"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/space_m"
+            android:orientation="vertical" />
+    </LinearLayout>
+</ScrollView>

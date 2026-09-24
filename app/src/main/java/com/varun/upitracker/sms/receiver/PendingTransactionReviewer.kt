@@ -2,6 +2,7 @@ package com.varun.upitracker.sms.receiver
 
 import android.content.Context
 import com.varun.upitracker.database.AppDatabase
+import com.varun.upitracker.domain.iou.IouLegs
 import com.varun.upitracker.domain.transactionentry.persistence.LedgerPostingService
 import com.varun.upitracker.domain.transactionentry.validation.PendingReviewRules
 import com.varun.upitracker.ledger.LedgerManager
@@ -32,12 +33,16 @@ object PendingTransactionReviewer {
         return withContext(Dispatchers.IO) {
             db.runInTransaction<Boolean> {
                 runBlocking {
-                    val updated = tx.copy(isPending = false)
+                    // Written down, not just used: a row still missing one would otherwise look to
+                    // IouRecoveryBackfill like one whose entries the old inference posted, and get
+                    // corrected a second time.
+                    val iouRecovery = IouLegs.resolve(tx, shares)
+                    val updated = tx.copy(isPending = false, iouRecovery = iouRecovery)
                     db.transactionDao().update(updated)
                     db.iouDao().deleteForTransaction(tx.id)
                     ledgerPostingService.postLedger(
                         LedgerManager(db), tx.id, tx.payerActorRef(), tx.payeeActorRef(),
-                        shares, tx.amountPaise, tx.ledgerEffect
+                        shares, tx.amountPaise, tx.ledgerEffect, iouRecovery
                     )
                     true
                 }

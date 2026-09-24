@@ -22,7 +22,13 @@ import androidx.recyclerview.widget.RecyclerView
 import com.varun.upitracker.R
 import com.varun.upitracker.data.repository.ParcelExportRepository
 import com.varun.upitracker.database.AppDatabase
+import com.varun.upitracker.database.entity.FriendLink
+import com.varun.upitracker.database.entity.FriendLinkState
 import com.varun.upitracker.database.entity.Transaction
+import com.varun.upitracker.domain.mailbox.InviteCode
+import com.varun.upitracker.domain.mailbox.KeyFingerprint
+import com.varun.upitracker.ui.mailbox.MailboxActivity
+import com.varun.upitracker.ui.share.RecipientPicker
 import com.varun.upitracker.ui.transactionentry.TransactionEntryActivity
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -44,6 +50,7 @@ class FriendDetailActivity : AppCompatActivity() {
     }
 
     private val dateFmt = SimpleDateFormat("dd MMM yyyy", Locale.getDefault())
+    private val shortDateFmt = SimpleDateFormat("d MMM", Locale.getDefault())
     private lateinit var viewModel: FriendDetailViewModel
     private var friendId: Long = -1L
     private var friendName: String = "your friend"
@@ -76,8 +83,10 @@ class FriendDetailActivity : AppCompatActivity() {
             }
         }
         findViewById<Button>(R.id.btnSelectAll).setOnClickListener { viewModel.selectAllExportable() }
-        findViewById<Button>(R.id.btnCopyParcel).setOnClickListener { withParcel(::copyToClipboard) }
-        findViewById<Button>(R.id.btnSendParcel).setOnClickListener { withParcel(::sendParcel) }
+        findViewById<Button>(R.id.btnCopyParcel).setOnClickListener { withParcel(::copyParcel) }
+        findViewById<Button>(R.id.btnSendParcel).setOnClickListener { sendSelection() }
+        findViewById<View>(R.id.rowLinkStatus).setOnClickListener { onLinkTapped() }
+        findViewById<View>(R.id.btnLinkAction).setOnClickListener { onLinkTapped() }
 
         onBackPressedDispatcher.addCallback(this) { onBack() }
 
@@ -87,6 +96,13 @@ class FriendDetailActivity : AppCompatActivity() {
         )[FriendDetailViewModel::class.java]
         viewModel.uiState.observe(this) { state -> render(state) }
         viewModel.load(friendId)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // A link can change while this screen is in the background: a reply confirmed in the inbox,
+        // or an unlink collected at launch. Only the link is refreshed, so the list keeps its place.
+        if (::viewModel.isInitialized) viewModel.refreshLink(friendId)
     }
 
     private fun render(state: FriendDetailUiState) {
@@ -118,8 +134,37 @@ class FriendDetailActivity : AppCompatActivity() {
             )
         }
 
+        renderLink(state)
         renderList(state)
         renderSelectionBar(state)
+    }
+
+    private fun renderLink(state: FriendDetailUiState) {
+        val link = state.link
+        val invite = state.openInviteExpiresEpoch
+        val now = System.currentTimeMillis()
+        val (status, action) = when {
+            link != null && link.state == FriendLinkState.LINKED ->
+                "Linked with ${link.remoteName}'s DhanMoney" to "Manage"
+            link != null && link.state == FriendLinkState.AWAITING_CONFIRMATION ->
+                "Waiting for ${link.remoteName} to confirm the link" to "Manage"
+            link != null && link.state == FriendLinkState.KEY_CHANGED ->
+                "${link.remoteName}'s security key changed" to "Fix"
+            !state.mailboxOn -> "Not linked · the friends mailbox is off" to "Set up"
+            invite != null && invite > now ->
+                "Link invite sent · open until ${shortDateFmt.format(Date(invite))}" to "Manage"
+            invite != null -> "Your link invite ran out" to "Send new"
+            else -> "Not linked with DhanMoney" to "Link"
+        }
+        findViewById<TextView>(R.id.tvLinkStatus).apply {
+            text = status
+            setTextColor(
+                themeColor(
+                    if (link?.state == FriendLinkState.KEY_CHANGED) ThemeAttr.warning else ThemeAttr.onSurfaceVariant
+                )
+            )
+        }
+        findViewById<TextView>(R.id.btnLinkAction).text = action
     }
 
     private fun renderList(state: FriendDetailUiState) {
@@ -162,7 +207,7 @@ class FriendDetailActivity : AppCompatActivity() {
         if (!state.selectionMode) return
 
         findViewById<TextView>(R.id.tvSelectionCount).text = when {
-            state.selected.isEmpty() -> "Pick what to send to ${state.friend?.name ?: "them"}"
+            state.selected.isEmpty() -> "Pick what to share"
             state.selected.size == 1 -> "1 transaction selected"
             else -> "${state.selected.size} transactions selected"
         }
@@ -186,11 +231,13 @@ class FriendDetailActivity : AppCompatActivity() {
     }
 
     private fun showEntryActions(transactionId: Long) {
-        val shareable = viewModel.uiState.value?.exportable.orEmpty().contains(transactionId)
-        val actions = if (shareable) arrayOf("Share to $friendName", "Delete") else arrayOf("Delete")
         AlertDialog.Builder(this)
-            .setItems(actions) { _, index ->
-                if (shareable && index == 0) startSelection(transactionId) else showDeleteDialog(transactionId)
+            .setItems(arrayOf("Share…", "Delete")) { _, index ->
+                if (index == 0) {
+                    RecipientPicker(this) { viewModel.load(friendId) }.show(setOf(transactionId))
+                } else {
+                    showDeleteDialog(transactionId)
+                }
             }
             .show()
     }
@@ -207,6 +254,123 @@ class FriendDetailActivity : AppCompatActivity() {
             .setNegativeButton("Cancel", null)
             .show()
     }
+
+    /** Anyone, not just this friend: see [RecipientPicker]. */
+    private fun sendSelection() {
+        val selected = viewModel.uiState.value?.selected.orEmpty()
+        if (selected.isEmpty()) return
+        RecipientPicker(this) { viewModel.load(friendId) }.show(selected)
+        viewModel.exitSelection()
+    }
+
+    // --- linking ------------------------------------------------------------------------------
+
+    private fun onLinkTapped() {
+        val state = viewModel.uiState.value ?: return
+        val link = state.link
+        when {
+            link != null && link.state == FriendLinkState.LINKED -> AlertDialog.Builder(this)
+                .setTitle("Linked with ${link.remoteName}")
+                .setMessage(
+                    "Transactions you send $friendName go straight to their app, sealed so only they can " +
+                        "open them.\n\nTheir security key: ${KeyFingerprint.display(link.fingerprint)}\n" +
+                        "To be sure, compare it with the key their app shows on its Friends mailbox screen."
+                )
+                .setPositiveButton("OK", null)
+                .setNegativeButton("Unlink") { _, _ -> confirmUnlink(link) }
+                .show()
+
+            link != null && link.state == FriendLinkState.AWAITING_CONFIRMATION -> AlertDialog.Builder(this)
+                .setTitle("Waiting for ${link.remoteName}")
+                .setMessage(
+                    "You accepted their invite. The link is complete once they confirm it on their phone, and " +
+                        "nothing can be sent until then."
+                )
+                .setPositiveButton("OK", null)
+                .setNegativeButton("Cancel the link") { _, _ -> viewModel.unlink(friendId, ::toast) }
+                .show()
+
+            link != null && link.state == FriendLinkState.KEY_CHANGED -> AlertDialog.Builder(this)
+                .setTitle("${link.remoteName}'s key changed")
+                .setMessage(
+                    "Their app now uses a different security key from the one you linked with. That usually " +
+                        "means they reinstalled without their key, but it is also what it would look like if " +
+                        "someone else were answering for their account. Nothing is sent to them, or trusted " +
+                        "from them, until you link again.\n\n" +
+                        "Send $friendName a new invite through a chat you know is really them."
+                )
+                .setPositiveButton("Send new invite") { _, _ -> shareInvite(fresh = true) }
+                .setNegativeButton("Unlink") { _, _ -> confirmUnlink(link) }
+                .show()
+
+            !state.mailboxOn -> startActivity(Intent(this, MailboxActivity::class.java))
+
+            state.openInviteExpiresEpoch != null && state.openInviteExpiresEpoch > System.currentTimeMillis() ->
+                AlertDialog.Builder(this)
+                    .setTitle("Invite sent to $friendName")
+                    .setMessage(
+                        "It links the two of you as soon as $friendName accepts it, and this phone next " +
+                            "checks the mailbox. It can be used once."
+                    )
+                    .setPositiveButton("Send it again") { _, _ -> shareInvite(fresh = false) }
+                    .setNegativeButton("Withdraw") { _, _ -> viewModel.withdrawInvites(friendId) }
+                    .setNeutralButton("Close", null)
+                    .show()
+
+            else -> shareInvite(fresh = true)
+        }
+    }
+
+    private fun shareInvite(fresh: Boolean) {
+        viewModel.inviteCode(friendId, fresh, onReady = { code ->
+            val message = inviteMessage(code)
+            AlertDialog.Builder(this)
+                .setTitle("Send this invite to $friendName")
+                .setMessage(
+                    "Send it through a chat you already use with $friendName, the same way you would send a " +
+                        "parcel. Tapping the link opens it in their app; if it opens a page instead, the page " +
+                        "hands them the code to paste. You are linked as soon as they accept. It works once, " +
+                        "and runs out in 7 days."
+                )
+                .setPositiveButton("Send") { _, _ ->
+                    startActivity(
+                        Intent.createChooser(
+                            Intent(Intent.ACTION_SEND).setType("text/plain").putExtra(Intent.EXTRA_TEXT, message),
+                            "Send to $friendName"
+                        )
+                    )
+                }
+                .setNeutralButton("Copy") { _, _ -> copyText(message, "Link invite") }
+                .setNegativeButton("Cancel", null)
+                .show()
+        }, onError = ::toast)
+    }
+
+    /**
+     * What actually goes into the chat: a line of explanation and a link, because a chat app makes a
+     * link tappable and a bare code only copyable. Builds without the link when this version has no
+     * host to point at, since the code alone still works by pasting.
+     */
+    private fun inviteMessage(code: String): String {
+        val host = getString(R.string.mailbox_link_host)
+        if (host.isBlank()) return code
+        return "Link with me on DhanMoney, so the transactions we share arrive in each other's app:\n" +
+            InviteCode.link(host, code)
+    }
+
+    private fun confirmUnlink(link: FriendLink) {
+        AlertDialog.Builder(this)
+            .setTitle("Unlink $friendName?")
+            .setMessage(
+                "${link.remoteName} will no longer be able to send you anything through the mailbox, and you " +
+                    "will not be able to send to them. Transactions you already have stay as they are."
+            )
+            .setPositiveButton("Unlink") { _, _ -> viewModel.unlink(friendId, ::toast) }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    // --- pasting ------------------------------------------------------------------------------
 
     /**
      * Shows what is about to leave the device before it does. The notes on these rows are the
@@ -254,24 +418,21 @@ class FriendDetailActivity : AppCompatActivity() {
             .show()
     }
 
-    private fun copyToClipboard(parcel: String) {
+    private fun copyParcel(parcel: String) {
+        copyText(parcel, "Shared transactions")
+    }
+
+    private fun copyText(text: String, label: String) {
         getSystemService(ClipboardManager::class.java)
-            .setPrimaryClip(ClipData.newPlainText("Shared transactions", parcel))
+            .setPrimaryClip(ClipData.newPlainText(label, text))
         // Android 13 shows its own copy confirmation; a toast on top of it just repeats itself.
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU) {
             Toast.makeText(this, "Copied. Paste it to $friendName.", Toast.LENGTH_LONG).show()
         }
     }
 
-    private fun sendParcel(parcel: String) {
-        startActivity(
-            Intent.createChooser(
-                Intent(Intent.ACTION_SEND)
-                    .setType("text/plain")
-                    .putExtra(Intent.EXTRA_TEXT, parcel),
-                "Send to $friendName"
-            )
-        )
+    private fun toast(message: String) {
+        Toast.makeText(this, message, Toast.LENGTH_LONG).show()
     }
 }
 

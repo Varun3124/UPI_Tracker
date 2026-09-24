@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:id="@+id/main"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
@@ -32,6 +33,42 @@
             android:layout_height="wrap_content"
             android:textSize="16sp"
             android:textStyle="bold"/>
+    </LinearLayout>
+
+    <!-- Whether this friend is linked to a DhanMoney account. Tapping it links, manages or fixes it. -->
+    <LinearLayout
+        android:id="@+id/rowLinkStatus"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:minHeight="@dimen/touch_target_min"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="@dimen/page_gutter"
+        android:paddingEnd="@dimen/space_s"
+        android:background="?attr/selectableItemBackground"
+        android:clickable="true"
+        android:focusable="true">
+
+        <ImageView
+            android:layout_width="20dp"
+            android:layout_height="20dp"
+            android:layout_marginEnd="@dimen/space_m"
+            android:src="@drawable/ic_link"
+            app:tint="?attr/colorOnSurfaceVariant"
+            android:importantForAccessibility="no" />
+
+        <TextView
+            android:id="@+id/tvLinkStatus"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textAppearance="@style/TextAppearance.UPI.Caption" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnLinkAction"
+            style="@style/Widget.UPI.Button.Text"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content" />
     </LinearLayout>
 
     <androidx.recyclerview.widget.RecyclerView
@@ -80,6 +117,7 @@
             android:layout_height="wrap_content"
             android:orientation="horizontal">
 
+            <!-- A parcel to paste, for this friend: the way sharing worked before the mailbox. -->
             <Button
                 android:id="@+id/btnCopyParcel"
                 style="?attr/materialButtonOutlinedStyle"
@@ -87,14 +125,15 @@
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
                 android:layout_marginEnd="8dp"
-                android:text="Copy" />
+                android:text="Copy parcel" />
 
+            <!-- Everyone these involve: linked friends through the mailbox, the rest as parcels. -->
             <Button
                 android:id="@+id/btnSendParcel"
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="Send" />
+                android:text="Send…" />
         </LinearLayout>
     </LinearLayout>
 </LinearLayout>

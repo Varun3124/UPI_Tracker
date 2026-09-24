@@ -17,8 +17,18 @@
             android:contentDescription="@string/cd_back" />
 
         <TextView
+            android:id="@+id/tvParcelTitle"
             style="@style/Widget.UPI.TopBarTitle"
-            android:text="Import shared parcel" />
+            android:text="Paste from a friend" />
+
+        <!-- Mailbox parcels only: "none of this is mine to save". -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnDismissParcel"
+            style="@style/Widget.UPI.Button.Text"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Dismiss"
+            android:visibility="gone" />
     </LinearLayout>
 
     <!-- Setup state: say who sent it, then paste it. -->
@@ -88,7 +98,7 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="The parcel"
+                        android:text="What they sent"
                         android:textSize="12sp"
                         android:textColor="?attr/colorOnSurfaceVariant" />
 
@@ -98,7 +108,7 @@
                         android:layout_height="120dp"
                         android:layout_marginTop="4dp"
                         android:gravity="top|start"
-                        android:hint="Paste the text they sent you"
+                        android:hint="Paste the parcel or link invite they sent you"
                         android:inputType="textMultiLine|textNoSuggestions"
                         android:textSize="12sp"
                         android:importantForAutofill="no"
@@ -130,7 +140,7 @@
         android:layout_height="52dp"
         android:gravity="center"
         android:background="?attr/colorPrimary"
-        android:text="Read parcel"
+        android:text="Read it"
         android:textSize="15sp"
         android:textStyle="bold"
         android:textColor="?attr/colorOnPrimary" />

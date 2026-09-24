@@ -1,0 +1,13 @@
+[
+  {
+    "relation": ["delegate_permission/common.handle_all_urls"],
+    "target": {
+      "namespace": "android_app",
+      "package_name": "com.varun.upitracker",
+      "sha256_cert_fingerprints": [
+        "94:80:96:CB:9B:93:4B:E4:7D:89:3C:11:FD:5F:D6:7D:42:DD:1F:0E:F1:AE:49:3D:0A:71:AE:60:89:34:E3:D4",
+        "B6:36:92:B3:7A:44:37:33:B4:02:49:B3:DE:CC:0D:4A:26:F3:55:BD:15:59:5A:3C:5E:10:85:C0:C9:57:FC:F6"
+      ]
+    }
+  }
+]

@@ -356,33 +356,6 @@
                     android:padding="@dimen/space_l">
 
                     <LinearLayout
-                        android:id="@+id/ledgerEffectSection"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:orientation="vertical"
-                        android:visibility="gone">
-
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="This money"
-                            android:textAppearance="@style/TextAppearance.UPI.Title"
-                            android:textSize="14sp" />
-
-                        <TextView
-                            android:id="@+id/tvLedgerEffectToggle"
-                            style="@style/Widget.UPI.Pill"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="@dimen/space_s"
-                            android:minHeight="@dimen/pill_height"
-                            android:paddingTop="@dimen/space_s"
-                            android:paddingBottom="@dimen/space_s"
-                            android:text="Doesn&apos;t affect what we owe each other"
-                            android:textSize="12sp" />
-                    </LinearLayout>
-
-                    <LinearLayout
                         android:id="@+id/refundSection"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
@@ -404,6 +377,72 @@
                             android:text="Not a refund - counts as income"
                             android:textAppearance="@style/TextAppearance.UPI.Body"
                             android:textColor="?attr/colorOnSurfaceVariant" />
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:id="@+id/iouRecoverySection"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:visibility="gone">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Who owes whom"
+                            android:textAppearance="@style/TextAppearance.UPI.Title"
+                            android:textSize="14sp" />
+
+                        <com.google.android.flexbox.FlexboxLayout
+                            android:id="@+id/iouRecoveryPills"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="@dimen/space_s"
+                            app:alignItems="flex_start"
+                            app:flexWrap="wrap">
+
+                            <TextView
+                                android:id="@+id/tvRecoverFromPayers"
+                                style="@style/Widget.UPI.Pill"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginEnd="@dimen/space_s"
+                                android:layout_marginBottom="@dimen/space_xs"
+                                android:minHeight="@dimen/pill_height"
+                                android:paddingTop="@dimen/space_s"
+                                android:paddingBottom="@dimen/space_s"
+                                android:text="Recover from co-payers"
+                                android:textSize="12sp" />
+
+                            <TextView
+                                android:id="@+id/tvRecoverFromPayees"
+                                style="@style/Widget.UPI.Pill"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:layout_marginBottom="@dimen/space_xs"
+                                android:minHeight="@dimen/pill_height"
+                                android:paddingTop="@dimen/space_s"
+                                android:paddingBottom="@dimen/space_s"
+                                android:text="Recover from co-payees"
+                                android:textSize="12sp" />
+                        </com.google.android.flexbox.FlexboxLayout>
+
+                        <!-- One pill per line, filled in by TransactionEntryActivity. -->
+                        <LinearLayout
+                            android:id="@+id/iouLinesContainer"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="@dimen/space_s"
+                            android:gravity="start"
+                            android:orientation="vertical" />
+
+                        <TextView
+                            android:id="@+id/tvIouRecoveryLocked"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:text="A friend sent this, so this can&apos;t be changed"
+                            android:textAppearance="@style/TextAppearance.UPI.Label"
+                            android:visibility="gone" />
                     </LinearLayout>
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>

@@ -406,14 +406,22 @@ data class FriendDetailUiState(
     /** Why each of the others cannot be, shown on the row rather than hiding it. */
     val blockedReasons: Map<Long, String> = emptyMap(),
     val selectionMode: Boolean = false,
-    val selected: Set<Long> = emptySet()
+    val selected: Set<Long> = emptySet(),
+    /** How this friend is linked to a DhanMoney account, if at all. */
+    val link: com.varun.upitracker.database.entity.FriendLink? = null,
+    /** When the newest invite to link sent to them runs out, if one is still on record. */
+    val openInviteExpiresEpoch: Long? = null,
+    val mailboxOn: Boolean = false
 ) {
     val canExport: Boolean get() = selected.isNotEmpty()
 }
 
 class FriendDetailViewModel(context: Context) : ViewModel() {
-    private val db = AppDatabase.getInstance(context.applicationContext)
-    private val exportRepository = ParcelExportRepository(db, context.applicationContext)
+    private val appContext = context.applicationContext
+    private val db = AppDatabase.getInstance(appContext)
+    private val exportRepository = ParcelExportRepository(db, appContext)
+    private val links = com.varun.upitracker.data.mailbox.LinkRepository(appContext, db)
+    private val identities = com.varun.upitracker.data.mailbox.MailboxIdentityRepository(appContext, db)
     private val _uiState = MutableLiveData(FriendDetailUiState())
     val uiState: LiveData<FriendDetailUiState> = _uiState
 
@@ -423,7 +431,7 @@ class FriendDetailViewModel(context: Context) : ViewModel() {
             _uiState.value = FriendDetailUiState(isLoading = true)
             _uiState.value = withContext(Dispatchers.IO) {
                 val transactions = db.transactionDao().getTransactionsForFriendSync(friendId)
-                val eligibility = exportRepository.eligibility(friendId, transactions)
+                val eligibility = exportRepository.eligibility(transactions)
                 FriendDetailUiState(
                     isLoading = false,
                     friend = db.friendDao().getFriendById(friendId),
@@ -434,9 +442,69 @@ class FriendDetailViewModel(context: Context) : ViewModel() {
                     selectionMode = current.selectionMode,
                     // A reload can happen under a selection -- keep it, minus anything that has
                     // since gone or stopped being shareable.
-                    selected = current.selected.intersect(eligibility.exportable)
+                    selected = current.selected.intersect(eligibility.exportable),
+                    link = db.mailboxDao().getLink(friendId),
+                    openInviteExpiresEpoch = db.mailboxDao().getInvitesForFriend(friendId).firstOrNull()?.expiresEpoch,
+                    mailboxOn = identities.status() is com.varun.upitracker.data.mailbox.MailboxStatus.On
                 )
             }
+        }
+    }
+
+    /**
+     * The code of an invite to link with [friendId]: the one still open, or a new one when [fresh]
+     * or when there is none.
+     */
+    fun inviteCode(friendId: Long, fresh: Boolean, onReady: (String) -> Unit, onError: (String) -> Unit) {
+        viewModelScope.launch {
+            val code = try {
+                (if (fresh) null else links.openInviteCode(friendId)) ?: links.createInvite(friendId)
+            } catch (error: kotlinx.coroutines.CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                return@launch onError(error.message ?: "Could not make an invite.")
+            }
+            load(friendId)
+            onReady(code)
+        }
+    }
+
+    fun withdrawInvites(friendId: Long) {
+        viewModelScope.launch {
+            links.withdrawInvites(friendId)
+            load(friendId)
+        }
+    }
+
+    /**
+     * Only the link, the invite and whether the mailbox is on. Cheap enough for every resume, and
+     * it leaves the transaction list alone, so coming back does not jump it to the top.
+     */
+    fun refreshLink(friendId: Long) {
+        viewModelScope.launch {
+            if (_uiState.value?.isLoading != false) return@launch
+            val link = withContext(Dispatchers.IO) { db.mailboxDao().getLink(friendId) }
+            val inviteExpires = withContext(Dispatchers.IO) {
+                db.mailboxDao().getInvitesForFriend(friendId).firstOrNull()?.expiresEpoch
+            }
+            val mailboxOn = identities.status() is com.varun.upitracker.data.mailbox.MailboxStatus.On
+            val latest = _uiState.value ?: return@launch
+            if (latest.isLoading) return@launch
+            _uiState.value = latest.copy(link = link, openInviteExpiresEpoch = inviteExpires, mailboxOn = mailboxOn)
+        }
+    }
+
+    /** Leaves the link in place, and says why, when the server could not be told. */
+    fun unlink(friendId: Long, onError: (String) -> Unit) {
+        viewModelScope.launch {
+            try {
+                links.unlink(friendId)
+            } catch (error: kotlinx.coroutines.CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                onError(error.message ?: "Could not unlink.")
+            }
+            load(friendId)
         }
     }
 

@@ -5,6 +5,7 @@ import android.app.DatePickerDialog
 import android.app.TimePickerDialog
 import android.content.Context
 import android.graphics.Color
+import android.graphics.Paint
 import android.graphics.Rect
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
@@ -14,6 +15,7 @@ import android.text.TextWatcher
 import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewGroup
 import android.view.inputmethod.EditorInfo
 import android.view.inputmethod.InputMethodManager
 import android.widget.ArrayAdapter
@@ -40,6 +42,7 @@ import com.varun.upitracker.database.entity.AccountType
 import com.varun.upitracker.database.entity.Category
 import com.varun.upitracker.database.entity.CategoryKind
 import com.varun.upitracker.database.entity.LedgerEffect
+import com.varun.upitracker.database.entity.IouRecovery
 import com.varun.upitracker.database.entity.Friend
 import com.varun.upitracker.database.entity.FriendRawName
 import com.varun.upitracker.database.entity.FriendUpiId
@@ -55,6 +58,9 @@ import com.varun.upitracker.domain.AccountTransferTypeResolver
 import com.varun.upitracker.domain.BalanceDeltaCalculator
 import com.varun.upitracker.domain.TransferDeltaInput
 import com.varun.upitracker.domain.TransferTypeResolution
+import com.varun.upitracker.domain.iou.IouLine
+import com.varun.upitracker.domain.iou.IouLegs
+import com.varun.upitracker.domain.iou.IouParty
 import com.varun.upitracker.domain.transactionentry.actor.ActorSelectionService
 import com.varun.upitracker.domain.transactionentry.category.CategorySplitManager
 import com.varun.upitracker.domain.transactionentry.persistence.PersistTransactionRequest
@@ -124,7 +130,10 @@ class TransactionEntryActivity : AppCompatActivity() {
         val friendId: Long?,
         val label: String,
         val initials: String,
-        var amountPaise: Long
+        var amountPaise: Long,
+        /** Which of this row's IOUs are kept. See [TransactionShare.keepPayeeLeg]. */
+        var keepPayeeLeg: Boolean = true,
+        var keepPayerLeg: Boolean = true
     ) {
         /**
          * The name to persist alongside a share with no friend behind it, so opening and saving an
@@ -162,7 +171,13 @@ class TransactionEntryActivity : AppCompatActivity() {
     private var payerMerchantId: Long? = null
     private var payeeFriendId: Long? = null
     private var payeeMerchantId: Long? = null
-    private var ledgerEffect = LedgerEffect.DEBT
+    /**
+     * The side picked on the pay-back pills, or null to follow [IouLegs.shapeDefault] as the split
+     * changes. Set on load only when the choice already mattered for the saved row.
+     */
+    private var iouRecoveryOverride: IouRecovery? = null
+    /** On a transaction a friend sent: the side it arrived with, which the pills cannot change. */
+    private var lockedIouRecovery: IouRecovery? = null
     /** Kind the pill list is currently offering; a change clears what was checked. */
     private var categoryKind = CategoryKind.EXPENSE
     private var refundsTransactionId: Long? = null
@@ -206,8 +221,14 @@ class TransactionEntryActivity : AppCompatActivity() {
     private lateinit var formScroll: ScrollView
     private lateinit var etDescription: EditText
     private lateinit var ledgerOptionsCard: View
-    private lateinit var ledgerEffectSection: LinearLayout
-    private lateinit var tvLedgerEffectToggle: TextView
+    private lateinit var iouRecoverySection: LinearLayout
+    private lateinit var iouRecoveryPills: View
+    private lateinit var tvRecoverFromPayers: TextView
+    private lateinit var tvRecoverFromPayees: TextView
+    private lateinit var iouLinesContainer: LinearLayout
+    private lateinit var tvIouRecoveryLocked: TextView
+    /** What the line pills last showed, so a keystroke that changes no line does not rebuild them. */
+    private var renderedIouLines: List<Pair<String, Boolean>>? = null
     private lateinit var refundSection: LinearLayout
     private lateinit var tvRefundTarget: TextView
 
@@ -293,12 +314,19 @@ class TransactionEntryActivity : AppCompatActivity() {
         categoryScrollView = findViewById(R.id.categoryScrollView)
         etDescription = findViewById(R.id.etDescription)
         ledgerOptionsCard = findViewById(R.id.ledgerOptionsCard)
-        ledgerEffectSection = findViewById(R.id.ledgerEffectSection)
-        tvLedgerEffectToggle = findViewById(R.id.tvLedgerEffectToggle)
         refundSection = findViewById(R.id.refundSection)
         tvRefundTarget = findViewById(R.id.tvRefundTarget)
-        tvLedgerEffectToggle.setOnClickListener {
-            viewModel.onAction(TransactionEntryAction.LedgerEffectToggled)
+        iouRecoverySection = findViewById(R.id.iouRecoverySection)
+        iouRecoveryPills = findViewById(R.id.iouRecoveryPills)
+        tvRecoverFromPayers = findViewById(R.id.tvRecoverFromPayers)
+        tvRecoverFromPayees = findViewById(R.id.tvRecoverFromPayees)
+        iouLinesContainer = findViewById(R.id.iouLinesContainer)
+        tvIouRecoveryLocked = findViewById(R.id.tvIouRecoveryLocked)
+        tvRecoverFromPayers.setOnClickListener {
+            viewModel.onAction(TransactionEntryAction.IouRecoverySelected(IouRecovery.FROM_SECONDARY_PAYERS))
+        }
+        tvRecoverFromPayees.setOnClickListener {
+            viewModel.onAction(TransactionEntryAction.IouRecoverySelected(IouRecovery.FROM_SECONDARY_PAYEES))
         }
         refundSection.setOnClickListener { showRefundPicker() }
     }
@@ -644,7 +672,6 @@ class TransactionEntryActivity : AppCompatActivity() {
         payerMerchantId = tx.payerMerchantId
         payeeFriendId = tx.payeeFriendId
         payeeMerchantId = tx.payeeMerchantId
-        ledgerEffect = tx.ledgerEffect
         refundsTransactionId = tx.refundsTransactionId
         refundAllowedCategoryIds = tx.refundsTransactionId?.let { originalId ->
             withContext(Dispatchers.IO) {
@@ -660,6 +687,22 @@ class TransactionEntryActivity : AppCompatActivity() {
         val shares =
             withContext(Dispatchers.IO) { db.transactionShareDao().getSharesForTransaction(tx.id) }
         seedShareRows(shares)
+        // Saved as moving nobody's balance -- the old "doesn't affect what we owe" switch -- reads as
+        // every IOU line left out, which is exactly what saving it again derives.
+        if (tx.ledgerEffect == LedgerEffect.NONE) {
+            (payerShareRows + payeeShareRows).forEach { row ->
+                row.keepPayeeLeg = false
+                row.keepPayerLeg = false
+            }
+        }
+
+        // A friend's transaction keeps the side it arrived with. One of ours keeps its side only if it
+        // was already split, so a split added now starts from what its shape suggests.
+        val savedIouRecovery = IouLegs.resolve(tx, shares)
+        lockedIouRecovery = savedIouRecovery.takeIf { tx.sharedRefId != null }
+        iouRecoveryOverride = savedIouRecovery.takeIf {
+            IouLegs.choiceMatters(tx.payerActorRef(), tx.payeeActorRef(), shares, LedgerEffect.DEBT)
+        }
 
         // Shares are seeded above, so targeting can now resolve the direction this transaction
         // categorises in. Rebuild the pill list for that kind before matching stored splits,
@@ -685,7 +728,6 @@ class TransactionEntryActivity : AppCompatActivity() {
         payerMerchantId = null
         payeeFriendId = null
         payeeMerchantId = null
-        ledgerEffect = LedgerEffect.DEBT
         clearRefundTarget()
         payerAccountId = transfer.fromAccountId
         payeeAccountId = transfer.toAccountId
@@ -699,7 +741,6 @@ class TransactionEntryActivity : AppCompatActivity() {
     private fun seedDefaultState() {
         payerActorType = ActorType.ME
         payeeActorType = ActorType.MERCHANT
-        ledgerEffect = LedgerEffect.DEBT
         clearRefundTarget()
         smsPayerAliasFallback = ""
         smsPayeeAliasFallback = ""
@@ -852,15 +893,21 @@ class TransactionEntryActivity : AppCompatActivity() {
     private fun updatePrimaryRowLabel(isPayer: Boolean) {
         val rows = rowsFor(isPayer)
         if (rows.isEmpty()) return
-        val existingAmount = rows[0].amountPaise
+        val existing = rows[0]
+        // Relabelled, not replaced: the amount and which IOUs are kept both belong to the row.
+        fun ShareRow.keepingExisting() = copy(
+            amountPaise = existing.amountPaise,
+            keepPayeeLeg = existing.keepPayeeLeg,
+            keepPayerLeg = existing.keepPayerLeg
+        )
         when (actorTypeFor(isPayer)) {
-            ActorType.ME -> rows[0] = buildMeShareRow().copy(amountPaise = existingAmount)
-            ActorType.MERCHANT -> rows[0] = buildMerchantShareRow(isPayer).copy(amountPaise = existingAmount)
+            ActorType.ME -> rows[0] = buildMeShareRow().keepingExisting()
+            ActorType.MERCHANT -> rows[0] = buildMerchantShareRow(isPayer).keepingExisting()
             ActorType.FRIEND -> {
                 val friendId = if (isPayer) payerFriendId else payeeFriendId
                 val friend = allFriends.firstOrNull { it.id == friendId }
                 rows[0] = if (friend != null) {
-                    buildFriendShareRow(friend).copy(amountPaise = existingAmount)
+                    buildFriendShareRow(friend).keepingExisting()
                 } else {
                     rows[0].copy(label = smsAliasFallback(isPayer).ifBlank { rows[0].label })
                 }
@@ -882,7 +929,7 @@ class TransactionEntryActivity : AppCompatActivity() {
     }
 
     private fun buildShareRowFromShare(share: TransactionShare): ShareRow {
-        return if (share.participantType == ActorType.ME) {
+        val row = if (share.participantType == ActorType.ME) {
             ShareRow("ME", ActorType.ME, null, "Me", "ME", share.amountPaise)
         } else {
             val friend = allFriends.firstOrNull { it.id == share.friendId }
@@ -897,6 +944,7 @@ class TransactionEntryActivity : AppCompatActivity() {
                 amountPaise = share.amountPaise
             )
         }
+        return row.copy(keepPayeeLeg = share.keepPayeeLeg, keepPayerLeg = share.keepPayerLeg)
     }
 
     private fun seedShareRows(shares: List<TransactionShare>) {
@@ -1054,7 +1102,10 @@ class TransactionEntryActivity : AppCompatActivity() {
 
     private fun handleLegacyAction(action: TransactionEntryAction) {
         when (action) {
-            is TransactionEntryAction.AmountChanged -> updateLiveCalc()
+            is TransactionEntryAction.AmountChanged -> {
+                updateLiveCalc()
+                updateTrackedCategoryAmount()
+            }
             is TransactionEntryAction.AccountSelected -> {
                 setAccountId(action.side == EntrySide.PAYER, action.accountId.takeIf { it.isNotBlank() })
                 if (isTransferMode()) updateLiveCalc()
@@ -1109,9 +1160,8 @@ class TransactionEntryActivity : AppCompatActivity() {
                     row.amountPaise = ((action.rawAmount.toDoubleOrNull() ?: 0.0) * 100).toLong()
                     updateSectionBalance(isPayer)
                     updateLiveCalc()
-                    if (row.participantType == ActorType.ME) {
-                        updateTrackedCategoryAmount()
-                    }
+                    // Anyone's share moves what ME is left with once the IOUs are counted, not only ME's.
+                    updateTrackedCategoryAmount()
                 }
             }
 
@@ -1120,13 +1170,15 @@ class TransactionEntryActivity : AppCompatActivity() {
                 // ViewModel already receives changes. Keep branch to exhaust the when expression.
             }
 
-            is TransactionEntryAction.LedgerEffectToggled -> {
-                ledgerEffect =
-                    if (ledgerEffect == LedgerEffect.NONE) LedgerEffect.DEBT else LedgerEffect.NONE
-                styleLedgerEffectTile()
-                updateCategoryVisibility()
-                updateLiveCalc()
+            is TransactionEntryAction.IouRecoverySelected -> {
+                if (lockedIouRecovery == null) {
+                    iouRecoveryOverride = action.recovery
+                    updateIouRecoveryUi()
+                    updateCategoryVisibility()
+                    updateTrackedCategoryAmount()
+                }
             }
+            is TransactionEntryAction.IouLineToggled -> toggleIouLine(action.debtor, action.creditor)
             is TransactionEntryAction.CategoryToggled -> updateCategoryVisibility()
             is TransactionEntryAction.CategoryAmountChanged -> updateCategoryVisibility()
             TransactionEntryAction.SaveClicked -> {
@@ -1143,8 +1195,7 @@ class TransactionEntryActivity : AppCompatActivity() {
         val rows = rowsFor(isPayer)
         if (rowIndex !in rows.indices) return
         val trimmed = rawText.trim()
-        val old = rows[rowIndex]
-        rows[rowIndex] = ShareRow(old.key, old.participantType, old.friendId, trimmed, old.initials, old.amountPaise)
+        rows[rowIndex] = rows[rowIndex].copy(label = trimmed)
 
         // The primary row is where a merchant is named. Resolving it here rather than only at
         // save time is what lets the refund picker populate on the first pass: until this ran,
@@ -1173,7 +1224,9 @@ class TransactionEntryActivity : AppCompatActivity() {
                 friendId = it.friendId,
                 label = it.label,
                 initials = it.initials,
-                amountPaise = it.amountPaise
+                amountPaise = it.amountPaise,
+                keepPayeeLeg = it.keepPayeeLeg,
+                keepPayerLeg = it.keepPayerLeg
             )
         }
     }
@@ -1187,7 +1240,9 @@ class TransactionEntryActivity : AppCompatActivity() {
                 friendId = it.friendId,
                 label = it.label,
                 initials = it.initials,
-                amountPaise = it.amountPaise
+                amountPaise = it.amountPaise,
+                keepPayeeLeg = it.keepPayeeLeg,
+                keepPayerLeg = it.keepPayerLeg
             )
         })
     }
@@ -1199,19 +1254,26 @@ class TransactionEntryActivity : AppCompatActivity() {
         return shareCalculator.suggestShareAmount(total, rows.map { it.amountPaise })
     }
 
-    private fun getMyShareAmount(side: String): Long {
-        val rows = if (side == "PAYER") payerShareRows else payeeShareRows
-        return rows.firstOrNull { it.participantType == ActorType.ME }?.amountPaise ?: 0L
+    /**
+     * What ME is left up or down by, measured the way saving records it: the money through ME's own
+     * account against the IOU lines kept. Leaving a line out is what makes part of a split ME's own.
+     */
+    private fun categoryTargeting(): CategoryTargeting {
+        if (isTransferMode()) return CategoryTargeting(0L, CategoryKind.EXPENSE)
+        val payer = draftActorRef(true)
+        val payee = draftActorRef(false)
+        val shares = buildSharesForPersistence(0L)
+        val amountPaise = getCurrentAmountPaise()
+        val kept = IouLegs.legs(
+            payer, payee, shares, amountPaise, LedgerEffect.DEBT, chosenIouRecovery(payer, payee, shares)
+        )
+        return shareCalculator.categoryTargeting(
+            payerActorType = payerActorType,
+            payeeActorType = payeeActorType,
+            isLinkedRefund = refundsTransactionId != null,
+            meNetPaise = IouLegs.meNet(payer, payee, amountPaise, kept)
+        )
     }
-
-    private fun categoryTargeting(): CategoryTargeting = shareCalculator.categoryTargeting(
-        payerActorType = payerActorType,
-        payeeActorType = payeeActorType,
-        ledgerEffect = ledgerEffect,
-        isLinkedRefund = refundsTransactionId != null,
-        payerMeSharePaise = getMyShareAmount("PAYER"),
-        payeeMeSharePaise = getMyShareAmount("PAYEE")
-    )
 
     private fun myShareForCategories(): Long = categoryTargeting().sharePaise
 
@@ -1251,6 +1313,7 @@ class TransactionEntryActivity : AppCompatActivity() {
     private fun updateLiveCalc() {
         updateSectionBalance(true)
         updateSectionBalance(false)
+        updateIouRecoveryUi()
 
         if (isTransferMode()) {
             tvBalance.text = transferSummaryText()
@@ -1298,40 +1361,21 @@ class TransactionEntryActivity : AppCompatActivity() {
         }
     }
 
-    /**
-     * The toggle is only meaningful between ME and a friend. Offering it on a merchant bill would
-     * let "my treat" contradict the share rows, which are what the splits and the spend total are
-     * computed from -- enter your share as the full amount instead.
-     */
-    private fun isLedgerEffectApplicable(): Boolean {
-        if (isTransferMode()) return false
-        val merchantInvolved = payerActorType == ActorType.MERCHANT || payeeActorType == ActorType.MERCHANT
-        val friendInvolved = payerActorType == ActorType.FRIEND || payeeActorType == ActorType.FRIEND
-        return friendInvolved && !merchantInvolved
-    }
-
     /** Only a merchant paying ME can be a refund; anything else is a purchase or a transfer. */
     private fun isRefundApplicable(): Boolean =
         payerActorType == ActorType.MERCHANT && payeeActorType == ActorType.ME
 
     private fun updateLedgerOptionsVisibility() {
-        val effectApplicable = isLedgerEffectApplicable()
         val refundApplicable = isRefundApplicable()
-        ledgerEffectSection.visibility = if (effectApplicable) View.VISIBLE else View.GONE
         refundSection.visibility = if (refundApplicable) View.VISIBLE else View.GONE
-        ledgerOptionsCard.visibility =
-            if (effectApplicable || refundApplicable) View.VISIBLE else View.GONE
-
-        if (!effectApplicable && ledgerEffect != LedgerEffect.DEBT) {
-            ledgerEffect = LedgerEffect.DEBT
-        }
         if (!refundApplicable && refundsTransactionId != null) {
             clearRefundTarget()
             rebuildCategoryEntries()
         }
-        styleLedgerEffectTile()
         refreshRefundCandidatesIfNeeded()
         renderRefundTarget()
+        // Also settles whether the card shows at all, since the "who owes whom" section lives in it too.
+        updateIouRecoveryUi()
     }
 
     private fun renderRefundTarget() {
@@ -1455,8 +1499,141 @@ class TransactionEntryActivity : AppCompatActivity() {
         renderRefundTarget()
     }
 
-    private fun styleLedgerEffectTile() {
-        tvLedgerEffectToggle.isSelected = ledgerEffect == LedgerEffect.NONE
+    /**
+     * The "who owes whom" section: the pay-back pills when the two sides would post different lines,
+     * then one pill per line, tapped to keep it or leave it out. Built from the same [IouLegs] calls
+     * saving makes, over the rows on screen.
+     */
+    private fun updateIouRecoveryUi() {
+        val payer = draftActorRef(true)
+        val payee = draftActorRef(false)
+        val shares = buildSharesForPersistence(0L)
+        val lines = if (isTransferMode()) emptyList() else currentIouLines(payer, payee, shares)
+        iouRecoverySection.visibility = if (lines.isEmpty()) View.GONE else View.VISIBLE
+        if (lines.isNotEmpty()) {
+            val editable = !isReceivedTransaction()
+            val recovery = chosenIouRecovery(payer, payee, shares)
+            iouRecoveryPills.visibility =
+                if (IouLegs.choiceMatters(payer, payee, shares, LedgerEffect.DEBT)) View.VISIBLE else View.GONE
+            tvRecoverFromPayers.isSelected = recovery == IouRecovery.FROM_SECONDARY_PAYERS
+            tvRecoverFromPayees.isSelected = recovery == IouRecovery.FROM_SECONDARY_PAYEES
+            tvRecoverFromPayers.isEnabled = editable
+            tvRecoverFromPayees.isEnabled = editable
+            tvIouRecoveryLocked.visibility = if (editable) View.GONE else View.VISIBLE
+            renderIouLines(lines, editable)
+        }
+
+        // The refund section sits above this one: only space the two apart when both show.
+        val params = iouRecoverySection.layoutParams as ViewGroup.MarginLayoutParams
+        val topMargin = if (refundSection.visibility == View.VISIBLE) {
+            resources.getDimensionPixelSize(R.dimen.space_m)
+        } else {
+            0
+        }
+        if (params.topMargin != topMargin) {
+            params.topMargin = topMargin
+            iouRecoverySection.layoutParams = params
+        }
+        val anySectionShown = listOf(refundSection, iouRecoverySection).any { it.visibility == View.VISIBLE }
+        ledgerOptionsCard.visibility = if (anySectionShown) View.VISIBLE else View.GONE
+    }
+
+    private fun currentIouLines(payer: ActorRef, payee: ActorRef, shares: List<TransactionShare>): List<IouLine> =
+        IouLegs.lines(payer, payee, shares, getCurrentAmountPaise(), chosenIouRecovery(payer, payee, shares))
+
+    /** A friend sent this: who owes whom on it is theirs to say, so neither the side nor the lines can change. */
+    private fun isReceivedTransaction(): Boolean = currentTransaction?.sharedRefId != null
+
+    private fun renderIouLines(lines: List<IouLine>, editable: Boolean) {
+        val shown = lines.map { lineText(it) to it.kept } + ("" to editable)
+        if (shown == renderedIouLines) return
+        renderedIouLines = shown
+
+        iouLinesContainer.removeAllViews()
+        lines.forEach { line ->
+            val pill = LayoutInflater.from(this).inflate(R.layout.item_iou_line, iouLinesContainer, false) as TextView
+            pill.text = lineText(line)
+            pill.isSelected = line.kept
+            // Struck through as well as unselected, so a line left out reads as not owed at a glance.
+            pill.paintFlags = if (line.kept) {
+                pill.paintFlags and Paint.STRIKE_THRU_TEXT_FLAG.inv()
+            } else {
+                pill.paintFlags or Paint.STRIKE_THRU_TEXT_FLAG
+            }
+            pill.isEnabled = editable
+            pill.setOnClickListener {
+                viewModel.onAction(TransactionEntryAction.IouLineToggled(line.debtor, line.creditor))
+            }
+            iouLinesContainer.addView(pill)
+        }
+    }
+
+    /**
+     * Flips every share-row leg folded into the line between [debtor] and [creditor], found again from
+     * the rows as they stand now: the pill that was tapped may have been drawn before a row changed.
+     */
+    private fun toggleIouLine(debtor: IouParty, creditor: IouParty) {
+        if (isReceivedTransaction()) return
+        val payer = draftActorRef(true)
+        val payee = draftActorRef(false)
+        val draft = draftShareRows(0L)
+        val shares = draft.map { it.second }
+        val line = currentIouLines(payer, payee, shares)
+            .firstOrNull { setOf(it.debtor, it.creditor) == setOf(debtor, creditor) }
+            ?: return
+        line.sources.forEach { source ->
+            val row = draft[source.shareIndex].first
+            if (source.owesPayer) row.keepPayerLeg = !line.kept else row.keepPayeeLeg = !line.kept
+        }
+        updateIouRecoveryUi()
+        updateCategoryVisibility()
+        updateTrackedCategoryAmount()
+    }
+
+    /** What saving now would store: the side a friend's transaction arrived with, the user's pick, then the split's shape. */
+    private fun chosenIouRecovery(payer: ActorRef, payee: ActorRef, shares: List<TransactionShare>): IouRecovery =
+        IouLegs.effectiveRecovery(
+            payer,
+            payee,
+            lockedIouRecovery ?: iouRecoveryOverride ?: IouLegs.shapeDefault(payer, payee, shares)
+        )
+
+    /**
+     * An endpoint as it stands on screen, before saving resolves or creates anyone. A friend picked into
+     * the primary row may not have reached [payerFriendId] or [payeeFriendId] yet, so the row's id counts.
+     */
+    private fun draftActorRef(isPayer: Boolean): ActorRef {
+        val label = primaryLabel(isPayer).ifBlank { null }
+        return when (actorTypeFor(isPayer)) {
+            ActorType.ME -> ActorRef(ActorType.ME, rawLabel = "Me")
+            ActorType.FRIEND -> ActorRef(
+                ActorType.FRIEND,
+                friendId = (if (isPayer) payerFriendId else payeeFriendId) ?: rowsFor(isPayer).firstOrNull()?.friendId,
+                rawLabel = label
+            )
+            ActorType.MERCHANT -> ActorRef(
+                ActorType.MERCHANT,
+                merchantId = if (isPayer) payerMerchantId else payeeMerchantId,
+                rawLabel = label
+            )
+            else -> ActorRef(actorTypeFor(isPayer), rawLabel = label)
+        }
+    }
+
+    private fun lineText(line: IouLine): String {
+        val amount = AmountFormat.rupees(line.amountPaise)
+        return when {
+            line.debtor == IouParty.Me -> "You owe ${partyName(line.creditor)} $amount"
+            line.creditor == IouParty.Me -> "${partyName(line.debtor)} owes you $amount"
+            else -> "${partyName(line.debtor)} owes ${partyName(line.creditor)} $amount"
+        }
+    }
+
+    private fun partyName(party: IouParty): String = when (party) {
+        IouParty.Me -> "You"
+        is IouParty.Friend -> allFriends.firstOrNull { it.id == party.friendId }?.name ?: "A friend"
+        is IouParty.Person -> party.label?.takeIf { it.isNotBlank() } ?: "Someone"
+        is IouParty.Counterparty -> party.label?.takeIf { it.isNotBlank() } ?: "Someone"
     }
 
     /** Swapping direction invalidates every checked pill, so clear them rather than carry them over. */
@@ -1561,7 +1738,7 @@ class TransactionEntryActivity : AppCompatActivity() {
         }
 
         val db = AppDatabase.Companion.getInstance(applicationContext)
-        withContext(Dispatchers.IO) { persistTransaction(db, amountPaise, payerLabel, payeeLabel) }
+        withContext(Dispatchers.IO) { persistTransaction(db, amountPaise, payerLabel, payeeLabel, myShare) }
         currentTransaction?.let { TransactionNotificationHelper.cancel(applicationContext, it.id.toInt()) }
         finish()
     }
@@ -1611,7 +1788,10 @@ class TransactionEntryActivity : AppCompatActivity() {
             // keeps its dedupe key and provenance.
             source = existing?.source ?: convertedFrom?.entrySource() ?: EntrySource.MANUAL,
             statementRefNo = existing?.statementRefNo ?: convertedFrom?.statementRefNo,
-            notes = etDescription.text.toString().trim().ifEmpty { null }
+            notes = etDescription.text.toString().trim().ifEmpty { null },
+            // The update replaces the whole row, so an edit would otherwise wipe it and let the
+            // SMS backlog scan bring this payment back as a transaction.
+            upiRefId = existing?.upiRefId ?: convertedFrom?.upiRefId
         )
 
         val repository = AccountRepository(AppDatabase.Companion.getInstance(applicationContext))
@@ -1692,7 +1872,14 @@ class TransactionEntryActivity : AppCompatActivity() {
         )
     }
 
-    private suspend fun persistTransaction(db: AppDatabase, amountPaise: Long, payerLabel: String, payeeLabel: String) {
+    /** [categoryAmountPaise] is the figure the categories were just validated against. */
+    private suspend fun persistTransaction(
+        db: AppDatabase,
+        amountPaise: Long,
+        payerLabel: String,
+        payeeLabel: String,
+        categoryAmountPaise: Long
+    ) {
         transactionPersistenceService.persist(
             db = db,
             request = PersistTransactionRequest(
@@ -1701,7 +1888,6 @@ class TransactionEntryActivity : AppCompatActivity() {
                 selectedAccountId = accountIdForPersistence(),
                 dateEpoch = selectedDateEpoch,
                 description = etDescription.text.toString().trim().ifEmpty { null },
-                ledgerEffect = ledgerEffect,
                 refundsTransactionId = refundsTransactionId
             ),
             resolveActors = {
@@ -1711,49 +1897,33 @@ class TransactionEntryActivity : AppCompatActivity() {
             },
             resolveUnresolvedShareRows = { resolveUnresolvedShareRows(db) },
             buildSharesForPersistence = { txId -> buildSharesForPersistence(txId) },
-            mySharePaiseFromShares = { shares -> mySharePaiseFromShares(shares) },
-            persistCategories = { transactionId, meSharePaise, payer, payee ->
-                persistCategories(db, transactionId, meSharePaise, payer, payee)
+            categoryAmountPaise = { categoryAmountPaise },
+            chooseIouRecovery = { payer, payee, shares -> chosenIouRecovery(payer, payee, shares) },
+            persistCategories = { transactionId, toCategorisePaise, payer, payee ->
+                persistCategories(db, transactionId, toCategorisePaise, payer, payee)
             }
         )
     }
 
-    private fun mySharePaiseFromShares(shares: List<TransactionShare>): Long {
-        return shares.filter { it.participantType == ActorType.ME }.sumOf { it.amountPaise }
-    }
+    /** The rows that become shares on saving, each beside the share it becomes, in the order they are saved. */
+    private fun draftShareRows(txId: Long): List<Pair<ShareRow, TransactionShare>> =
+        listOf("PAYER" to payerShareRows, "PAYEE" to payeeShareRows).flatMap { (side, rows) ->
+            rows.filter { it.participantType != ActorType.MERCHANT && it.key.isNotBlank() }.map { row ->
+                row to TransactionShare(
+                    transactionId = txId,
+                    side = side,
+                    participantType = row.participantType,
+                    friendId = row.friendId,
+                    amountPaise = row.amountPaise,
+                    rawLabel = row.carriedLabel(),
+                    keepPayeeLeg = row.keepPayeeLeg,
+                    keepPayerLeg = row.keepPayerLeg
+                )
+            }
+        }
 
-    private fun buildSharesForPersistence(txId: Long): List<TransactionShare> {
-        val result = mutableListOf<TransactionShare>()
-        payerShareRows.forEach { row ->
-            if (row.participantType != ActorType.MERCHANT && row.key.isNotBlank()) {
-                result.add(
-                    TransactionShare(
-                        transactionId = txId,
-                        side = "PAYER",
-                        participantType = row.participantType,
-                        friendId = row.friendId,
-                        amountPaise = row.amountPaise,
-                        rawLabel = row.carriedLabel()
-                    )
-                )
-            }
-        }
-        payeeShareRows.forEach { row ->
-            if (row.participantType != ActorType.MERCHANT && row.key.isNotBlank()) {
-                result.add(
-                    TransactionShare(
-                        transactionId = txId,
-                        side = "PAYEE",
-                        participantType = row.participantType,
-                        friendId = row.friendId,
-                        amountPaise = row.amountPaise,
-                        rawLabel = row.carriedLabel()
-                    )
-                )
-            }
-        }
-        return result
-    }
+    private fun buildSharesForPersistence(txId: Long): List<TransactionShare> =
+        draftShareRows(txId).map { it.second }
 
     private suspend fun resolveActor(db: AppDatabase, isPayer: Boolean, actorType: String, typedLabel: String): ActorRef {
         return when (actorType) {
@@ -1928,11 +2098,11 @@ class TransactionEntryActivity : AppCompatActivity() {
     private suspend fun persistCategories(
         db: AppDatabase,
         transactionId: Long,
-        meSharePaise: Long,
+        categoryAmountPaise: Long,
         payer: ActorRef,
         payee: ActorRef
     ) {
-        if (meSharePaise <= 0L) return
+        if (categoryAmountPaise <= 0L) return
         // Use the just-resolved actor refs, not the cached payerMerchantId/payeeMerchantId fields:
         // those are still null for a merchant newly created earlier in this same save.
         //

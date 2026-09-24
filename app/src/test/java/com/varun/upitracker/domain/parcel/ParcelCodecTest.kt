@@ -1,5 +1,6 @@
 package com.varun.upitracker.domain.parcel
 
+import com.varun.upitracker.database.entity.IouRecovery
 import com.varun.upitracker.database.entity.LedgerEffect
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -17,7 +18,8 @@ class ParcelCodecTest {
         payee: ParcelActor = ParcelActor.Me,
         upiRefId: String? = null,
         reason: String? = "Dinner",
-        shares: List<ParcelShare> = emptyList()
+        shares: List<ParcelShare> = emptyList(),
+        iouRecovery: IouRecovery? = IouRecovery.FROM_SECONDARY_PAYERS
     ) = ParcelTransaction(
         sourceId = sourceId,
         dateEpoch = 1_700_000_000_000L,
@@ -27,7 +29,8 @@ class ParcelCodecTest {
         ledgerEffect = LedgerEffect.DEBT,
         upiRefId = upiRefId,
         reason = reason,
-        shares = shares
+        shares = shares,
+        iouRecovery = iouRecovery
     )
 
     private fun parcelOf(vararg transactions: ParcelTransaction) =
@@ -247,5 +250,67 @@ class ParcelCodecTest {
         val encoded = ParcelCodec.encode(parcel)
         assertEquals(parcel, roundTrip(parcel))
         assertTrue("encoded length was ${encoded.length}", encoded.length < 12_000)
+    }
+
+    @Test
+    fun `a pasted parcel is written as version 3 and says which side pays back`() {
+        val parcel = parcelOf(
+            tx(sourceId = 1L, iouRecovery = IouRecovery.FROM_SECONDARY_PAYERS),
+            tx(sourceId = 2L, iouRecovery = IouRecovery.FROM_SECONDARY_PAYEES)
+        )
+        assertTrue(ParcelFormat.format(parcel).startsWith("V|3|"))
+        assertEquals(parcel, roundTrip(parcel))
+    }
+
+    @Test
+    fun `a pay-back setting that is missing or unknown is rejected`() {
+        val header = "V|3|tok|1\n"
+        listOf(
+            "T|1|100|200|S|M|DEBT||x",           // missing, as a version 1 line would be
+            "T|1|100|200|S|M|DEBT||x|",          // empty
+            "T|1|100|200|S|M|DEBT||x|SOMETIMES"  // unknown
+        ).forEach { line ->
+            assertTrue(line, ParcelFormat.parse(header + line) is ParcelDecodeResult.Failed)
+        }
+    }
+
+    @Test
+    fun `a version 1 parcel from an older app still reads, saying nothing about who pays back`() {
+        val result = ParcelFormat.parse("V|1|tok|1\nT|41|100|200|S|M|DEBT||Dinner\nS|PAYEE|M|200")
+        assertTrue("expected Ok, got $result", result is ParcelDecodeResult.Ok)
+        val row = (result as ParcelDecodeResult.Ok).parcel.transactions.single()
+        assertEquals(41L, row.sourceId)
+        assertEquals(null, row.iouRecovery)
+        assertEquals(1, row.shares.size)
+    }
+
+    @Test
+    fun `an app that only reads version 1 is told to update rather than that the parcel is broken`() {
+        val body = ParcelFormat.format(parcelOf(tx()))
+        val result = ParcelFormat.parse(body, expectedVersion = ParcelFormat.LEGACY_VERSION)
+        assertTrue((result as ParcelDecodeResult.Failed).reason.contains("newer version"))
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun `a row that does not say which side pays back cannot be pasted`() {
+        ParcelCodec.encode(parcelOf(tx(iouRecovery = null)))
+    }
+
+    @Test
+    fun `a pasted split carries which debts it keeps, and one from an older app keeps both`() {
+        val parcel = parcelOf(
+            tx(shares = listOf(ParcelShare("PAYER", ParcelActor.Me, 100L, keepPayeeLeg = false, keepPayerLeg = true)))
+        )
+        assertEquals(parcel, roundTrip(parcel))
+
+        val legacy = ParcelFormat.parse("V|1|tok|1\nT|41|100|200|S|M|DEBT||Dinner\nS|PAYEE|M|200")
+        val share = (legacy as ParcelDecodeResult.Ok).parcel.transactions.single().shares.single()
+        assertTrue(share.keepPayeeLeg && share.keepPayerLeg)
+
+        // Version 3 has no such excuse.
+        assertTrue(
+            ParcelFormat.parse("V|3|tok|1\nT|41|100|200|S|M|DEBT||Dinner|PAYERS\nS|PAYEE|M|200")
+                is ParcelDecodeResult.Failed
+        )
     }
 }

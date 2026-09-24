@@ -7,6 +7,7 @@ import com.varun.upitracker.database.entity.BalanceSnapshotSource
 import com.varun.upitracker.database.entity.CategoryKind
 import com.varun.upitracker.database.entity.EntrySource
 import com.varun.upitracker.database.entity.FixedDepositStatus
+import com.varun.upitracker.database.entity.IouRecovery
 import com.varun.upitracker.database.entity.LedgerEffect
 
 class Converters {
@@ -24,4 +25,6 @@ class Converters {
     @TypeConverter fun fromCategoryKind(value: CategoryKind?): String? = value?.name
     @TypeConverter fun toLedgerEffect(value: String?): LedgerEffect? = value?.let(LedgerEffect::valueOf)
     @TypeConverter fun fromLedgerEffect(value: LedgerEffect?): String? = value?.name
+    @TypeConverter fun toIouRecovery(value: String?): IouRecovery? = value?.let(IouRecovery::valueOf)
+    @TypeConverter fun fromIouRecovery(value: IouRecovery?): String? = value?.name
 }

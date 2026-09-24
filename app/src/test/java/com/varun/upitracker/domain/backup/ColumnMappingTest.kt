@@ -28,6 +28,19 @@ class ColumnMappingTest {
     }
 
     @Test
+    fun `a v15 backup restores into v16 with no share references`() {
+        // The friends mailbox added transactions.shareRef and four tables. The column is not named in
+        // the INSERT, so every restored row starts with no reference -- the next send mints one. The
+        // tables are absent from the backup and so come back empty, which is right: a v15 install
+        // never linked anyone.
+        val v15 = listOf("id", "amountPaise", "sharedRefId")
+        val v16 = setOf("id", "amountPaise", "sharedRefId", "shareRef")
+        val mapping = mapColumns(v15, v16)
+        assertEquals(v15, mapping.kept)
+        assertTrue(mapping.dropped.isEmpty())
+    }
+
+    @Test
     fun `a column the schema has dropped is discarded and named`() {
         val mapping = mapColumns(listOf("id", "legacyField", "reason"), setOf("id", "reason"))
         assertEquals(listOf("id", "reason"), mapping.kept)

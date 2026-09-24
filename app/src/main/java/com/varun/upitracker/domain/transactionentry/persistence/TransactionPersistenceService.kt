@@ -1,9 +1,11 @@
-﻿package com.varun.upitracker.domain.transactionentry.persistence
+package com.varun.upitracker.domain.transactionentry.persistence
 
 import com.varun.upitracker.database.AppDatabase
+import com.varun.upitracker.database.entity.IouRecovery
 import com.varun.upitracker.database.entity.LedgerEffect
 import com.varun.upitracker.database.entity.Transaction
 import com.varun.upitracker.database.entity.TransactionShare
+import com.varun.upitracker.domain.iou.IouLegs
 import com.varun.upitracker.ledger.LedgerManager
 import com.varun.upitracker.ui.ActorRef
 import kotlinx.coroutines.runBlocking
@@ -14,7 +16,6 @@ data class PersistTransactionRequest(
     val selectedAccountId: String?,
     val dateEpoch: Long,
     val description: String? = null,
-    val ledgerEffect: LedgerEffect = LedgerEffect.DEBT,
     val refundsTransactionId: Long? = null
 )
 
@@ -22,14 +23,24 @@ class TransactionPersistenceService(
     private val ledgerPostingService: LedgerPostingService = LedgerPostingService()
 ) {
 
+    /**
+     * [chooseIouRecovery] is only asked once the actors and share rows are resolved: a name typed into
+     * a split but not yet committed only becomes a share there, and whether anyone else is in the split
+     * is what the choice turns on. A transaction a friend sent keeps the technique it arrived with --
+     * changing it here would leave the two copies disagreeing about who owes whom.
+     *
+     * The ledger effect is read off the share rows rather than asked for: with every IOU line left
+     * out, the transaction moves nobody's balance. See [IouLegs.ledgerEffect].
+     */
     suspend fun persist(
         db: AppDatabase,
         request: PersistTransactionRequest,
         resolveActors: suspend () -> Pair<ActorRef, ActorRef>,
         resolveUnresolvedShareRows: suspend () -> Unit,
         buildSharesForPersistence: (txId: Long) -> List<TransactionShare>,
-        mySharePaiseFromShares: (shares: List<TransactionShare>) -> Long,
-        persistCategories: suspend (transactionId: Long, meSharePaise: Long, payer: ActorRef, payee: ActorRef) -> Unit
+        categoryAmountPaise: (shares: List<TransactionShare>) -> Long,
+        chooseIouRecovery: (payer: ActorRef, payee: ActorRef, shares: List<TransactionShare>) -> IouRecovery,
+        persistCategories: suspend (transactionId: Long, categoryAmountPaise: Long, payer: ActorRef, payee: ActorRef) -> Unit
     ): Long {
         var persistedTransactionId = 0L
         val tx = request.existingTransaction
@@ -39,9 +50,15 @@ class TransactionPersistenceService(
                 val (payer, payee) = resolveActors()
                 resolveUnresolvedShareRows()
                 val shares = buildSharesForPersistence(tx?.id ?: 0L)
-                val meSharePaise = mySharePaiseFromShares(shares)
+                val toCategorisePaise = categoryAmountPaise(shares)
+                val iouRecovery = IouLegs.effectiveRecovery(
+                    payer,
+                    payee,
+                    tx?.takeIf { it.sharedRefId != null }?.iouRecovery ?: chooseIouRecovery(payer, payee, shares)
+                )
+                val ledgerEffect = IouLegs.ledgerEffect(payer, payee, shares, request.amountPaise, iouRecovery)
 
-                val base = buildTransactionEntity(tx, request, payer, payee)
+                val base = buildTransactionEntity(tx, request, payer, payee, ledgerEffect, iouRecovery)
                 val transactionId = if (tx == null) {
                     db.transactionDao().insert(base)
                 } else {
@@ -56,10 +73,10 @@ class TransactionPersistenceService(
                 val persistedShares = shares.map { it.copy(transactionId = transactionId) }
                 if (persistedShares.isNotEmpty()) db.transactionShareDao().insertAll(persistedShares)
 
-                persistCategories(transactionId, meSharePaise, payer, payee)
+                persistCategories(transactionId, toCategorisePaise, payer, payee)
                 ledgerPostingService.postLedger(
                     LedgerManager(db), transactionId, payer, payee, persistedShares,
-                    request.amountPaise, request.ledgerEffect
+                    request.amountPaise, ledgerEffect, iouRecovery
                 )
                 persistedTransactionId = transactionId
             }
@@ -72,7 +89,9 @@ class TransactionPersistenceService(
         tx: Transaction?,
         request: PersistTransactionRequest,
         payer: ActorRef,
-        payee: ActorRef
+        payee: ActorRef,
+        ledgerEffect: LedgerEffect,
+        iouRecovery: IouRecovery
     ): Transaction {
         return (tx ?: Transaction(
             amountPaise = request.amountPaise,
@@ -89,7 +108,8 @@ class TransactionPersistenceService(
             source = "MANUAL",
             isPending = false,
             refundsTransactionId = request.refundsTransactionId,
-            ledgerEffect = request.ledgerEffect
+            ledgerEffect = ledgerEffect,
+            iouRecovery = iouRecovery
         )).copy(
             amountPaise = request.amountPaise,
             payerActorType = payer.actorType,
@@ -107,7 +127,8 @@ class TransactionPersistenceService(
             // Must be repeated here, not just in the constructor above: on an edit `tx` is
             // non-null and only the fields named in this copy survive.
             refundsTransactionId = request.refundsTransactionId,
-            ledgerEffect = request.ledgerEffect
+            ledgerEffect = ledgerEffect,
+            iouRecovery = iouRecovery
         )
     }
 }

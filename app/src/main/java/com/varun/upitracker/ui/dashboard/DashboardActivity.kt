@@ -26,6 +26,7 @@ import com.varun.upitracker.ui.AllTransactionsActivity
 import com.varun.upitracker.ui.AmountPerspective
 import com.varun.upitracker.ui.FriendDetailActivity
 import com.varun.upitracker.ui.LedgerEntry
+import com.varun.upitracker.ui.mailbox.MailboxInboxActivity
 import com.varun.upitracker.ui.color
 import com.varun.upitracker.ui.formatTransferAmount
 import com.varun.upitracker.ui.perspectiveColor
@@ -110,6 +111,9 @@ class DashboardActivity : AppCompatActivity() {
         findViewById<View>(R.id.cardSpending).setOnClickListener {
             startActivity(Intent(this, StatisticsActivity::class.java))
         }
+        findViewById<View>(R.id.btnMailboxBell).setOnClickListener {
+            startActivity(Intent(this, MailboxInboxActivity::class.java))
+        }
 
         findViewById<Button>(R.id.btnAddManual).setOnClickListener { launchManualEntry() }
         viewModel.uiState.observe(this) { state ->
@@ -122,13 +126,31 @@ class DashboardActivity : AppCompatActivity() {
             buildRecentRow(state.recentEntries)
             latestIouSummaries = state.iouSummaries
             buildIouSection(latestIouSummaries)
+            renderMailboxBell(state.mailboxOn, state.mailboxWaiting)
         }
         loadData()
+    }
+
+    /**
+     * The bell stands for the friends mailbox as a whole, so it stays there whenever the mailbox is
+     * on -- the user can open it to check. The badge is only for what is already waiting.
+     */
+    private fun renderMailboxBell(mailboxOn: Boolean, waiting: Int) {
+        findViewById<View>(R.id.mailboxBell).visibility = if (mailboxOn) View.VISIBLE else View.GONE
+        val badge = findViewById<TextView>(R.id.tvMailboxBellBadge)
+        badge.visibility = if (waiting > 0) View.VISIBLE else View.GONE
+        badge.text = if (waiting > 99) "99+" else waiting.toString()
+        findViewById<View>(R.id.btnMailboxBell).contentDescription = when {
+            waiting == 0 -> getString(R.string.cd_from_friends)
+            waiting == 1 -> "From friends, 1 thing waiting"
+            else -> "From friends, $waiting things waiting"
+        }
     }
 
     override fun onResume() {
         super.onResume()
         loadData()
+        viewModel.collectMailbox()
         if (hasSmsPermission()) {
             viewModel.scanSmsBacklog()
         } else if (!askedForSms) {

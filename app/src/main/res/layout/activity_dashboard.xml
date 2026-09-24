@@ -31,6 +31,40 @@
             android:text="@string/app_name"
             android:textAppearance="@style/TextAppearance.UPI.TitleLarge" />
 
+        <!-- Shown only while the friends mailbox is on; the badge counts what is waiting. -->
+        <FrameLayout
+            android:id="@+id/mailboxBell"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="@dimen/space_xs"
+            android:visibility="gone">
+
+            <ImageButton
+                android:id="@+id/btnMailboxBell"
+                style="@style/Widget.UPI.IconButton"
+                android:src="@drawable/ic_bell"
+                android:contentDescription="@string/cd_from_friends" />
+
+            <TextView
+                android:id="@+id/tvMailboxBellBadge"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="top|end"
+                android:layout_marginTop="@dimen/space_s"
+                android:layout_marginEnd="@dimen/space_s"
+                android:background="@drawable/bg_badge"
+                android:backgroundTint="?attr/colorPrimary"
+                android:gravity="center"
+                android:minWidth="16dp"
+                android:paddingStart="4dp"
+                android:paddingEnd="4dp"
+                android:textAppearance="@style/TextAppearance.UPI.Label"
+                android:textColor="?attr/colorOnPrimary"
+                android:textSize="10sp"
+                android:importantForAccessibility="no"
+                android:visibility="gone" />
+        </FrameLayout>
+
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnAddManual"
             style="@style/Widget.UPI.Button"

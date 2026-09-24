@@ -7,6 +7,7 @@ import android.text.InputType
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
+import android.widget.AdapterView
 import android.widget.ArrayAdapter
 import android.widget.CheckBox
 import android.widget.EditText
@@ -165,10 +166,49 @@ class AccountsActivity : AppCompatActivity() {
         var maturityEpoch = Calendar.getInstance().apply { add(Calendar.YEAR, 1) }.timeInMillis
         val bookedButton = dateButton(bookedEpoch)
         val maturityButton = dateButton(maturityEpoch)
+
+        // The opening snapshot follows the source account's first one until the user picks their
+        // own date -- see FixedDepositOpening for why that is the default.
+        var snapshotEpoch = bookedEpoch
+        var snapshotPicked = false
+        val snapshotButton = dateButton(snapshotEpoch)
+        val snapshotHint = label("")
+        fun renderSnapshot() {
+            snapshotButton.text = dateTimeFmt.format(Date(snapshotEpoch))
+            snapshotHint.text = if (snapshotEpoch < bookedEpoch) {
+                "Balance on this date: ₹0 (booked later)"
+            } else {
+                "Balance on this date: the principal"
+            }
+        }
+        fun applySnapshotDefault() {
+            if (snapshotPicked) return
+            val sourceId = sourceAccounts.getOrNull(sourceSpinner.selectedItemPosition)?.id
+            snapshotEpoch = state.rows.firstOrNull { it.account.id == sourceId }
+                ?.snapshots?.minOfOrNull { it.snapshotEpoch }
+                ?: bookedEpoch
+            renderSnapshot()
+        }
+        sourceSpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
+            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) =
+                applySnapshotDefault()
+
+            override fun onNothingSelected(parent: AdapterView<*>?) = Unit
+        }
+        snapshotButton.setOnClickListener {
+            pickDateTime(snapshotEpoch) {
+                snapshotEpoch = it
+                snapshotPicked = true
+                renderSnapshot()
+            }
+        }
+
         bookedButton.setOnClickListener {
             pickDateTime(bookedEpoch) {
                 bookedEpoch = it
                 bookedButton.text = dateTimeFmt.format(Date(it))
+                applySnapshotDefault()
+                renderSnapshot()
             }
         }
         maturityButton.setOnClickListener {
@@ -177,6 +217,7 @@ class AccountsActivity : AppCompatActivity() {
                 maturityButton.text = dateTimeFmt.format(Date(it))
             }
         }
+        applySnapshotDefault()
         val form = formLayout().apply {
             addView(labelInput)
             addView(sourceSpinner)
@@ -185,6 +226,9 @@ class AccountsActivity : AppCompatActivity() {
             addView(bookedButton)
             addView(label("Maturity"))
             addView(maturityButton)
+            addView(label("Opening snapshot"))
+            addView(snapshotButton)
+            addView(snapshotHint)
             addView(defaultCheck)
         }
 
@@ -205,7 +249,8 @@ class AccountsActivity : AppCompatActivity() {
                         bookedEpoch = bookedEpoch,
                         maturityEpoch = maturityEpoch,
                         source = EntrySource.MANUAL,
-                        isDefault = defaultCheck.isChecked
+                        isDefault = defaultCheck.isChecked,
+                        snapshotEpoch = snapshotEpoch
                     ),
                     ::showError
                 )

@@ -7,6 +7,10 @@ package com.varun.upitracker.database.entity
  * no shares was assumed to be a repayment and settled real debt — so a monetary gift could not be
  * recorded honestly without corrupting the ledger.
  *
+ * No longer chosen directly: the entry screen stores NONE when every IOU line a transaction could
+ * record has been left out -- see [com.varun.upitracker.domain.iou.IouLegs.ledgerEffect] -- and
+ * DEBT otherwise, with any lines left out recorded on the share rows themselves.
+ *
  * A third `SETTLEMENT` value, making the repayment-vs-new-debt call explicit instead of inferring
  * it from `shares.isEmpty()`, is a later change: the column is TEXT, so adding one needs no
  * migration.

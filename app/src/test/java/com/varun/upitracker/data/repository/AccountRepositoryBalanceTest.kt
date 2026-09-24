@@ -2,6 +2,7 @@ package com.varun.upitracker.data.repository
 
 import com.varun.upitracker.database.entity.BalanceSnapshot
 import com.varun.upitracker.database.entity.BalanceSnapshotSource
+import com.varun.upitracker.domain.FixedDepositOpening
 import com.varun.upitracker.domain.TransferDeltaInput
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -64,6 +65,56 @@ class AccountRepositoryBalanceTest {
         )
 
         assertEquals(8_000, repository.getBalance(ACCOUNT_ID, 100))
+    }
+
+    @Test
+    fun getBalance_fdOpenedBeforeBookingReadsZeroUntilTheBookingTransfer() = runBlocking {
+        val opening = FixedDepositOpening.snapshotFor(bookedEpoch = 500, principalPaise = 50_000, snapshotEpoch = 100)
+        val repository = AccountRepository(
+            FakeBalanceDataSource(
+                snapshots = listOf(snapshot(epoch = 100, balance = opening.balancePaise)),
+                transfers = listOf(TimedTransfer(500, transferIn(50_000)))
+            )
+        )
+
+        assertEquals(0, repository.getBalance(ACCOUNT_ID, 50))
+        assertEquals(0, repository.getBalance(ACCOUNT_ID, 499))
+        assertEquals(50_000, repository.getBalance(ACCOUNT_ID, 500))
+        assertEquals(50_000, repository.getBalance(ACCOUNT_ID, 900))
+    }
+
+    @Test
+    fun getBalance_fdOpenedAfterBookingCountsThePrincipalOnce() = runBlocking {
+        val opening = FixedDepositOpening.snapshotFor(bookedEpoch = 100, principalPaise = 50_000, snapshotEpoch = 300)
+        val repository = AccountRepository(
+            FakeBalanceDataSource(
+                snapshots = listOf(snapshot(epoch = 300, balance = opening.balancePaise)),
+                transfers = listOf(TimedTransfer(100, transferIn(50_000)))
+            )
+        )
+
+        assertEquals(0, repository.getBalance(ACCOUNT_ID, 50))
+        assertEquals(50_000, repository.getBalance(ACCOUNT_ID, 200))
+        assertEquals(50_000, repository.getBalance(ACCOUNT_ID, 900))
+    }
+
+    /** The backfill adds a zero before booking and keeps the principal snapshot: nothing moves. */
+    @Test
+    fun getBalance_fdWithBackfilledZeroAndPrincipalSnapshotsAgree() = runBlocking {
+        val repository = AccountRepository(
+            FakeBalanceDataSource(
+                snapshots = listOf(
+                    snapshot(epoch = 100, balance = 0),
+                    snapshot(epoch = 500, balance = 50_000)
+                ),
+                transfers = listOf(TimedTransfer(500, transferIn(50_000)))
+            )
+        )
+
+        assertEquals(0, repository.getBalance(ACCOUNT_ID, 50))
+        assertEquals(0, repository.getBalance(ACCOUNT_ID, 499))
+        assertEquals(50_000, repository.getBalance(ACCOUNT_ID, 500))
+        assertEquals(50_000, repository.getBalance(ACCOUNT_ID, 900))
     }
 
     private fun snapshot(epoch: Long, balance: Long) = BalanceSnapshot(

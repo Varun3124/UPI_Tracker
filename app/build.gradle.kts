@@ -118,6 +118,15 @@ dependencies {
     implementation("com.google.android.libraries.identity.googleid:googleid:1.1.1")
     implementation("com.google.android.gms:play-services-auth:21.3.0")
 
+    // End-to-end encryption for the friends mailbox: HPKE seals a message to its reader, Ed25519
+    // signs it. The exception to "a few hundred lines beat a library" -- this is cryptography.
+    implementation("com.google.crypto.tink:tink-android:1.21.0")
+
+    // Checks the friends mailbox every couple of hours, so what a friend sent is already here --
+    // and already notified -- when the app is next opened. Spark has no Cloud Functions, so there
+    // is nothing to push with.
+    implementation("androidx.work:work-runtime-ktx:2.10.0")
+
     // Bank statement (.xls) import. HSSF/BIFF8 only - poi-ooxml would drag in xmlbeans
     // for a .xlsx path this app never takes.
     implementation(libs.poi)

@@ -1,30 +1,27 @@
 package com.varun.upitracker.domain.parcel
 
-import java.util.Base64
-import java.util.zip.CRC32
 import java.util.zip.DataFormatException
 import java.util.zip.Deflater
 import java.util.zip.Inflater
 
 /**
- * What actually travels between two phones: `UPIX1.<crc32>.<payload>`.
+ * What travels between two phones by paste: `UPIX1.<crc32>.<payload>`, framed by [PasteFraming].
  *
- * The three parts are separated by `.`, which base64url's alphabet excludes, so the split is
- * unambiguous. base64url rather than plain base64 for the same reason it exists: `+` and `/` get
- * mangled by chat apps and URL shorteners, `-` and `_` do not.
+ * Only ever a pasted parcel: version 3, or version 1 from an app that predates it. The `1` in the
+ * prefix numbers the framing, not the parcel inside, which is what lets an older app get far enough
+ * into a newer parcel to say it needs updating. Version 2 names accounts, and a pasted parcel has
+ * nothing that verified who wrote it, so version 2 travels by mailbox and is refused here in both
+ * directions.
  *
- * The checksum is not ceremony. This travels through WhatsApp, which wraps long tokens, and gets
- * copied out of quoted messages, which truncates them. [Inflater] usually throws on corruption but
- * is not guaranteed to, and a silently corrupted amount is the worst thing this feature could do.
- * CRC32 over the compressed bytes catches it before anything is parsed.
- *
- * Uses `java.util.Base64` and `java.util.zip`, never `android.util.Base64`: those are real classes
- * on the JVM, which is what keeps this object covered by plain JUnit like the rest of `domain/`.
- * The android one is a stub in unit tests and throws "not mocked".
+ * The payload is DEFLATE-compressed [ParcelFormat] text. [Inflater] usually throws on corruption but
+ * is not guaranteed to, and a silently corrupted amount is the worst thing this feature could do,
+ * which is why the framing's checksum runs before anything is inflated.
  */
 object ParcelCodec {
 
     const val PREFIX = "UPIX1"
+
+    private const val FAMILY = "UPIX"
 
     /**
      * A parcel is a chat message; nothing legitimate comes close to this. The cap exists so a
@@ -32,56 +29,37 @@ object ParcelCodec {
      */
     private const val MAX_INFLATED_BYTES = 256 * 1024
 
-    private const val SEPARATOR = '.'
-
     fun encode(parcel: Parcel): String {
+        require(parcel.version == ParcelFormat.VERSION) {
+            "Only a version ${ParcelFormat.VERSION} parcel can be pasted, not version ${parcel.version}."
+        }
         val plaintext = ParcelFormat.format(parcel).toByteArray(Charsets.UTF_8)
-        val compressed = deflate(plaintext)
-        val checksum = CRC32().apply { update(compressed) }.value
-        val payload = Base64.getUrlEncoder().withoutPadding().encodeToString(compressed)
-        return PREFIX + SEPARATOR + checksum.toString(36) + SEPARATOR + payload
+        return PasteFraming.frame(PREFIX, deflate(plaintext))
     }
 
     fun decode(text: String): ParcelDecodeResult {
-        // Chat apps and terminals insert line breaks into long tokens, and a pasted parcel often
-        // arrives with a stray leading space. None of it is meaningful here.
-        val cleaned = text.filterNot { it.isWhitespace() }
-        if (cleaned.isEmpty()) return ParcelDecodeResult.Failed("There is nothing here to import.")
-
-        val parts = cleaned.split(SEPARATOR)
-        if (parts.size != 3) {
-            return ParcelDecodeResult.Failed("That does not look like a shared parcel.")
-        }
-        if (parts[0] != PREFIX) {
-            return ParcelDecodeResult.Failed(
-                if (parts[0].startsWith("UPIX")) {
+        val compressed = when (val framed = PasteFraming.unframe(text, PREFIX, FAMILY)) {
+            is PasteFraming.Result.Ok -> framed.payload
+            PasteFraming.Result.Empty ->
+                return ParcelDecodeResult.Failed("There is nothing here to import.")
+            PasteFraming.Result.Foreign ->
+                return ParcelDecodeResult.Failed("That does not look like a shared parcel.")
+            PasteFraming.Result.OtherVersion ->
+                return ParcelDecodeResult.Failed(
                     "This parcel was made by a newer version of the app. Update, then try again."
-                } else {
-                    "That does not look like a shared parcel."
-                }
-            )
-        }
-        val expectedChecksum = parts[1].toLongOrNull(36)
-            ?: return ParcelDecodeResult.Failed("This parcel is damaged. Ask for it to be sent again.")
-
-        val compressed = try {
-            Base64.getUrlDecoder().decode(parts[2])
-        } catch (error: IllegalArgumentException) {
-            return ParcelDecodeResult.Failed(
-                "This parcel is damaged, most likely cut short when it was copied. " +
-                    "Ask for it to be sent again."
-            )
-        }
-        if (CRC32().apply { update(compressed) }.value != expectedChecksum) {
-            return ParcelDecodeResult.Failed(
-                "This parcel is damaged, most likely cut short when it was copied. " +
-                    "Ask for it to be sent again."
-            )
+                )
+            PasteFraming.Result.BadChecksum ->
+                return ParcelDecodeResult.Failed("This parcel is damaged. Ask for it to be sent again.")
+            PasteFraming.Result.Corrupted ->
+                return ParcelDecodeResult.Failed(
+                    "This parcel is damaged, most likely cut short when it was copied. " +
+                        "Ask for it to be sent again."
+                )
         }
 
         val plaintext = inflate(compressed)
             ?: return ParcelDecodeResult.Failed("This parcel is damaged. Ask for it to be sent again.")
-        return ParcelFormat.parse(plaintext)
+        return ParcelFormat.parse(plaintext, ParcelFormat.VERSION)
     }
 
     private fun deflate(input: ByteArray): ByteArray {

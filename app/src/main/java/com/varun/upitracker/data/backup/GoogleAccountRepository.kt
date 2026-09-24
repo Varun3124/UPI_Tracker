@@ -19,6 +19,7 @@ import com.google.android.gms.common.api.Scope
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.varun.upitracker.R
+import com.varun.upitracker.data.mailbox.MailboxServices
 import com.varun.upitracker.data.prefs.AppPrefs
 import com.varun.upitracker.domain.backup.BackupPrefKeys
 import kotlin.coroutines.resume
@@ -28,7 +29,11 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 data class GoogleAccount(val email: String, val displayName: String?)
 
 sealed interface SignInResult {
-    data class Success(val account: GoogleAccount) : SignInResult
+    /**
+     * [idToken] is the proof of sign-in the friends mailbox exchanges for a Firebase session. It is
+     * handed straight on and never stored: it lasts about an hour and is worth nothing afterwards.
+     */
+    data class Success(val account: GoogleAccount, val idToken: String) : SignInResult
     /** The user backed out. Not an error, and nothing should be said about it. */
     data object Cancelled : SignInResult
     /** No Google account on the device, or none the picker would offer. */
@@ -72,9 +77,13 @@ class GoogleAccountRepository(context: Context) {
     /**
      * Forgets the account. Deliberately leaves the database, the preferences and the Drive file
      * alone: signing out is saying "stop using this account here", not "throw my data away".
+     *
+     * The friends mailbox runs on the same account, so it stops too -- its keys stay in Drive for
+     * the next sign-in.
      */
     fun signOut() {
         prefs.edit().remove(BackupPrefKeys.ACCOUNT_EMAIL).apply()
+        MailboxServices.get(appContext).endSessionOnThisPhone()
     }
 
     suspend fun signIn(activity: Activity): SignInResult {
@@ -101,7 +110,7 @@ class GoogleAccountRepository(context: Context) {
             val credential = GoogleIdTokenCredential.createFrom(raw.data)
             val account = GoogleAccount(email = credential.id, displayName = credential.displayName)
             prefs.edit().putString(BackupPrefKeys.ACCOUNT_EMAIL, account.email).apply()
-            SignInResult.Success(account)
+            SignInResult.Success(account, credential.idToken)
         } catch (error: GetCredentialCancellationException) {
             SignInResult.Cancelled
         } catch (error: NoCredentialException) {

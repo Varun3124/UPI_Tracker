@@ -174,6 +174,11 @@ class SettingsRepository(private val context: Context) {
         db.withTransaction {
             val friend = db.friendDao().getFriendById(friendId)
                 ?: throw SettingsMutationException("Alias no longer exists.")
+            // The link would go with them, but not the permission to write into this inbox they
+            // hold on the server. Unlinking first withdraws both.
+            if (db.mailboxDao().getLink(friendId) != null) {
+                throw SettingsMutationException("This person is linked to a DhanMoney account. Unlink them first.")
+            }
             if (friendHasHistory(friendId)) {
                 throw SettingsMutationException("This alias is already used in transaction history and cannot be deleted.")
             }
@@ -249,6 +254,19 @@ class SettingsRepository(private val context: Context) {
 
     private suspend fun mergeFriendInto(source: Friend, target: Friend, targetName: String) {
         if (source.id == target.id) return
+        // A link binds a friend to one account. Two linked friends are two accounts -- two people
+        // -- and merging them would pour one person's balance into another's.
+        val sourceLink = db.mailboxDao().getLink(source.id)
+        if (sourceLink != null) {
+            if (db.mailboxDao().getLink(target.id) != null) {
+                throw SettingsMutationException(
+                    "Both are linked to different DhanMoney accounts. Unlink one before merging them."
+                )
+            }
+            db.mailboxDao().moveLink(source.id, target.id)
+        }
+        db.mailboxDao().reassignInvites(source.id, target.id)
+        db.mailboxDao().reassignDeliveries(source.id, target.id)
         db.transactionDao().reassignPayerFriend(source.id, target.id)
         db.transactionDao().reassignPayeeFriend(source.id, target.id)
         db.transactionShareDao().reassignFriend(source.id, target.id)

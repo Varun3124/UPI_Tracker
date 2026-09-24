@@ -1,5 +1,8 @@
 package com.varun.upitracker.ui.transactionentry
 
+import com.varun.upitracker.database.entity.IouRecovery
+import com.varun.upitracker.domain.iou.IouParty
+
 sealed interface TransactionEntryAction {
     data class ScreenLoaded(val transactionId: Long?) : TransactionEntryAction
     data class AmountChanged(val rawAmount: String) : TransactionEntryAction
@@ -15,7 +18,8 @@ sealed interface TransactionEntryAction {
     data class DescriptionChanged(val text: String) : TransactionEntryAction
     data class CategoryToggled(val categoryId: Long, val selected: Boolean) : TransactionEntryAction
     data class CategoryAmountChanged(val categoryId: Long, val rawAmount: String) : TransactionEntryAction
-    data object LedgerEffectToggled : TransactionEntryAction
+    data class IouRecoverySelected(val recovery: IouRecovery) : TransactionEntryAction
+    data class IouLineToggled(val debtor: IouParty, val creditor: IouParty) : TransactionEntryAction
     data object SaveClicked : TransactionEntryAction
     data object CloseClicked : TransactionEntryAction
 }

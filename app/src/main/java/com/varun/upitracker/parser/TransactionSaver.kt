@@ -1,20 +1,30 @@
 package com.varun.upitracker.parser
 
 import android.content.Context
+import android.database.sqlite.SQLiteConstraintException
 import android.util.Log
 import com.varun.upitracker.database.AppDatabase
+import com.varun.upitracker.database.entity.AccountType
 import com.varun.upitracker.database.entity.Transaction
+import com.varun.upitracker.domain.ImportedTransferMatcher
 import com.varun.upitracker.resolver.AliasResolver
 import com.varun.upitracker.resolver.ResolvedAs
 import com.varun.upitracker.sms.receiver.TransactionNotificationHelper
 import com.varun.upitracker.ui.ActorType
+import java.util.concurrent.TimeUnit
 
 private const val TAG = "TransactionSaver"
+
+/** SMS and notification timestamps can trail the payment, and fall either side of midnight. */
+private val TRANSFER_MATCH_TOLERANCE_MILLIS = TimeUnit.DAYS.toMillis(1)
 
 /**
  * Shared by every capture channel (SMS, Gmail notification, ...). upiRefId carries a unique DB
  * index, so this is also where cross-channel dedup happens: whichever channel's message for a
  * given transaction is processed first wins, and the other is dropped here.
+ *
+ * A message is also dropped when its payment was already reclassified as a transfer between the
+ * user's own accounts -- see [claimImportedTransfer].
  */
 object TransactionSaver {
 
@@ -31,6 +41,11 @@ object TransactionSaver {
             Log.d(TAG, "Duplicate ref ${parsed.upiRefId}, skipping")
             return false
         }
+        if (db.accountTransferDao().findByUpiRefId(parsed.upiRefId) != null) {
+            Log.d(TAG, "Ref ${parsed.upiRefId} is already a transfer, skipping")
+            return false
+        }
+        if (claimImportedTransfer(db, parsed)) return false
 
         val resolution = resolver.resolve(parsed.payeeRaw, parsed.direction)
         val matchedFriendId = (resolution as? ResolvedAs.AsFriend)?.friendId
@@ -79,6 +94,39 @@ object TransactionSaver {
             )
         }
 
+        return true
+    }
+
+    /**
+     * True when [parsed] is a transfer converted from this same message before transfers kept their
+     * UPI reference, in which case the reference is stamped on it so the next scan finds it outright.
+     * See [ImportedTransferMatcher] for how narrowly that is decided.
+     *
+     * Matched against every savings account, not just the default one this message would land on:
+     * whoever converted it may have corrected which account it came from.
+     */
+    private suspend fun claimImportedTransfer(db: AppDatabase, parsed: ParsedTransaction): Boolean {
+        val fromEpoch = parsed.dateEpoch - TRANSFER_MATCH_TOLERANCE_MILLIS
+        val toEpoch = parsed.dateEpoch + TRANSFER_MATCH_TOLERANCE_MILLIS
+        val match = ImportedTransferMatcher.pick(
+            // getTransfersBetween is half-open; the matcher applies the inclusive window itself.
+            transfers = db.accountTransferDao().getTransfersBetween(fromEpoch, toEpoch + 1),
+            amountPaise = parsed.amountPaise,
+            isDebit = parsed.direction == "DEBIT",
+            accountIds = db.accountDao().getByType(AccountType.SAVINGS).map { it.id },
+            fromEpoch = fromEpoch,
+            toEpoch = toEpoch,
+            atEpoch = parsed.dateEpoch,
+            allowStatementRef = true
+        ) ?: return false
+
+        try {
+            db.accountTransferDao().claimRefs(match.id, upiRefId = parsed.upiRefId, statementRefNo = null)
+        } catch (e: SQLiteConstraintException) {
+            // Another channel stamped this reference on a transfer first: recorded either way.
+            Log.d(TAG, "Transfer claim raced for ref ${parsed.upiRefId}")
+        }
+        Log.d(TAG, "Ref ${parsed.upiRefId} matched transfer ${match.id}, skipping")
         return true
     }
 

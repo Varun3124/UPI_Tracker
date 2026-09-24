@@ -18,8 +18,8 @@ private const val TAG = "MerchantCreditBackfill"
  * blanket "subtract every merchant credit" spend rule cancelled them out. Neither of those is true
  * any more: a credit is now either a refund linked to the purchase it reverses, or income.
  *
- * The reporting queries already ignore these rows -- they require ME's share to sit on the side
- * matching the category kind -- so this is about getting the data right, not the totals. Flagging
+ * The reporting queries already ignore these rows -- they only count a split whose category kind
+ * matches the transaction's direction -- so this is about getting the data right, not the totals. Flagging
  * puts each one back in front of the user through the existing review flow instead of guessing
  * which are refunds and which are income, or silently deleting a categorisation they made.
  *

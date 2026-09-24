@@ -8,11 +8,17 @@ data class ShareRowModel(
     val friendId: Long?,
     val label: String,
     val initials: String,
-    val amountPaise: Long
+    val amountPaise: Long,
+    val keepPayeeLeg: Boolean = true,
+    val keepPayerLeg: Boolean = true
 )
 
 class ShareManager {
 
+    /**
+     * The row's IOU choices survive only while it names the same person: someone new starts with
+     * every IOU kept, as a fresh row does.
+     */
     fun updateParticipant(
         rows: List<ShareRowModel>,
         index: Int,
@@ -24,6 +30,7 @@ class ShareManager {
         if (index !in rows.indices) return rows
         val old = rows[index]
         val key = if (participantType == ActorType.ME) "ME" else "F:$friendId"
+        val samePerson = old.key == key
 
         return rows.toMutableList().apply {
             this[index] = ShareRowModel(
@@ -32,7 +39,9 @@ class ShareManager {
                 friendId = friendId,
                 label = label,
                 initials = initials,
-                amountPaise = old.amountPaise
+                amountPaise = old.amountPaise,
+                keepPayeeLeg = !samePerson || old.keepPayeeLeg,
+                keepPayerLeg = !samePerson || old.keepPayerLeg
             )
         }
     }

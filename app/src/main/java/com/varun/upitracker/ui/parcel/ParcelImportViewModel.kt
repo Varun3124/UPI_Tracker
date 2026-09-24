@@ -5,11 +5,19 @@ import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.varun.upitracker.data.mailbox.LinkException
+import com.varun.upitracker.data.mailbox.LinkRepository
+import com.varun.upitracker.data.mailbox.MailboxException
+import com.varun.upitracker.data.mailbox.MailboxIdentityRepository
+import com.varun.upitracker.data.mailbox.MailboxStatus
 import com.varun.upitracker.data.repository.ParcelImportPlan
 import com.varun.upitracker.data.repository.ParcelImportRepository
 import com.varun.upitracker.data.repository.ParcelImportResult
 import com.varun.upitracker.database.AppDatabase
 import com.varun.upitracker.database.entity.Friend
+import com.varun.upitracker.domain.mailbox.InviteCode
+import com.varun.upitracker.domain.mailbox.InviteDecodeResult
+import com.varun.upitracker.domain.mailbox.LinkInviteCode
 import com.varun.upitracker.domain.parcel.ParcelCodec
 import com.varun.upitracker.domain.parcel.ParcelDecodeResult
 import kotlinx.coroutines.Dispatchers
@@ -26,7 +34,12 @@ data class ParcelImportUiState(
     val skipped: Set<Int> = emptySet(),
     /** A name in a split -> the friend the user says it is. Empty unless they said so. */
     val personMappings: Map<String, Long> = emptyMap(),
-    val busy: Boolean = false
+    val busy: Boolean = false,
+    /**
+     * Set when the screen was opened on a parcel collected from the mailbox. There is nothing to
+     * paste and no sender to pick: the verified sender is the friend they linked with.
+     */
+    val mailboxMessageId: String? = null
 ) {
     val canRead: Boolean get() = senderFriendId != null && pastedText.isNotBlank() && !busy
 
@@ -45,8 +58,11 @@ data class ParcelImportUiState(
  */
 class ParcelImportViewModel(context: Context) : ViewModel() {
 
-    private val db = AppDatabase.getInstance(context.applicationContext)
+    private val appContext = context.applicationContext
+    private val db = AppDatabase.getInstance(appContext)
     private val repository = ParcelImportRepository(db)
+    private val links = LinkRepository(appContext, db)
+    private val identities = MailboxIdentityRepository(appContext, db)
 
     private val _uiState = MutableLiveData(ParcelImportUiState())
     val uiState: LiveData<ParcelImportUiState> = _uiState
@@ -69,9 +85,26 @@ class ParcelImportViewModel(context: Context) : ViewModel() {
         _uiState.value = current.copy(pastedText = text)
     }
 
-    fun readParcel(onError: (String) -> Unit) {
+    /**
+     * Reads what was pasted. An invite to link goes to [onInvite] for the screen to confirm, with the
+     * friend picked above as the person it is from; a parcel is planned and the screen moves on to
+     * reviewing it.
+     */
+    fun read(onInvite: (LinkInviteCode, Friend) -> Unit, onError: (String) -> Unit) {
         val state = current
         val senderFriendId = state.senderFriendId ?: return onError("Say who sent this first.")
+
+        if (InviteCode.looksLikeInvite(state.pastedText)) {
+            when (val decoded = InviteCode.decode(state.pastedText)) {
+                is InviteDecodeResult.Failed -> onError(decoded.reason)
+                is InviteDecodeResult.Ok -> {
+                    val friend = state.friends.firstOrNull { it.id == senderFriendId }
+                        ?: return onError("That person is no longer in your list.")
+                    onInvite(decoded.invite, friend)
+                }
+            }
+            return
+        }
 
         when (val decoded = ParcelCodec.decode(state.pastedText)) {
             is ParcelDecodeResult.Failed -> onError(decoded.reason)
@@ -97,6 +130,74 @@ class ParcelImportViewModel(context: Context) : ViewModel() {
                     )
                 }
             }
+        }
+    }
+
+    /**
+     * Answers [invite] as coming from [friendId]. [onMailboxOff] is the common first-time case:
+     * answering needs the mailbox on, and the screen can offer to open its settings.
+     */
+    fun acceptInvite(
+        invite: LinkInviteCode,
+        friendId: Long,
+        onDone: (String) -> Unit,
+        onMailboxOff: () -> Unit,
+        onError: (String) -> Unit
+    ) {
+        if (current.busy) return
+        _uiState.value = current.copy(busy = true)
+        viewModelScope.launch {
+            val outcome: Result<String?> = try {
+                if (identities.status() !is MailboxStatus.On) {
+                    Result.success(null)
+                } else {
+                    Result.success(links.acceptInvite(invite, friendId))
+                }
+            } catch (error: LinkException) {
+                Result.failure(error)
+            } catch (error: MailboxException) {
+                Result.failure(error)
+            }
+            _uiState.value = current.copy(busy = false)
+            outcome.fold(
+                onSuccess = { friendName ->
+                    if (friendName == null) {
+                        onMailboxOff()
+                    } else {
+                        onDone("Invite accepted. You and $friendName are linked as soon as they confirm it.")
+                    }
+                },
+                onFailure = { onError(it.message ?: "Could not accept that invite.") }
+            )
+        }
+    }
+
+    /** Opens a parcel collected from the mailbox straight into review. Safe to call again on rotation. */
+    fun loadMailboxParcel(messageId: String, onError: (String) -> Unit) {
+        val state = current
+        if (state.mailboxMessageId == messageId && (state.plan != null || state.busy)) return
+        _uiState.value = state.copy(mailboxMessageId = messageId, busy = true)
+        viewModelScope.launch {
+            val plan = try {
+                withContext(Dispatchers.IO) { repository.buildMailboxPlan(messageId) }
+            } catch (error: IllegalArgumentException) {
+                _uiState.value = current.copy(busy = false)
+                return@launch onError(error.message ?: "Could not open that parcel.")
+            }
+            _uiState.value = current.copy(
+                plan = plan,
+                busy = false,
+                skipped = emptySet(),
+                personMappings = emptyMap()
+            )
+        }
+    }
+
+    fun dismissMailboxParcel(onDone: () -> Unit) {
+        val messageId = current.mailboxMessageId ?: return
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) { repository.dismissMailboxParcel(messageId) }
+            onDone()
         }
     }
 

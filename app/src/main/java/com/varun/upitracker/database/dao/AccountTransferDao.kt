@@ -24,6 +24,23 @@ interface AccountTransferDao {
     @Query("SELECT * FROM account_transfer WHERE statementRefNo = :statementRefNo LIMIT 1")
     suspend fun findByStatementRefNo(statementRefNo: String): AccountTransfer?
 
+    @Query("SELECT * FROM account_transfer WHERE upiRefId = :upiRefId LIMIT 1")
+    suspend fun findByUpiRefId(upiRefId: String): AccountTransfer?
+
+    /**
+     * Records that a bank message is this transfer, filling only the references it lacks -- one
+     * already set is never replaced. See [com.varun.upitracker.domain.ImportedTransferMatcher].
+     */
+    @Query(
+        """
+        UPDATE account_transfer
+        SET upiRefId = COALESCE(upiRefId, :upiRefId),
+            statementRefNo = COALESCE(statementRefNo, :statementRefNo)
+        WHERE id = :id
+        """
+    )
+    suspend fun claimRefs(id: String, upiRefId: String?, statementRefNo: String?)
+
     @Query("SELECT * FROM account_transfer ORDER BY dateEpoch DESC, id DESC LIMIT :limit")
     suspend fun getRecentTransfers(limit: Int): List<AccountTransfer>
 

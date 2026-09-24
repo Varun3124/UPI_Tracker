@@ -1,0 +1,172 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/main"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="?android:attr/colorBackground">
+
+    <LinearLayout
+        style="@style/Widget.UPI.TopBar">
+
+        <ImageButton
+            android:id="@+id/btnBackInbox"
+            style="@style/Widget.UPI.IconButton"
+            android:src="@drawable/ic_arrow_back"
+            android:contentDescription="@string/cd_back" />
+
+        <TextView
+            style="@style/Widget.UPI.TopBarTitle"
+            android:text="From friends" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnCheckNow"
+            style="@style/Widget.UPI.Button.Text"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Check now" />
+    </LinearLayout>
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:paddingStart="@dimen/page_gutter"
+        android:paddingEnd="@dimen/page_gutter"
+        android:paddingTop="@dimen/space_l"
+        android:paddingBottom="@dimen/space_xxl"
+        android:clipToPadding="false">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <LinearLayout
+                android:id="@+id/panelInboxOff"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text="The friends mailbox is off on this phone. Turn it on to receive transactions from friends you link with. Anything already collected is still listed below."
+                    android:textAppearance="@style/TextAppearance.UPI.Caption" />
+
+                <Button
+                    android:id="@+id/btnInboxTurnOn"
+                    style="?attr/materialButtonOutlinedStyle"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/space_s"
+                    android:layout_marginBottom="@dimen/space_l"
+                    android:text="Friends mailbox settings" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/tvRepliesHeader"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="@dimen/space_s"
+                android:text="LINK REQUESTS"
+                android:textAppearance="@style/TextAppearance.UPI.SectionHeader"
+                android:visibility="gone" />
+
+            <LinearLayout
+                android:id="@+id/containerReplies"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical" />
+
+            <TextView
+                android:id="@+id/tvLinksHeader"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_s"
+                android:layout_marginBottom="@dimen/space_s"
+                android:text="NEW LINKS"
+                android:textAppearance="@style/TextAppearance.UPI.SectionHeader"
+                android:visibility="gone" />
+
+            <LinearLayout
+                android:id="@+id/containerLinks"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical" />
+
+            <TextView
+                android:id="@+id/tvParcelsHeader"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_s"
+                android:layout_marginBottom="@dimen/space_s"
+                android:text="TRANSACTIONS"
+                android:textAppearance="@style/TextAppearance.UPI.SectionHeader"
+                android:visibility="gone" />
+
+            <LinearLayout
+                android:id="@+id/containerParcels"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical" />
+
+            <TextView
+                android:id="@+id/tvNoticesHeader"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_s"
+                android:layout_marginBottom="@dimen/space_s"
+                android:text="COULD NOT OPEN"
+                android:textAppearance="@style/TextAppearance.UPI.SectionHeader"
+                android:visibility="gone" />
+
+            <LinearLayout
+                android:id="@+id/containerNotices"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical" />
+
+            <TextView
+                android:id="@+id/tvInboxEmpty"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:padding="@dimen/space_xl"
+                android:gravity="center"
+                android:text="Nothing waiting. Transactions from friends you have linked with show up here."
+                android:textAppearance="@style/TextAppearance.UPI.Caption"
+                android:visibility="gone" />
+
+            <TextView
+                android:id="@+id/tvInboxHeld"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_l"
+                android:textAppearance="@style/TextAppearance.UPI.Caption"
+                android:visibility="gone" />
+        </LinearLayout>
+    </ScrollView>
+
+    <LinearLayout
+        android:id="@+id/busyBar"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:visibility="gone"
+        android:background="?attr/colorSurface"
+        android:padding="@dimen/space_l">
+
+        <ProgressBar
+            android:layout_width="20dp"
+            android:layout_height="20dp"
+            android:layout_marginEnd="@dimen/space_l" />
+
+        <TextView
+            android:id="@+id/tvBusy"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:textAppearance="@style/TextAppearance.UPI.Caption" />
+    </LinearLayout>
+</LinearLayout>

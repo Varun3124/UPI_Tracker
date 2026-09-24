@@ -1,0 +1,87 @@
+rules_version = '2';
+
+// The DhanMoney friends mailbox.
+//
+// The server is trusted to route messages and nothing more: every message is signed and sealed on
+// the phone that sends it, and opened only on the phone it is for. These rules decide who may write
+// where. They never see an amount, a name or a transaction, because nothing here holds one.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(uid) {
+      return signedIn() && request.auth.uid == uid;
+    }
+
+    // [uid] has linked the caller, so the caller may write into [uid]'s inbox.
+    function isContactOf(uid) {
+      return exists(/databases/$(database)/documents/users/$(uid)/contacts/$(request.auth.uid));
+    }
+
+    // [inviteId] names an unexpired invite [uid] made. Holding the id is what lets someone answer it.
+    function hasOpenInvite(uid, inviteId) {
+      let path = /databases/$(database)/documents/invites/$(inviteId);
+      return exists(path)
+        && get(path).data.owner == uid
+        && get(path).data.expiresAt > request.time;
+    }
+
+    function isPublicKey(value) {
+      return value is string && value.size() > 0 && value.size() <= 8192;
+    }
+
+    match /users/{uid} {
+      // Anyone signed in may read one person's public keys by id. Nobody may list who uses the app.
+      allow get: if signedIn();
+      allow create, update: if isOwner(uid)
+        && request.resource.data.keys().hasOnly(['encKey', 'sigKey', 'fingerprint', 'updatedAt'])
+        && isPublicKey(request.resource.data.encKey)
+        && isPublicKey(request.resource.data.sigKey)
+        && request.resource.data.fingerprint is string
+        && request.resource.data.fingerprint.size() == 32
+        && request.resource.data.updatedAt is timestamp;
+      allow delete: if isOwner(uid);
+
+      // Who may write into this person's inbox. Only they can see it or change it.
+      match /contacts/{contactUid} {
+        allow get, list, delete: if isOwner(uid);
+        // Update too, so re-linking someone already listed is a plain write rather than a conflict.
+        allow create, update: if isOwner(uid)
+          && request.resource.data.keys().hasOnly(['addedAt'])
+          && request.resource.data.addedAt is timestamp;
+      }
+    }
+
+    match /invites/{inviteId} {
+      // Only the person who made an invite can look at it. Answering one needs no read.
+      allow get, delete: if signedIn() && resource.data.owner == request.auth.uid;
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(['owner', 'expiresAt'])
+        && request.resource.data.owner == request.auth.uid
+        && request.resource.data.expiresAt is timestamp
+        && request.resource.data.expiresAt < request.time + duration.value(8, 'd');
+    }
+
+    match /inbox/{uid}/messages/{messageId} {
+      allow get, list: if isOwner(uid);
+      // The owner clears a message once it is safely stored on their phone. A sender may take back
+      // what was never collected -- which is how deleting an account tidies up after itself.
+      allow delete: if isOwner(uid) || (signedIn() && resource.data.from == request.auth.uid);
+      allow create: if signedIn()
+        && request.auth.uid != uid
+        && request.resource.data.from == request.auth.uid
+        && request.resource.data.keys().hasOnly(['from', 'ciphertext', 'inviteId'])
+        && request.resource.data.ciphertext is bytes
+        && request.resource.data.ciphertext.size() <= 262144
+        && (isContactOf(uid)
+          || ('inviteId' in request.resource.data
+            && request.resource.data.inviteId is string
+            && hasOpenInvite(uid, request.resource.data.inviteId)));
+      // A message is never edited in place: it is sealed to one reader, once.
+      allow update: if false;
+    }
+  }
+}

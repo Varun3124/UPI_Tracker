@@ -1,19 +1,22 @@
 package com.varun.upitracker.domain.transactionentry.persistence
 
+import com.varun.upitracker.database.entity.IouRecovery
 import com.varun.upitracker.database.entity.LedgerEffect
 import com.varun.upitracker.database.entity.TransactionShare
+import com.varun.upitracker.domain.iou.IouLegs
 import com.varun.upitracker.ledger.LedgerPort
 import com.varun.upitracker.ui.ActorRef
 import com.varun.upitracker.ui.ActorType
-import com.varun.upitracker.ui.meShareOnSide
 
 class LedgerPostingService {
 
     /**
      * Applies [transactionId]'s effect on what ME and friends owe each other.
      *
-     * [ledgerEffect] is the only explicit input; everything below it still infers
-     * settlement-vs-new-debt from actor types and share emptiness, exactly as before.
+     * Money straight between ME and a friend with no split at all still settles up, oldest debt
+     * first. Everything else posts the legs [IouLegs] derives under [iouRecovery] -- only the ones
+     * between ME and a friend this database knows. The rest are debts between other people, and are
+     * theirs to record.
      */
     suspend fun postLedger(
         ledger: LedgerPort,
@@ -22,7 +25,8 @@ class LedgerPostingService {
         payee: ActorRef,
         shares: List<TransactionShare>,
         amountPaise: Long,
-        ledgerEffect: LedgerEffect
+        ledgerEffect: LedgerEffect,
+        iouRecovery: IouRecovery
     ) {
         // A gift in either direction. Without this the FRIEND -> ME branch below would treat it
         // as a repayment and settle debt the friend still genuinely owes.
@@ -46,52 +50,9 @@ class LedgerPostingService {
             return
         }
 
-        if (payer.actorType == ActorType.ME) {
-            shares
-                .filter {
-                    it.side == "PAYER"
-                        && it.participantType == ActorType.FRIEND
-                        && it.friendId != null
-                }
-                .forEach { share ->
-                    ledger.recordBalanceChange(transactionId, share.friendId!!, share.amountPaise)
-                }
-
-            val mePayerShare = meShareOnSide(shares, "PAYER")
-            if (payee.actorType == ActorType.FRIEND && payee.friendId != null && mePayerShare > 0L) {
-                ledger.recordBalanceChange(transactionId, payee.friendId, mePayerShare)
-            }
-        }
-
-        if (payer.actorType == ActorType.FRIEND && payer.friendId != null) {
-            val mePayerShare = meShareOnSide(shares, "PAYER")
-            if (mePayerShare > 0L) {
-                ledger.recordBalanceChange(transactionId, payer.friendId, -mePayerShare)
-            }
-        }
-
-        if (payee.actorType == ActorType.ME) {
-            val mePayeeShare = meShareOnSide(shares, "PAYEE")
-            if (payer.actorType == ActorType.FRIEND && payer.friendId != null && mePayeeShare > 0L) {
-                ledger.recordBalanceChange(transactionId, payer.friendId, -mePayeeShare)
-            }
-
-            shares
-                .filter {
-                    it.side == "PAYEE"
-                        && it.participantType == ActorType.FRIEND
-                        && it.friendId != null
-                }
-                .forEach { share ->
-                    ledger.recordBalanceChange(transactionId, share.friendId!!, -share.amountPaise)
-                }
-        }
-
-        if (payee.actorType == ActorType.FRIEND && payee.friendId != null) {
-            val mePayeeShare = meShareOnSide(shares, "PAYEE")
-            if (mePayeeShare > 0L) {
-                ledger.recordBalanceChange(transactionId, payee.friendId, mePayeeShare)
-            }
+        val legs = IouLegs.legs(payer, payee, shares, amountPaise, ledgerEffect, iouRecovery)
+        IouLegs.netByFriend(legs).forEach { (friendId, deltaPaise) ->
+            ledger.recordBalanceChange(transactionId, friendId, deltaPaise)
         }
     }
 }

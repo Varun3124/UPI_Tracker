@@ -24,7 +24,8 @@ import androidx.room.PrimaryKey
     indices = [
         Index(value = ["fromAccountId", "dateEpoch"]),
         Index(value = ["toAccountId", "dateEpoch"]),
-        Index(value = ["statementRefNo"], unique = true)
+        Index(value = ["statementRefNo"], unique = true),
+        Index(value = ["upiRefId"], unique = true)
     ]
 )
 data class AccountTransfer(
@@ -37,5 +38,11 @@ data class AccountTransfer(
     val dateEpoch: Long,
     val source: EntrySource,
     val statementRefNo: String? = null,
-    val notes: String? = null
+    val notes: String? = null,
+    /**
+     * The UPI reference of the bank message this transfer was recorded from, if any. Carried over
+     * when a pending SMS or statement transaction is converted into a transfer, so every importer can
+     * see the payment is already here -- the transaction that used to hold it is gone.
+     */
+    val upiRefId: String? = null
 )

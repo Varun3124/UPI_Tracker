@@ -1,7 +1,7 @@
 package com.varun.upitracker.ui.parcel
 
 import android.content.ClipboardManager
-import android.content.Context
+import android.content.Intent
 import android.os.Bundle
 import android.text.Editable
 import android.text.TextWatcher
@@ -27,6 +27,10 @@ import com.varun.upitracker.R
 import com.varun.upitracker.data.repository.ParcelEntry
 import com.varun.upitracker.data.repository.ParcelImportPlan
 import com.varun.upitracker.database.entity.Friend
+import com.varun.upitracker.database.entity.IouRecovery
+import com.varun.upitracker.domain.mailbox.KeyFingerprint
+import com.varun.upitracker.domain.mailbox.LinkInviteCode
+import com.varun.upitracker.ui.mailbox.MailboxActivity
 import com.varun.upitracker.ui.settings.AppViewModelFactory
 import com.varun.upitracker.ui.theme.ThemeAttr
 import com.varun.upitracker.ui.theme.padRootForSystemBars
@@ -37,7 +41,11 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * Paste a friend's parcel, look through it, keep what is new.
+ * Look through what a friend sent, and keep what is new.
+ *
+ * Two ways in. From Settings, paste what a friend sent through a chat -- a parcel, or an invite to
+ * link -- having said who it is from. From the friends mailbox, open a parcel already collected and
+ * verified, whose sender needs no saying.
  *
  * One Activity with two panels rather than two activities, matching
  * [com.varun.upitracker.ui.statement.StatementImportActivity] -- the plan is too big to pass
@@ -45,9 +53,18 @@ import java.util.Locale
  *
  * Note there is no `ACTION_SEND` intent-filter for this screen, deliberately. Accepting parcels
  * straight from a chat app would mean exporting an activity that writes to the ledger, and any
- * app on the device could then feed it. Pasting keeps the user in the loop.
+ * app on the device could then feed it. Pasting keeps the user in the loop, and a mailbox parcel is
+ * only ever opened from this app's own inbox and notification.
  */
 class ParcelImportActivity : AppCompatActivity() {
+
+    companion object {
+        /** A parcel collected from the mailbox, to review instead of pasting one. */
+        const val EXTRA_MESSAGE_ID = "mailbox_message_id"
+
+        /** An invite that arrived as a tapped link, put in the box so it need not be pasted. */
+        const val EXTRA_INVITE_CODE = "invite_code"
+    }
 
     private val dateFmt = SimpleDateFormat("dd MMM yyyy", Locale.getDefault())
     private lateinit var viewModel: ParcelImportViewModel
@@ -83,19 +100,36 @@ class ParcelImportActivity : AppCompatActivity() {
         })
 
         findViewById<View>(R.id.btnPasteParcel).setOnClickListener { pasteFromClipboard() }
-        findViewById<View>(R.id.btnRead).setOnClickListener { viewModel.readParcel(::toast) }
+        findViewById<View>(R.id.btnRead).setOnClickListener {
+            viewModel.read(onInvite = ::confirmInvite, onError = ::toast)
+        }
         findViewById<View>(R.id.btnCommitParcel).setOnClickListener { commit() }
+        findViewById<View>(R.id.btnDismissParcel).setOnClickListener { confirmDismiss() }
 
         viewModel.uiState.observe(this) { render(it) }
         viewModel.loadFriends()
+        intent.getStringExtra(EXTRA_INVITE_CODE)?.let { code ->
+            // Filled in, not acted on: who the invite is from is still the user's to say, and saying
+            // it is what binds a friend to an account.
+            findViewById<EditText>(R.id.etParcel).setText(code)
+            toast("Say who this invite is from, then tap Read.")
+        }
+        intent.getStringExtra(EXTRA_MESSAGE_ID)?.let { messageId ->
+            viewModel.loadMailboxParcel(messageId) { error ->
+                toast(error)
+                finish()
+            }
+        }
     }
 
     private fun render(state: ParcelImportUiState) {
         val reviewing = state.plan != null
-        findViewById<View>(R.id.panelSetup).visibility = if (reviewing) View.GONE else View.VISIBLE
-        findViewById<View>(R.id.btnRead).visibility = if (reviewing) View.GONE else View.VISIBLE
+        val fromMailbox = state.mailboxMessageId != null
+        val setup = !reviewing && !fromMailbox
+        findViewById<View>(R.id.panelSetup).visibility = if (setup) View.VISIBLE else View.GONE
+        findViewById<View>(R.id.btnRead).visibility = if (setup) View.VISIBLE else View.GONE
         findViewById<View>(R.id.panelReview).visibility = if (reviewing) View.VISIBLE else View.GONE
-        if (reviewing) renderReview(state) else renderSetup(state)
+        if (reviewing) renderReview(state) else if (setup) renderSetup(state)
     }
 
     private fun renderSetup(state: ParcelImportUiState) {
@@ -119,8 +153,13 @@ class ParcelImportActivity : AppCompatActivity() {
     private fun renderReview(state: ParcelImportUiState) {
         val plan = state.plan ?: return
 
+        findViewById<TextView>(R.id.tvParcelTitle).text =
+            if (plan.isFromMailbox) "From ${plan.senderName}" else "Paste from a friend"
+        findViewById<View>(R.id.btnDismissParcel).visibility =
+            if (plan.isFromMailbox) View.VISIBLE else View.GONE
+
         findViewById<TextView>(R.id.tvReviewSummary).text = buildString {
-            append("From ${plan.senderName}. ")
+            append(if (plan.isFromMailbox) "From ${plan.senderName}, through the mailbox. " else "From ${plan.senderName}. ")
             append(
                 when (plan.entries.size) {
                     0 -> "Nothing new."
@@ -154,11 +193,13 @@ class ParcelImportActivity : AppCompatActivity() {
             val count = state.willCreate
             text = when {
                 state.busy -> "Saving…"
+                // A mailbox parcel with nothing new still has to be cleared from the inbox.
+                count == 0 && plan.isFromMailbox -> "Done"
                 count == 0 -> "Nothing to save"
                 count == 1 -> "Save 1 pending transaction"
                 else -> "Save $count pending transactions"
             }
-            isEnabled = count > 0 && !state.busy
+            isEnabled = (count > 0 || plan.isFromMailbox) && !state.busy
             alpha = if (isEnabled) 1f else 0.5f
         }
     }
@@ -190,7 +231,7 @@ class ParcelImportActivity : AppCompatActivity() {
         if (names.isEmpty()) return
         val state = viewModel.uiState.value ?: return
         val plan = state.plan ?: return
-        val candidates = friends.filter { it.id != plan.senderFriendId }
+        val candidates = state.friends.filter { it.id != plan.senderFriendId }
 
         fun chooseFor(name: String) {
             val options = (listOf("Leave as a name only") + candidates.map { it.name }).toTypedArray()
@@ -210,6 +251,62 @@ class ParcelImportActivity : AppCompatActivity() {
                 .setItems(names.toTypedArray()) { _, index -> chooseFor(names[index]) }
                 .show()
         }
+    }
+
+    /**
+     * An invite binds a friend to an account, so the user sees exactly which friend and which
+     * account before anything is sent. The fingerprint is there for anyone who wants to compare it
+     * with what their friend's app shows.
+     */
+    private fun confirmInvite(invite: LinkInviteCode, friend: Friend) {
+        AlertDialog.Builder(this)
+            .setTitle("Link ${friend.name} with this account?")
+            .setMessage(
+                "This invite is from the DhanMoney account of \"${invite.nameHint}\". Accepting it links " +
+                    "${friend.name} in your people list to that account, so transactions between you can " +
+                    "arrive here directly instead of being pasted.\n\n" +
+                    "Only accept an invite ${friend.name} sent you themselves. They confirm it on their side " +
+                    "before anything is shared.\n\n" +
+                    "Their security key: ${KeyFingerprint.display(invite.ownerFingerprint)}"
+            )
+            .setPositiveButton("Link") { _, _ ->
+                viewModel.acceptInvite(
+                    invite = invite,
+                    friendId = friend.id,
+                    onDone = { message ->
+                        toast(message)
+                        finish()
+                    },
+                    onMailboxOff = ::offerMailboxSettings,
+                    onError = ::toast
+                )
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private fun offerMailboxSettings() {
+        AlertDialog.Builder(this)
+            .setTitle("Turn on the friends mailbox")
+            .setMessage("Linking with a friend needs the friends mailbox on. Turn it on, then paste the invite again.")
+            .setPositiveButton("Open settings") { _, _ ->
+                startActivity(Intent(this, MailboxActivity::class.java))
+            }
+            .setNegativeButton("Not now", null)
+            .show()
+    }
+
+    private fun confirmDismiss() {
+        val plan = viewModel.uiState.value?.plan ?: return
+        AlertDialog.Builder(this)
+            .setTitle("Dismiss this parcel?")
+            .setMessage(
+                "Nothing from it is saved, and it leaves your inbox. ${plan.senderName} can send it " +
+                    "again if you change your mind."
+            )
+            .setPositiveButton("Dismiss") { _, _ -> viewModel.dismissMailboxParcel { finish() } }
+            .setNegativeButton("Cancel", null)
+            .show()
     }
 
     private fun pasteFromClipboard() {
@@ -238,8 +335,10 @@ class ParcelImportActivity : AppCompatActivity() {
         )
     }
 
+    /** Back from a pasted parcel's review returns to the paste; a mailbox parcel has nowhere to return to. */
     private fun onBack() {
-        if (viewModel.uiState.value?.plan != null) viewModel.backToSetup() else finish()
+        val state = viewModel.uiState.value
+        if (state?.plan != null && state.mailboxMessageId == null) viewModel.backToSetup() else finish()
     }
 
     private fun toast(message: String) {
@@ -297,18 +396,29 @@ private class ParcelRowAdapter(
         holder.reason.text = preview.reason
 
         val delta = preview.myBalanceDeltaPaise
+        val effects = buildList {
+            if (delta > 0) add("$senderName will owe you ${AmountFormat.rupees(delta)}")
+            if (delta < 0) add("You will owe $senderName ${AmountFormat.rupees(-delta)}")
+            preview.otherEffects.forEach { other ->
+                if (other.deltaPaise > 0) {
+                    add("${other.friendName} will owe you ${AmountFormat.rupees(other.deltaPaise)}")
+                } else {
+                    add("You will owe ${other.friendName} ${AmountFormat.rupees(-other.deltaPaise)}")
+                }
+            }
+        }
         holder.effect.text = when {
             isSkipped -> "Will not be saved"
-            delta > 0 -> "$senderName will owe you ${AmountFormat.rupees(delta)}"
-            delta < 0 -> "You will owe $senderName ${AmountFormat.rupees(-delta)}"
-            else -> "Changes no balance"
+            effects.isEmpty() -> "Changes no balance"
+            else -> effects.joinToString("\n")
         }
+        val sign = if (delta != 0L) delta else preview.otherEffects.firstOrNull()?.deltaPaise ?: 0L
         holder.effect.setTextColor(
             context.themeColor(
                 when {
                     isSkipped -> ThemeAttr.textMuted
-                    delta > 0 -> ThemeAttr.positive
-                    delta < 0 -> ThemeAttr.negative
+                    sign > 0 -> ThemeAttr.positive
+                    sign < 0 -> ThemeAttr.negative
                     else -> ThemeAttr.amountNeutral
                 }
             )
@@ -318,6 +428,13 @@ private class ParcelRowAdapter(
         val notes = buildList {
             if (isDuplicate) add("You already have this one — it will be left alone.")
             if (preview.needsReview) add("You will need to open this one to confirm it.")
+            preview.splitRecovery?.let { recovery ->
+                val side = if (recovery == IouRecovery.FROM_SECONDARY_PAYERS) "co-payers" else "co-payees"
+                add(
+                    if (preview.splitRecoveryFromSender) "Recovered from $side, as $senderName set it."
+                    else "Recovered from $side."
+                )
+            }
             val unmapped = preview.unmappedPeople.filterNot { it in personMappings }
             if (unmapped.isNotEmpty()) add("Also in the split: ${unmapped.joinToString(", ")}")
         }

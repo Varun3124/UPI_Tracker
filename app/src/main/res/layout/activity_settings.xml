@@ -408,7 +408,7 @@
                         <TextView
                             android:layout_width="wrap_content"
                             android:layout_height="wrap_content"
-                            android:text="Import shared parcel"
+                            android:text="Paste from a friend"
                             android:textAppearance="@style/TextAppearance.UPI.Title"
                             android:textSize="15sp" />
 
@@ -416,7 +416,68 @@
                             android:layout_width="match_parent"
                             android:layout_height="wrap_content"
                             android:layout_marginTop="@dimen/space_xs"
-                            android:text="Paste transactions a friend shared and review them before saving."
+                            android:text="Paste a parcel or a link invite a friend sent you, and review it before saving."
+                            android:textAppearance="@style/TextAppearance.UPI.Caption" />
+                    </LinearLayout>
+
+                    <ImageView
+                        android:layout_width="@dimen/icon_size"
+                        android:layout_height="@dimen/icon_size"
+                        android:layout_marginStart="@dimen/space_s"
+                        android:src="@drawable/ic_chevron_right"
+                        app:tint="?attr/appTextMuted"
+                        android:importantForAccessibility="no" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_l"
+                android:layout_marginBottom="@dimen/space_s"
+                android:text="FRIENDS"
+                android:textAppearance="@style/TextAppearance.UPI.SectionHeader" />
+
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/cardMailbox"
+                style="@style/Widget.UPI.Card.Clickable"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="@dimen/space_s">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:padding="@dimen/space_l">
+
+                    <ImageView
+                        android:layout_width="@dimen/icon_size"
+                        android:layout_height="@dimen/icon_size"
+                        android:layout_marginEnd="@dimen/space_l"
+                        android:src="@drawable/ic_share"
+                        app:tint="?attr/colorPrimary"
+                        android:importantForAccessibility="no" />
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Friends mailbox"
+                            android:textAppearance="@style/TextAppearance.UPI.Title"
+                            android:textSize="15sp" />
+
+                        <TextView
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="@dimen/space_xs"
+                            android:text="Link with friends and send transactions straight to their app, encrypted end to end."
                             android:textAppearance="@style/TextAppearance.UPI.Caption" />
                     </LinearLayout>
 

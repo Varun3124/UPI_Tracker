@@ -6,6 +6,9 @@ import androidx.appcompat.app.AppCompatActivity
 import com.varun.upitracker.data.prefs.AppPrefs
 import com.varun.upitracker.maintenance.CategorySplitBackfill
 import com.varun.upitracker.maintenance.FixedDepositSnapshotBackfill
+import com.varun.upitracker.maintenance.IouRecoveryBackfill
+import com.varun.upitracker.maintenance.MailboxCollection
+import com.varun.upitracker.maintenance.MailboxSchedule
 import com.varun.upitracker.maintenance.MerchantCreditReviewBackfill
 import com.varun.upitracker.maintenance.OpportunisticBackup
 import com.varun.upitracker.ui.dashboard.DashboardActivity
@@ -34,9 +37,15 @@ class MainActivity : AppCompatActivity() {
             CategorySplitBackfill(applicationContext).run()
             MerchantCreditReviewBackfill(applicationContext).run()
             FixedDepositSnapshotBackfill(applicationContext).run()
-            // Last, and deliberately so: the three above write to the database, and a backup taken
+            IouRecoveryBackfill(applicationContext).run()
+            // Last, and deliberately so: the backfills above write to the database, and a backup taken
             // while they were still running would capture a half-migrated state.
             OpportunisticBackup(applicationContext).run()
+            // After the backup for the same reason: collecting writes to the database too, and what
+            // arrives now belongs in the next backup rather than half in this one.
+            MailboxCollection(applicationContext).run()
+            // And keep collecting while the app is closed, or stop if the mailbox has been turned off.
+            MailboxSchedule.applyTo(applicationContext)
         }
 
         finish()

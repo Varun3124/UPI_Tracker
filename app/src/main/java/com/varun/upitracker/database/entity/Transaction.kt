@@ -1,4 +1,4 @@
-﻿package com.varun.upitracker.database.entity
+package com.varun.upitracker.database.entity
 
 import androidx.room.Entity
 import androidx.room.ForeignKey
@@ -64,6 +64,8 @@ import androidx.room.PrimaryKey
         // has to fail at the insert rather than quietly duplicate the row. SQLite treats NULLs
         // as distinct here, so every transaction that never came from a parcel is unaffected.
         Index("sharedRefId", unique = true),
+        // Unique so two rows can never be sent under one reference: friends dedup on it.
+        Index("shareRef", unique = true),
         // Every date-range query filters on this alone. Without it, and with no ANALYZE to build
         // sqlite_stat1, the planner reaches for index_transactions_refundsTransactionId instead --
         // a nonsense choice for a date range, and measurably slower than a plain scan would be.
@@ -97,8 +99,21 @@ data class Transaction(
      * The sender's own transaction id is not enough on its own -- two friends both sharing their
      * row 41 would collide -- so it is qualified by a token this install keeps per recipient. That
      * makes re-importing the same parcel a no-op without the parcel having to name who wrote it.
+     *
+     * A row that came through the friends mailbox holds `"mbx:<sender uid>:<their shareRef>"`
+     * instead -- see [com.varun.upitracker.domain.parcel.ParcelPerspective.mailboxRefIdFor].
      */
     val sharedRefId: String? = null,
+    /**
+     * The reference this transaction travels under when it is sent through the friends mailbox:
+     * random, minted the first time it is sent, and the same for every friend it goes to.
+     *
+     * Kept on the row rather than derived from [id], so a transaction restored from an older backup
+     * keeps its reference and a new one that happens to reuse an old id never inherits it -- which
+     * would make a friend's app skip it as already imported. The opposite of [sharedRefId]: that is
+     * what a row *received* carries, this is what a row *sent* carries.
+     */
+    val shareRef: String? = null,
     val myAccountId: String? = null,
     val dateEpoch: Long,
     val source: String,
@@ -118,5 +133,15 @@ data class Transaction(
     val refundsTransactionId: Long? = null,
 
     /** Whether this moves what ME and a friend owe each other. See [LedgerEffect]. */
-    val ledgerEffect: LedgerEffect = LedgerEffect.DEBT
+    val ledgerEffect: LedgerEffect = LedgerEffect.DEBT,
+
+    /**
+     * Which side of the split decides who pays whom back. See [IouRecovery].
+     *
+     * Null only on a row from before this existed, including one restored from an older backup: the
+     * column has no default, which is how [com.varun.upitracker.maintenance.IouRecoveryBackfill] finds
+     * the rows it still has to bring forward. Read it through
+     * [com.varun.upitracker.domain.iou.IouLegs.resolve], which covers that gap.
+     */
+    val iouRecovery: IouRecovery? = IouRecovery.FROM_SECONDARY_PAYERS
 )

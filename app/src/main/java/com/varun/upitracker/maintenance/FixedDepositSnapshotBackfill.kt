@@ -12,7 +12,7 @@ import java.util.UUID
 private const val TAG = "FdSnapshotBackfill"
 
 /**
- * Gives every fixed deposit the opening snapshot it should always have had.
+ * Gives every fixed deposit the opening snapshot it should always have had, in two passes.
  *
  * A deposit is the one account whose starting balance is never in doubt: it is the principal, on
  * the day it was booked, by definition. Every other account type gets a snapshot when it is
@@ -29,17 +29,30 @@ private const val TAG = "FdSnapshotBackfill"
  *
  * Guarded by [PREF_DONE], and skips any deposit that already has a snapshot of its own, so a user
  * who reconciled one by hand keeps their own figure.
+ *
+ * The second pass, guarded by [PREF_PRE_BOOKING_DONE], moves each deposit's first reconciliation
+ * back to its source account's first snapshot, the date new deposits now default to -- see
+ * [com.varun.upitracker.domain.FixedDepositOpening]. A deposit booked after that date otherwise
+ * marks every total containing it as speculation right up to the booking. It adds a zero there
+ * rather than moving the principal snapshot: the deposit did not exist yet, the booking transfer
+ * still brings the principal in, and every balance reads exactly as before.
  */
 class FixedDepositSnapshotBackfill(private val context: Context) {
 
     companion object {
         const val PREF_NAME = SmsBacklogScanner.PREF_NAME
         const val PREF_DONE = "fd_opening_snapshot_backfill_v1_done"
+        const val PREF_PRE_BOOKING_DONE = "fd_pre_booking_snapshot_backfill_v1_done"
     }
 
     private val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
 
     suspend fun run() {
+        addOpeningSnapshots()
+        addPreBookingSnapshots()
+    }
+
+    private suspend fun addOpeningSnapshots() {
         if (prefs.getBoolean(PREF_DONE, false)) return
 
         val db = AppDatabase.getInstance(context)
@@ -72,5 +85,42 @@ class FixedDepositSnapshotBackfill(private val context: Context) {
 
         prefs.edit().putBoolean(PREF_DONE, true).apply()
         Log.d(TAG, "FD opening snapshots complete: added=$added of deposits=${details.size}")
+    }
+
+    private suspend fun addPreBookingSnapshots() {
+        if (prefs.getBoolean(PREF_PRE_BOOKING_DONE, false)) return
+
+        val db = AppDatabase.getInstance(context)
+        val details = db.fixedDepositDao().getAllSync()
+        var added = 0
+
+        db.runInTransaction {
+            runBlocking {
+                details.forEach { detail ->
+                    if (db.accountDao().getById(detail.accountId) == null) return@forEach
+                    val sourceFirst = db.balanceSnapshotDao()
+                        .getEarliestForAccount(detail.sourceAccountId)?.snapshotEpoch ?: return@forEach
+                    if (sourceFirst >= detail.bookedEpoch) return@forEach
+                    val depositFirst = db.balanceSnapshotDao()
+                        .getEarliestForAccount(detail.accountId)?.snapshotEpoch
+                    if (depositFirst != null && depositFirst <= sourceFirst) return@forEach
+
+                    db.balanceSnapshotDao().insert(
+                        BalanceSnapshot(
+                            id = UUID.randomUUID().toString(),
+                            accountId = detail.accountId,
+                            snapshotEpoch = sourceFirst,
+                            balancePaise = 0L,
+                            source = BalanceSnapshotSource.MANUAL,
+                            notes = "Before booking"
+                        )
+                    )
+                    added++
+                }
+            }
+        }
+
+        prefs.edit().putBoolean(PREF_PRE_BOOKING_DONE, true).apply()
+        Log.d(TAG, "FD pre-booking snapshots complete: added=$added of deposits=${details.size}")
     }
 }

@@ -3,12 +3,14 @@ package com.varun.upitracker.data.repository
 import android.database.sqlite.SQLiteConstraintException
 import android.util.Log
 import com.varun.upitracker.database.AppDatabase
+import com.varun.upitracker.database.entity.AccountTransfer
 import com.varun.upitracker.database.entity.AccountType
 import com.varun.upitracker.database.entity.FriendRawName
 import com.varun.upitracker.database.entity.FriendUpiId
 import com.varun.upitracker.database.entity.MerchantRawName
 import com.varun.upitracker.database.entity.MerchantUpiId
 import com.varun.upitracker.database.entity.Transaction
+import com.varun.upitracker.domain.ImportedTransferMatcher
 import com.varun.upitracker.resolver.AliasResolver
 import com.varun.upitracker.resolver.ResolvedAs
 import com.varun.upitracker.statement.StatementRow
@@ -29,6 +31,15 @@ data class MatchCandidate(
     val aliasMatch: Boolean
 )
 
+/**
+ * A statement row that is a transfer the user already recorded by converting its SMS or statement
+ * transaction -- one from before transfers kept their references, so it had to be matched by shape.
+ */
+data class TransferMatch(
+    val row: StatementRow,
+    val transfer: AccountTransfer
+)
+
 /** A statement row we could not resolve by ref id, with whatever candidates we found. */
 data class UnresolvedGroup(
     val row: StatementRow,
@@ -39,6 +50,8 @@ data class ImportPlan(
     val accountId: String,
     val resolved: List<ResolvedEntry>,
     val unresolved: List<UnresolvedGroup>,
+    /** Rows matched to a transfer. Nothing is created for them; the transfer gets their references. */
+    val transferMatches: List<TransferMatch>,
     /** Rows skipped because this account already holds their statement ref number. */
     val alreadyImported: Int,
     /** Rows dropped because they fall outside the chosen date range. */
@@ -48,7 +61,8 @@ data class ImportPlan(
 data class ImportResult(
     val enriched: Int,
     val created: Int,
-    val skipped: Int
+    val skipped: Int,
+    val linkedTransfers: Int
 )
 
 /**
@@ -86,11 +100,17 @@ class StatementImportRepository(private val db: AppDatabase) {
 
         val resolved = mutableListOf<ResolvedEntry>()
         val unresolved = mutableListOf<UnresolvedGroup>()
+        val transferMatches = mutableListOf<TransferMatch>()
         var alreadyImported = 0
 
         for (row in inRange) {
             val refNo = row.statementRefNo
             if (refNo != null && isAlreadyImported(refNo, accountId)) {
+                alreadyImported++
+                continue
+            }
+            // Converted to a transfer since transfers began keeping the UPI reference.
+            if (row.upiRefId?.let { db.accountTransferDao().findByUpiRefId(it) } != null) {
                 alreadyImported++
                 continue
             }
@@ -101,6 +121,12 @@ class StatementImportRepository(private val db: AppDatabase) {
                 continue
             }
 
+            val transfer = findImportedTransfer(row, accountId, transferMatches.map { it.transfer.id }.toSet())
+            if (transfer != null) {
+                transferMatches += TransferMatch(row, transfer)
+                continue
+            }
+
             unresolved += UnresolvedGroup(row, findCandidates(row, savingsAccountIds))
         }
 
@@ -108,6 +134,7 @@ class StatementImportRepository(private val db: AppDatabase) {
             accountId = accountId,
             resolved = resolved,
             unresolved = unresolved,
+            transferMatches = transferMatches,
             alreadyImported = alreadyImported,
             outOfRange = rows.size - inRange.size
         )
@@ -121,6 +148,32 @@ class StatementImportRepository(private val db: AppDatabase) {
     private suspend fun isAlreadyImported(refNo: String, accountId: String): Boolean =
         db.transactionDao().findByStatementRefNo(refNo, accountId) != null ||
             db.accountTransferDao().findByStatementRefNo(refNo) != null
+
+    /**
+     * A transfer on this account the row already became, recognisable only by shape -- see
+     * [ImportedTransferMatcher]. The leg must be on the statement's own account, and a transfer that
+     * already holds a statement reference is a different row of some statement, so it is left alone.
+     */
+    private suspend fun findImportedTransfer(
+        row: StatementRow,
+        accountId: String,
+        claimedIds: Set<String>
+    ): AccountTransfer? {
+        val fromEpoch = row.dateEpoch - DATE_TOLERANCE_MILLIS
+        // dateEpoch is start-of-day, so the window must span the tolerant day itself.
+        val toEpoch = row.dateEpoch + DATE_TOLERANCE_MILLIS + DAY_MILLIS - 1
+        return ImportedTransferMatcher.pick(
+            transfers = db.accountTransferDao().getTransfersBetween(fromEpoch, toEpoch + 1),
+            amountPaise = row.amountPaise,
+            isDebit = row.direction == "DEBIT",
+            accountIds = listOf(accountId),
+            fromEpoch = fromEpoch,
+            toEpoch = toEpoch,
+            atEpoch = row.dateEpoch,
+            allowStatementRef = false,
+            claimedIds = claimedIds
+        )
+    }
 
     private suspend fun findCandidates(
         row: StatementRow,
@@ -172,9 +225,24 @@ class StatementImportRepository(private val db: AppDatabase) {
         var enriched = 0
         var created = 0
         var skipped = 0
+        var linkedTransfers = 0
 
         db.runInTransaction {
             runBlocking {
+                for (match in plan.transferMatches) {
+                    try {
+                        db.accountTransferDao().claimRefs(
+                            match.transfer.id,
+                            upiRefId = match.row.upiRefId,
+                            statementRefNo = match.row.statementRefNo
+                        )
+                        linkedTransfers++
+                    } catch (error: SQLiteConstraintException) {
+                        // Another transfer took one of these references since planning.
+                        Log.w(TAG, "Could not link transfer ${match.transfer.id}: ${error.message}")
+                        skipped++
+                    }
+                }
                 for (entry in plan.resolved) {
                     if (enrich(entry.row, entry.transaction, plan.accountId)) enriched++
                 }
@@ -197,7 +265,7 @@ class StatementImportRepository(private val db: AppDatabase) {
             }
         }
 
-        return ImportResult(enriched = enriched, created = created, skipped = skipped)
+        return ImportResult(enriched = enriched, created = created, skipped = skipped, linkedTransfers = linkedTransfers)
     }
 
     /**

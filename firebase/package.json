@@ -1,0 +1,16 @@
+{
+  "name": "dhanmoney-firestore-rules",
+  "private": true,
+  "type": "module",
+  "description": "Security rules for the DhanMoney friends mailbox, and the emulator tests that pin them down.",
+  "scripts": {
+    "test": "firebase emulators:exec --only firestore --project demo-dhanmoney \"node --test test/firestore.rules.test.mjs\"",
+    "deploy": "firebase deploy --only firestore:rules,hosting",
+    "deploy:rules": "firebase deploy --only firestore:rules"
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^5.0.2",
+    "firebase": "^12.19.0",
+    "firebase-tools": "^15.30.0"
+  }
+}

@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DhanMoney link invite</title>
+<meta name="description" content="A friend has invited you to link your DhanMoney apps.">
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    margin: 0 auto; padding: 2rem 1.25rem; max-width: 34rem;
+    font: 16px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  h1 { font-size: 1.4rem; margin: 0 0 .75rem; }
+  p { margin: 0 0 1rem; }
+  a.button, button {
+    display: block; width: 100%; box-sizing: border-box; margin: 0 0 .75rem;
+    padding: .85rem 1rem; border: 0; border-radius: .6rem; cursor: pointer;
+    font: inherit; font-weight: 600; text-align: center; text-decoration: none;
+    background: #1b6b4b; color: #fff;
+  }
+  button.secondary { background: transparent; color: inherit; border: 1px solid currentColor; font-weight: 500; }
+  code {
+    display: block; margin: 0 0 1rem; padding: .75rem; border-radius: .6rem;
+    background: rgba(127,127,127,.15); font-size: .8rem; word-break: break-all;
+  }
+  .muted { opacity: .75; font-size: .9rem; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<h1>A friend wants to link with you on DhanMoney</h1>
+
+<div id="withCode" hidden>
+  <p>Linking lets the two of you send transactions straight to each other's app, instead of pasting
+    them into a chat. Everything stays encrypted on the way.</p>
+
+  <a class="button" id="open" href="#">Open in DhanMoney</a>
+  <button class="secondary" id="copy" type="button">Copy the invite code</button>
+
+  <p class="muted">If the button does nothing, copy the code and paste it in DhanMoney under
+    Settings &rarr; Paste from a friend.</p>
+  <code id="code"></code>
+  <p class="muted">The invite works once and runs out after 7 days. This page never sends the code
+    anywhere: it is in the part of the address after the <code style="display:inline">#</code>, which
+    stays in your browser.</p>
+</div>
+
+<div id="noCode" hidden>
+  <p>This address has no invite in it. Ask your friend to send the link again, and open it from the
+    message rather than typing it.</p>
+</div>
+
+<script>
+  // The code lives in the fragment so that it never reaches a server -- not this one, and not the
+  // chat app's link preview. Everything below runs in the reader's own browser.
+  var code = decodeURIComponent((location.hash || '').replace(/^#/, '')).trim();
+  var valid = /^DHANLINK[0-9]*\./.test(code);
+  document.getElementById(valid ? 'withCode' : 'noCode').hidden = false;
+  if (valid) {
+    document.getElementById('code').textContent = code;
+    document.getElementById('open').href = 'dhanmoney://link#' + encodeURIComponent(code);
+    document.getElementById('copy').addEventListener('click', function () {
+      var button = this;
+      navigator.clipboard.writeText(code).then(function () {
+        button.textContent = 'Copied';
+      }, function () {
+        button.textContent = 'Select the code below and copy it';
+      });
+    });
+  }
+</script>
+</body>
+</html>

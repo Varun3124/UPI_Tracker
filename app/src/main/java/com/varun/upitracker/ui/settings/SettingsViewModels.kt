@@ -181,6 +181,10 @@ class AppViewModelFactory(private val context: Context) : ViewModelProvider.Fact
             modelClass.isAssignableFrom(StatementImportViewModel::class.java) -> StatementImportViewModel(context) as T
             modelClass.isAssignableFrom(ParcelImportViewModel::class.java) -> ParcelImportViewModel(context) as T
             modelClass.isAssignableFrom(BackupViewModel::class.java) -> BackupViewModel(context) as T
+            modelClass.isAssignableFrom(com.varun.upitracker.ui.mailbox.MailboxViewModel::class.java) ->
+                com.varun.upitracker.ui.mailbox.MailboxViewModel(context) as T
+            modelClass.isAssignableFrom(com.varun.upitracker.ui.mailbox.MailboxInboxViewModel::class.java) ->
+                com.varun.upitracker.ui.mailbox.MailboxInboxViewModel(context) as T
             else -> throw IllegalArgumentException("Unknown ViewModel class: ${modelClass.name}")
         }
     }

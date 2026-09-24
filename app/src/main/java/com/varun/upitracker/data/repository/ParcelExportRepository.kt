@@ -5,10 +5,10 @@ import com.varun.upitracker.database.AppDatabase
 import com.varun.upitracker.database.entity.Transaction
 import com.varun.upitracker.domain.parcel.Parcel
 import com.varun.upitracker.domain.parcel.ParcelCodec
+import com.varun.upitracker.domain.parcel.ParcelEligibility
 import com.varun.upitracker.domain.parcel.ParcelFormat
 import com.varun.upitracker.domain.parcel.ParcelPerspective
 import com.varun.upitracker.sms.SmsBacklogScanner
-import com.varun.upitracker.ui.ActorType
 import java.util.UUID
 
 /** Why a transaction on this friend's page cannot be shared with them. */
@@ -41,52 +41,30 @@ class ParcelExportRepository(private val db: AppDatabase, private val context: C
      * they were visible a moment before the user tapped Share, and silently dropping them would
      * read as a bug.
      */
-    fun eligibility(friendId: Long, transactions: List<Transaction>): ExportEligibility {
+    fun eligibility(transactions: List<Transaction>): ExportEligibility {
         val exportable = mutableSetOf<Long>()
         val blocked = mutableMapOf<Long, String>()
         transactions.forEach { tx ->
-            val reason = blockedReason(tx, friendId)
+            val reason = ParcelEligibility.pasteBlockedReason(tx)
             if (reason == null) exportable.add(tx.id) else blocked[tx.id] = reason
         }
         return ExportEligibility(exportable, blocked)
     }
 
-    private fun blockedReason(tx: Transaction, friendId: Long): String? = when {
-        // Not reviewed here yet, so it carries no shares and its actors may still be unknown.
-        // Sending one hands the other person a half-formed row to puzzle over.
-        tx.isPending -> "Not reviewed yet"
-
-        // Sending it back would earn a fresh reference under our own token and defeat the
-        // dedup of whoever sent it in the first place.
-        tx.sharedRefId != null -> "Came from a parcel"
-
-        tx.payerActorType == ActorType.UNKNOWN || tx.payeeActorType == ActorType.UNKNOWN ->
-            "Needs a payer and payee"
-
-        // Both ends being ME is an account transfer's shape: private, and nonsense once flipped.
-        tx.payerActorType == ActorType.ME && tx.payeeActorType == ActorType.ME ->
-            "Between your own accounts"
-
-        // Reachable only through an IOU row, with nothing naming the friend to swap.
-        tx.payerFriendId != friendId && tx.payeeFriendId != friendId &&
-            tx.payerActorType != ActorType.ME && tx.payeeActorType != ActorType.ME ->
-            "Nothing here to share"
-
-        else -> null
-    }
-
     /**
      * The encoded parcel for [transactionIds], written from [friendId]'s point of view.
      *
-     * Ids not eligible are skipped rather than refused: the selection came from a screen that
-     * already disabled them, so anything left is a race worth ignoring.
+     * [friendId] need not be in any of them -- see [ParcelEligibility.pasteBlockedReason]. Ids not
+     * eligible are skipped rather than refused: the selection came from a screen that already
+     * disabled them, so anything left is a race worth ignoring.
      */
     suspend fun buildParcel(friendId: Long, transactionIds: Set<Long>): String {
         val friendNames = db.friendDao().getAllFriendsSync().associate { it.id to it.name }
         val merchantNames = db.merchantDao().getAllMerchantsSync().associate { it.id to it.name }
 
-        val rows = db.transactionDao().getTransactionsForFriendSync(friendId)
-            .filter { it.id in transactionIds && blockedReason(it, friendId) == null }
+        val rows = transactionIds
+            .mapNotNull { db.transactionDao().getTransactionById(it) }
+            .filter { tx -> ParcelEligibility.pasteBlockedReason(tx) == null }
             .sortedBy { it.dateEpoch }
             .take(MAX_TRANSACTIONS)
             .map { tx ->
@@ -101,6 +79,16 @@ class ParcelExportRepository(private val db: AppDatabase, private val context: C
 
         return ParcelCodec.encode(Parcel(ParcelFormat.VERSION, originTokenFor(friendId), rows))
     }
+
+    /**
+     * The token already minted for [friendId], or null when no parcel was ever pasted to them.
+     *
+     * Never mints one. The mailbox only asks so its rows can also carry the reference a pasted copy
+     * would have landed under, letting the reader recognise a row they imported by paste.
+     */
+    fun existingOriginToken(friendId: Long): String? =
+        context.getSharedPreferences(SmsBacklogScanner.PREF_NAME, Context.MODE_PRIVATE)
+            .getString(ORIGIN_KEY_PREFIX + friendId, null)
 
     private fun originTokenFor(friendId: Long): String {
         val prefs = context.getSharedPreferences(SmsBacklogScanner.PREF_NAME, Context.MODE_PRIVATE)

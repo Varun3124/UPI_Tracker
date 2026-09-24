@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- One "who owes whom" line on the entry screen: selected is kept, unselected is left out. -->
+<TextView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="wrap_content"
+    android:layout_height="wrap_content"
+    android:layout_marginBottom="@dimen/space_xs"
+    android:background="@drawable/bg_iou_line_selector"
+    android:clickable="true"
+    android:focusable="true"
+    android:gravity="start|center_vertical"
+    android:paddingStart="8dp"
+    android:paddingTop="4dp"
+    android:paddingEnd="8dp"
+    android:paddingBottom="4dp"
+    android:textColor="@color/pill_text_selector"
+    android:textSize="11sp" />

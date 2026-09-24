@@ -1,12 +1,12 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-feature
         android:name="android.hardware.telephony"
         android:required="false" />
 
-    <!-- The app's first network permission, and the only thing that uses it is the opt-in
-         Google Drive backup. Everything else works with the radio off. -->
+    <!-- Network access, used only by two opt-in features that are off until you sign in: the Google
+         Drive backup and the friends mailbox. Everything else works with the radio off. -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
 
@@ -41,8 +41,40 @@
 
         <!-- Not exported, and deliberately without an ACTION_SEND filter: accepting a
              parcel straight from a chat app would let any app on the device hand text to a
-             screen that writes to the ledger. Parcels are pasted in from Settings. -->
+             screen that writes to the ledger. Parcels are pasted in from Settings, or opened
+             from this app's own mailbox inbox. -->
         <activity android:name=".ui.parcel.ParcelImportActivity" android:exported="false" />
+
+        <!-- The friends mailbox. Neither is exported: a friend's message is collected by this app
+             and opened from its own notification, never handed in by another app. -->
+        <activity android:name=".ui.mailbox.MailboxActivity" android:exported="false" />
+        <activity android:name=".ui.mailbox.MailboxInboxActivity" android:exported="false" />
+
+        <!-- The only exported activity in the app: a tap on an invite link in a chat has to arrive
+             from outside. It hands the code to the paste screen and finishes, so what it can be made
+             to do from another app is exactly what typing a code into that box does. The https filter
+             needs /.well-known/assetlinks.json on the host (see firebase/README.md) before Android
+             will open it here rather than in a browser; the dhanmoney: one is what the fallback page
+             uses when the browser has it and the verification has not happened. -->
+        <activity
+            android:name=".ui.mailbox.LinkOpenActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="dhanmoney.web.app" android:path="/link" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="dhanmoney" android:host="link" />
+            </intent-filter>
+        </activity>
 
         <activity android:name=".ui.backup.BackupActivity" android:exported="false" />
         <activity android:name=".ui.statement.StatementResolvedActivity" android:exported="false" />

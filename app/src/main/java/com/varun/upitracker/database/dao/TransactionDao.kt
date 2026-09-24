@@ -6,6 +6,7 @@ import androidx.room.Insert
 import androidx.room.Query
 import androidx.room.Update
 import com.varun.upitracker.database.entity.CategoryKind
+import com.varun.upitracker.database.entity.IouRecovery
 import com.varun.upitracker.database.entity.Transaction
 
 @Dao
@@ -35,6 +36,61 @@ interface TransactionDao {
      */
     @Query("SELECT * FROM transactions WHERE sharedRefId = :sharedRefId LIMIT 1")
     suspend fun findBySharedRefId(sharedRefId: String): Transaction?
+
+    /**
+     * Transactions [friendId] holds a share in that says which side it is on -- the ones a parcel
+     * to them can place them in. A sideless legacy share does not count; the flip drops it.
+     */
+    @Query("SELECT DISTINCT transactionId FROM transaction_shares WHERE friendId = :friendId AND side IS NOT NULL")
+    suspend fun getTransactionIdsWithSidedShareFor(friendId: Long): List<Long>
+
+    /**
+     * Gives a row its mailbox reference, only if it has none yet -- so two sends racing can never
+     * leave one transaction known to friends by two references.
+     */
+    @Query("UPDATE transactions SET shareRef = :shareRef WHERE id = :id AND shareRef IS NULL")
+    suspend fun assignShareRef(id: Long, shareRef: String)
+
+    /**
+     * Rows from before [Transaction.iouRecovery] existed, whose IOU entries the old inference posted.
+     * See [com.varun.upitracker.maintenance.IouRecoveryBackfill].
+     */
+    @Query("SELECT COUNT(*) FROM transactions WHERE iouRecovery IS NULL")
+    suspend fun countMissingIouRecovery(): Int
+
+    @Query("SELECT * FROM transactions WHERE iouRecovery IS NULL ORDER BY id ASC")
+    suspend fun getMissingIouRecovery(): List<Transaction>
+
+    @Query("UPDATE transactions SET iouRecovery = :iouRecovery WHERE id = :id")
+    suspend fun setIouRecovery(id: Long, iouRecovery: IouRecovery)
+
+    /**
+     * Existing rows a received parcel row could already be: [findMatchCandidates]'s rule, widened to
+     * rows where ME is only in the split. That is the shape a dinner someone else paid for arrives
+     * in -- and, since anyone in a split can now be sent it, the shape in which the same dinner can
+     * arrive twice from two different friends.
+     */
+    @Query(
+        """
+        SELECT t.* FROM transactions t
+        WHERE t.amountPaise = :amountPaise
+          AND t.dateEpoch BETWEEN :fromEpoch AND :toEpoch
+          AND (t.payerActorType = 'ME'
+               OR t.payeeActorType = 'ME'
+               OR EXISTS (
+                   SELECT 1 FROM transaction_shares s
+                   WHERE s.transactionId = t.id AND s.participantType = 'ME'
+               ))
+          AND (t.myAccountId IS NULL OR t.myAccountId IN (:savingsAccountIds))
+        ORDER BY t.dateEpoch ASC, t.id ASC
+        """
+    )
+    suspend fun findParcelMatchCandidates(
+        amountPaise: Long,
+        fromEpoch: Long,
+        toEpoch: Long,
+        savingsAccountIds: List<String>
+    ): List<Transaction>
 
     /**
      * Re-import guard for bank-statement rows that carry no UPI ref id. Scoped to the account
@@ -71,38 +127,31 @@ interface TransactionDao {
      * Two legs. The outflow leg is dated by the transaction; the refund leg is dated by the
      * ORIGINAL purchase, so a refund reduces the period the money was actually spent in.
      *
-     * The outflow leg's `(MERCHANT on either side OR ledgerEffect = NONE)` predicate is
-     * deliberately the same gate as
-     * [com.varun.upitracker.domain.transactionentry.share.ShareCalculator.categoryTargeting]:
-     * whatever the entry screen lets you attach expense categories to must be counted here, and
-     * nothing else. Change one and change the other, or the dashboard total and the per-category
-     * breakdown will disagree.
+     * The outflow leg reads EXPENSE category splits, because a split is exactly what
+     * [com.varun.upitracker.domain.transactionentry.share.ShareCalculator.categoryTargeting] made the
+     * entry screen ask for: what a transaction left ME down once the IOUs it records are counted.
+     * ME's share row is not that figure -- a friend's IOU left out makes their part ME's spending
+     * too. Whatever the entry screen categorises is counted here, and nothing else, so the dashboard
+     * total and the per-category breakdown agree.
      *
-     * An unlinked merchant credit is income and appears in neither leg -- it only ever puts ME on
-     * the PAYEE side, which the outflow leg does not read.
+     * The shape gate drops splits whose kind the entry screen could never have offered for that
+     * shape: money coming from a shop, or arriving to ME, is income. That is what keeps an old
+     * merchant credit's leftover EXPENSE splits out.
      *
-     * Not scoped to an account: a share row's own side says which side ME is on, since ME can be a
-     * secondary participant in a split where the primary payer is a FRIEND -- and those carry no
-     * `myAccountId` at all, so a per-account query would silently drop them.
+     * Not scoped to an account: ME can be in the split of a transaction a FRIEND paid, and those
+     * carry no `myAccountId` at all, so a per-account query would silently drop them.
      */
     @Query(
         """
         SELECT COALESCE(SUM(paise), 0) FROM (
-            SELECT s.amountPaise AS paise
-            FROM transaction_shares s
-            INNER JOIN transactions t ON t.id = s.transactionId
+            SELECT cs.myAmountPaise AS paise
+            FROM transaction_category_splits cs
+            INNER JOIN transactions t ON t.id = cs.transactionId
+            INNER JOIN categories c ON c.id = cs.categoryId AND c.kind = 'EXPENSE'
             WHERE t.dateEpoch > :fromEpochExclusive
               AND t.dateEpoch <= :toEpochInclusive
-              AND s.participantType = 'ME'
-              AND COALESCE(
-                    s.side,
-                    CASE WHEN t.payerActorType = 'ME' THEN 'PAYER'
-                         WHEN t.payeeActorType = 'ME' THEN 'PAYEE' END
-                  ) = 'PAYER'
               AND t.refundsTransactionId IS NULL
-              AND (t.payerActorType = 'MERCHANT'
-                   OR t.payeeActorType = 'MERCHANT'
-                   OR t.ledgerEffect = 'NONE')
+              AND NOT (t.payerActorType = 'MERCHANT' OR t.payeeActorType = 'ME')
 
             UNION ALL
 
@@ -123,10 +172,9 @@ interface TransactionDao {
     /**
      * ME's income over `(fromEpochExclusive, toEpochInclusive]`.
      *
-     * Mirrors [getExpenseTotalBetween]'s outflow leg on the PAYEE side instead of PAYER: ME's share
-     * of a transaction where money came from a MERCHANT or a ledger-neutral gift. The same gate
-     * excludes a friend settling a debt (`ledgerEffect = DEBT`, no merchant involved) -- getting
-     * repaid is not income, it is a receivable turning back into cash.
+     * Mirrors [getExpenseTotalBetween]'s outflow leg with INCOME splits: what transactions left ME up.
+     * A friend repaying a debt recorded as an IOU leaves ME neither up nor down and carries no split
+     * -- getting repaid is not income, it is a receivable turning back into cash.
      *
      * `refundsTransactionId IS NULL` excludes a refund's own credit: unlike a fresh merchant credit,
      * that money is already counted as reduced expense in the ORIGINAL purchase's period (see
@@ -136,21 +184,14 @@ interface TransactionDao {
      */
     @Query(
         """
-        SELECT COALESCE(SUM(s.amountPaise), 0)
-        FROM transaction_shares s
-        INNER JOIN transactions t ON t.id = s.transactionId
+        SELECT COALESCE(SUM(cs.myAmountPaise), 0)
+        FROM transaction_category_splits cs
+        INNER JOIN transactions t ON t.id = cs.transactionId
+        INNER JOIN categories c ON c.id = cs.categoryId AND c.kind = 'INCOME'
         WHERE t.dateEpoch > :fromEpochExclusive
           AND t.dateEpoch <= :toEpochInclusive
-          AND s.participantType = 'ME'
-          AND COALESCE(
-                s.side,
-                CASE WHEN t.payerActorType = 'ME' THEN 'PAYER'
-                     WHEN t.payeeActorType = 'ME' THEN 'PAYEE' END
-              ) = 'PAYEE'
           AND t.refundsTransactionId IS NULL
-          AND (t.payerActorType = 'MERCHANT'
-               OR t.payeeActorType = 'MERCHANT'
-               OR t.ledgerEffect = 'NONE')
+          AND NOT (t.payeeActorType = 'MERCHANT' OR t.payerActorType = 'ME')
         """
     )
     suspend fun getIncomeTotalBetween(
@@ -408,14 +449,12 @@ interface TransactionDao {
      * The refund leg contributes nothing when [kind] is INCOME: a refund's pills are narrowed to
      * the purchase's categories, which are always expense.
      *
-     * The first leg repeats [getExpenseTotalBetween]'s gate -- merchant or ledger-neutral, with
-     * ME's share on the side matching [kind] -- so the two cannot diverge on data shape. Without
-     * it, a merchant credit predating this work still carries positive EXPENSE splits and would
-     * inflate the breakdown above the total it is supposed to partition.
+     * The first leg repeats [getExpenseTotalBetween]'s shape gate for [kind], so the two cannot
+     * diverge on data shape. Without it, a merchant credit predating this work still carries positive
+     * EXPENSE splits and would inflate the breakdown above the total it is supposed to partition.
      *
-     * Summing this equals [getExpenseTotalBetween] for the same window, minus any legacy
-     * transaction that has shares but no splits -- those pre-date mandatory category selection
-     * and are flagged pending for review. It does NOT include transfer spend, which
+     * Summing this equals [getExpenseTotalBetween] (or [getIncomeTotalBetween]) for the same window.
+     * It does NOT include transfer spend, which
      * [com.varun.upitracker.data.repository.AccountRepository.getSpendSince] adds separately.
      *
      * Categories whose net is zero are omitted: a fully refunded purchase should not draw an empty
@@ -435,19 +474,9 @@ interface TransactionDao {
             WHERE t.refundsTransactionId IS NULL
               AND t.dateEpoch > :fromEpochExclusive
               AND t.dateEpoch <= :toEpochInclusive
-              AND (t.payerActorType = 'MERCHANT'
-                   OR t.payeeActorType = 'MERCHANT'
-                   OR t.ledgerEffect = 'NONE')
-              AND EXISTS (
-                  SELECT 1 FROM transaction_shares s
-                  WHERE s.transactionId = t.id
-                    AND s.participantType = 'ME'
-                    AND COALESCE(
-                          s.side,
-                          CASE WHEN t.payerActorType = 'ME' THEN 'PAYER'
-                               WHEN t.payeeActorType = 'ME' THEN 'PAYEE' END
-                        ) = CASE WHEN :kind = 'EXPENSE' THEN 'PAYER' ELSE 'PAYEE' END
-              )
+              AND NOT (CASE WHEN :kind = 'EXPENSE'
+                            THEN t.payerActorType = 'MERCHANT' OR t.payeeActorType = 'ME'
+                            ELSE t.payeeActorType = 'MERCHANT' OR t.payerActorType = 'ME' END)
 
             UNION ALL
 
@@ -479,10 +508,9 @@ interface TransactionDao {
      * Mirrors [getTotalsByCategoryBetween] leg for leg with a category filter added, so summing
      * this reproduces that category's own `netPaise` exactly.
      *
-     * The **payee** side is the counterparty: an expense requires ME's share on the payer side, so
-     * whoever was paid is on the other one. The joins are LEFT because a ledger-neutral gift has a
-     * friend rather than a merchant, and an inner join would silently drop it -- leaving the
-     * breakdown short of the slice it is supposed to partition.
+     * The **payee** side is the counterparty: whoever was paid. The joins are LEFT because a gift or an
+     * IOU left out has a friend rather than a merchant there, and an inner join would silently drop it
+     * -- leaving the breakdown short of the slice it is supposed to partition.
      *
      * The refund leg groups by the **original purchase's** payee, not the refund's. A refund has
      * the merchant on its payer side, and it is the original's share of the slice being reduced.
@@ -503,19 +531,9 @@ interface TransactionDao {
               AND t.refundsTransactionId IS NULL
               AND t.dateEpoch > :fromEpochExclusive
               AND t.dateEpoch <= :toEpochInclusive
-              AND (t.payerActorType = 'MERCHANT'
-                   OR t.payeeActorType = 'MERCHANT'
-                   OR t.ledgerEffect = 'NONE')
-              AND EXISTS (
-                  SELECT 1 FROM transaction_shares s
-                  WHERE s.transactionId = t.id
-                    AND s.participantType = 'ME'
-                    AND COALESCE(
-                          s.side,
-                          CASE WHEN t.payerActorType = 'ME' THEN 'PAYER'
-                               WHEN t.payeeActorType = 'ME' THEN 'PAYEE' END
-                        ) = CASE WHEN :kind = 'EXPENSE' THEN 'PAYER' ELSE 'PAYEE' END
-              )
+              AND NOT (CASE WHEN :kind = 'EXPENSE'
+                            THEN t.payerActorType = 'MERCHANT' OR t.payeeActorType = 'ME'
+                            ELSE t.payeeActorType = 'MERCHANT' OR t.payerActorType = 'ME' END)
 
             UNION ALL
 

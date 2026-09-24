@@ -155,9 +155,15 @@ class StatementImportActivity : AppCompatActivity() {
             "${plan.resolved.size} UPI ${if (plan.resolved.size == 1) "entry" else "entries"} resolved"
 
         val skipped = findViewById<TextView>(R.id.tvSkippedCount)
-        if (plan.alreadyImported > 0) {
+        val skippedParts = listOfNotNull(
+            plan.alreadyImported.takeIf { it > 0 }?.let { "$it rows already imported" },
+            plan.transferMatches.size.takeIf { it > 0 }?.let {
+                "$it matched transfers you already recorded"
+            }
+        )
+        if (skippedParts.isNotEmpty()) {
             skipped.visibility = View.VISIBLE
-            skipped.text = "${plan.alreadyImported} rows already imported"
+            skipped.text = skippedParts.joinToString(" · ")
         } else {
             skipped.visibility = View.GONE
         }
@@ -199,8 +205,8 @@ class StatementImportActivity : AppCompatActivity() {
         val commit = findViewById<TextView>(R.id.btnCommit)
         val pending = state.pendingCount
         commit.text = when {
-            plan.resolved.isEmpty() && pending == 0 -> "Finish"
-            pending == 0 -> "Apply ${plan.resolved.size + state.selections.size} updates"
+            plan.resolved.isEmpty() && plan.transferMatches.isEmpty() && pending == 0 -> "Finish"
+            pending == 0 -> "Apply ${plan.resolved.size + plan.transferMatches.size + state.selections.size} updates"
             else -> "Create $pending pending operation${if (pending == 1) "" else "s"}"
         }
         commit.isEnabled = !state.busy
@@ -210,7 +216,12 @@ class StatementImportActivity : AppCompatActivity() {
     private fun commit() {
         viewModel.commit(
             onDone = { result ->
-                toast("Imported: ${result.created} pending, ${result.enriched} updated")
+                toast(
+                    buildString {
+                        append("Imported: ${result.created} pending, ${result.enriched} updated")
+                        if (result.linkedTransfers > 0) append(", ${result.linkedTransfers} matched to transfers")
+                    }
+                )
                 finish()
             },
             onError = ::toast

@@ -1,4 +1,4 @@
-﻿package com.varun.upitracker.database
+package com.varun.upitracker.database
 
 import android.content.Context
 import androidx.room.Database
@@ -15,6 +15,7 @@ import com.varun.upitracker.database.dao.CategoryDao
 import com.varun.upitracker.database.dao.FixedDepositDao
 import com.varun.upitracker.database.dao.FriendDao
 import com.varun.upitracker.database.dao.IouDao
+import com.varun.upitracker.database.dao.MailboxDao
 import com.varun.upitracker.database.dao.MerchantDao
 import com.varun.upitracker.database.dao.TransactionCategorySplitDao
 import com.varun.upitracker.database.dao.TransactionDao
@@ -27,15 +28,19 @@ import com.varun.upitracker.database.entity.Category
 import com.varun.upitracker.database.entity.CategoryKind
 import com.varun.upitracker.database.entity.FixedDepositDetail
 import com.varun.upitracker.database.entity.Friend
+import com.varun.upitracker.database.entity.FriendLink
 import com.varun.upitracker.database.entity.FriendRawName
 import com.varun.upitracker.database.entity.FriendUpiId
 import com.varun.upitracker.database.entity.IouEntry
+import com.varun.upitracker.database.entity.LinkInvite
+import com.varun.upitracker.database.entity.MailboxMessage
 import com.varun.upitracker.database.entity.Merchant
 import com.varun.upitracker.database.entity.MerchantCategory
 import com.varun.upitracker.database.entity.MerchantRawName
 import com.varun.upitracker.database.entity.MerchantUpiId
 import com.varun.upitracker.database.entity.Transaction
 import com.varun.upitracker.database.entity.TransactionCategorySplit
+import com.varun.upitracker.database.entity.TransactionDelivery
 import com.varun.upitracker.database.entity.TransactionShare
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -59,9 +64,13 @@ import kotlinx.coroutines.launch
         Account::class,
         FixedDepositDetail::class,
         AccountTransfer::class,
-        BalanceSnapshot::class
+        BalanceSnapshot::class,
+        FriendLink::class,
+        LinkInvite::class,
+        MailboxMessage::class,
+        TransactionDelivery::class
     ],
-    version = 15,
+    version = 19,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -75,6 +84,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun fixedDepositDao(): FixedDepositDao
     abstract fun friendDao(): FriendDao
     abstract fun iouDao(): IouDao
+    abstract fun mailboxDao(): MailboxDao
     abstract fun merchantDao(): MerchantDao
     abstract fun categorySplitDao(): TransactionCategorySplitDao
     abstract fun transactionDao(): TransactionDao
@@ -370,6 +380,125 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * The friends mailbox. One column and four new tables, every column INTEGER or TEXT:
+         * `DatabaseDumpRepository` refuses to back up anything else, and within that limit it
+         * carries new tables with no change of its own.
+         */
+        private val MIGRATION_15_16 = object : Migration(15, 16) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Nullable, no DEFAULT, not a foreign key: ADD COLUMN is legal outright, as in 14->15.
+                if (!hasColumn(db, "transactions", "shareRef")) {
+                    db.execSQL("ALTER TABLE `transactions` ADD COLUMN `shareRef` TEXT")
+                }
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS `index_transactions_shareRef` " +
+                        "ON `transactions`(`shareRef`)"
+                )
+
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `friend_links` (`friendId` INTEGER NOT NULL, " +
+                        "`uid` TEXT NOT NULL, `encKey` TEXT NOT NULL, `sigKey` TEXT NOT NULL, " +
+                        "`fingerprint` TEXT NOT NULL, `remoteName` TEXT NOT NULL, `state` TEXT NOT NULL, " +
+                        "`linkedEpoch` INTEGER NOT NULL, PRIMARY KEY(`friendId`), " +
+                        "FOREIGN KEY(`friendId`) REFERENCES `friends`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )"
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS `index_friend_links_uid` ON `friend_links` (`uid`)"
+                )
+
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `link_invites` (`id` TEXT NOT NULL, " +
+                        "`friendId` INTEGER NOT NULL, `secret` TEXT NOT NULL, " +
+                        "`createdEpoch` INTEGER NOT NULL, `expiresEpoch` INTEGER NOT NULL, PRIMARY KEY(`id`), " +
+                        "FOREIGN KEY(`friendId`) REFERENCES `friends`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_link_invites_friendId` ON `link_invites` (`friendId`)"
+                )
+
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `mailbox_messages` (`id` TEXT NOT NULL, " +
+                        "`senderUid` TEXT NOT NULL, `friendId` INTEGER, `kind` TEXT NOT NULL, `body` TEXT, " +
+                        "`sentEpoch` INTEGER NOT NULL, `receivedEpoch` INTEGER NOT NULL, `state` TEXT NOT NULL, " +
+                        "`ciphertext` TEXT, PRIMARY KEY(`id`), " +
+                        "FOREIGN KEY(`friendId`) REFERENCES `friends`(`id`) ON UPDATE NO ACTION ON DELETE SET NULL )"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_mailbox_messages_friendId` ON `mailbox_messages` (`friendId`)"
+                )
+
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `transaction_deliveries` " +
+                        "(`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `transactionId` INTEGER NOT NULL, " +
+                        "`friendId` INTEGER NOT NULL, `messageId` TEXT NOT NULL, `sentEpoch` INTEGER NOT NULL, " +
+                        "FOREIGN KEY(`transactionId`) REFERENCES `transactions`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE , " +
+                        "FOREIGN KEY(`friendId`) REFERENCES `friends`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_transaction_deliveries_transactionId` " +
+                        "ON `transaction_deliveries` (`transactionId`)"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_transaction_deliveries_friendId` " +
+                        "ON `transaction_deliveries` (`friendId`)"
+                )
+            }
+        }
+
+        /**
+         * No DEFAULT on purpose. Every row already here reads NULL, which is how
+         * [com.varun.upitracker.maintenance.IouRecoveryBackfill] tells the rows whose IOU entries the
+         * old inference posted -- and a backup restored from before this column lands the same way,
+         * so it gets the same treatment. Nullable and not a foreign key, so ADD COLUMN is legal
+         * outright, as in 14->15.
+         */
+        private val MIGRATION_16_17 = object : Migration(16, 17) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                if (!hasColumn(db, "transactions", "iouRecovery")) {
+                    db.execSQL("ALTER TABLE `transactions` ADD COLUMN `iouRecovery` TEXT")
+                }
+            }
+        }
+
+        /**
+         * Which IOUs a split keeps. DEFAULT 1 matches the entity's declared default, so every existing
+         * share -- and every share restored from an older backup -- keeps both of its IOUs, exactly as
+         * it posted before the choice existed.
+         */
+        private val MIGRATION_17_18 = object : Migration(17, 18) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                if (!hasColumn(db, "transaction_shares", "keepPayeeLeg")) {
+                    db.execSQL(
+                        "ALTER TABLE `transaction_shares` ADD COLUMN `keepPayeeLeg` INTEGER NOT NULL DEFAULT 1"
+                    )
+                }
+                if (!hasColumn(db, "transaction_shares", "keepPayerLeg")) {
+                    db.execSQL(
+                        "ALTER TABLE `transaction_shares` ADD COLUMN `keepPayerLeg` INTEGER NOT NULL DEFAULT 1"
+                    )
+                }
+            }
+        }
+
+        /**
+         * Where a transfer converted from an SMS or statement transaction keeps its UPI reference.
+         * Nullable with no default, so every existing transfer reads NULL -- which the importers'
+         * fuzzy match treats as "may still be claimed by its bank message". NULLs never collide in a
+         * SQLite unique index, so the index is safe to build over them.
+         */
+        private val MIGRATION_18_19 = object : Migration(18, 19) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                if (!hasColumn(db, "account_transfer", "upiRefId")) {
+                    db.execSQL("ALTER TABLE `account_transfer` ADD COLUMN `upiRefId` TEXT")
+                }
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS `index_account_transfer_upiRefId` " +
+                        "ON `account_transfer` (`upiRefId`)"
+                )
+            }
+        }
+
         private fun hasColumn(db: SupportSQLiteDatabase, table: String, column: String): Boolean {
             db.query("PRAGMA table_info(`$table`)").use { cursor ->
                 val nameColumnIndex = cursor.getColumnIndex("name")
@@ -400,7 +529,8 @@ abstract class AppDatabase : RoomDatabase() {
                 )
                     .addMigrations(
                         MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12,
-                        MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15
+                        MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16,
+                        MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19
                     )
                     .addCallback(object : Callback() {
                         override fun onCreate(db: SupportSQLiteDatabase) {

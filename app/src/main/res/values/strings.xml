@@ -4,6 +4,7 @@
     <!-- Content descriptions. The icons these label were previously Unicode glyphs in TextViews,
          which TalkBack read out as punctuation or skipped entirely. -->
     <string name="cd_settings">Settings</string>
+    <string name="cd_from_friends">From friends</string>
     <string name="cd_back">Back</string>
     <string name="cd_close">Close</string>
     <string name="cd_add_transaction">Add transaction</string>
@@ -26,4 +27,17 @@
          OAuth client ID is public by design and ships inside every copy of the app. The client
          SECRET that Google shows beside it is not used and must never be added here. -->
     <string name="google_web_client_id" translatable="false">113059503285-t8fjhfoahu6hcd1c2scl9ajoh47re43b.apps.googleusercontent.com</string>
+
+    <!-- The Firebase project behind the friends mailbox: its Web API key and project id, both from
+         Project settings in the Firebase console. Public identifiers like the client ID above, not
+         secrets: restrict the key to this app in Google Cloud instead of hiding it. Left blank,
+         the mailbox screens say this build has no mailbox rather than failing. The project must be
+         the Cloud project that owns google_web_client_id, or Firebase will refuse its ID tokens. -->
+    <string name="firebase_api_key" translatable="false">AIzaSyD5VNBrrnT6d1oyZHq9xmyM_nQOeF-WaMY</string>
+    <string name="firebase_project_id" translatable="false">dhanmoney</string>
+
+    <!-- Where an invite link points. Must match the https intent filter in AndroidManifest.xml, and
+         must serve /.well-known/assetlinks.json for this app, or tapping the link opens the page
+         instead of the app. Blank shares the bare code, which still works by pasting. -->
+    <string name="mailbox_link_host" translatable="false">dhanmoney.web.app</string>
 </resources>

@@ -1,8 +1,10 @@
 package com.varun.upitracker.domain.parcel
 
+import com.varun.upitracker.database.entity.IouRecovery
 import com.varun.upitracker.database.entity.LedgerEffect
 import com.varun.upitracker.database.entity.Transaction
 import com.varun.upitracker.database.entity.TransactionShare
+import com.varun.upitracker.domain.iou.IouLegs
 import com.varun.upitracker.domain.transactionentry.persistence.LedgerPostingService
 import com.varun.upitracker.domain.transactionentry.validation.PendingReviewRules
 import com.varun.upitracker.ledger.LedgerPort
@@ -12,6 +14,7 @@ import com.varun.upitracker.ui.payerActorRef
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -20,10 +23,11 @@ import org.junit.Test
  *
  * For each shape a parcel can carry, this posts the writer's own transaction and the version their
  * friend ends up with, and asserts the two ledgers are exact mirrors: what A records as "Bob owes
- * me 100" B must record as "I owe A 100", to the paisa. A flip that loses a share row, or that
- * gives a stranger an id, shows up here as a ledger that does not balance.
+ * me 100" B must record as "I owe A 100", to the paisa. A flip that loses a share row, gives a
+ * stranger an id, or lands recovering from the other side of the split shows up here as a ledger
+ * that does not balance.
  *
- * A (writer) knows B as friend 7 and Charlie as friend 9. B knows A as friend 3.
+ * A (writer) knows B as friend 7, Charlie as friend 9 and Dan as friend 10. B knows A as friend 3.
  */
 class ParcelLedgerRoundTripTest {
 
@@ -42,6 +46,7 @@ class ParcelLedgerRoundTripTest {
 
     private val bInAsBook = 7L
     private val charlieInAsBook = 9L
+    private val danInAsBook = 10L
     private val aInBsBook = 3L
     private val service = LedgerPostingService()
 
@@ -50,7 +55,7 @@ class ParcelLedgerRoundTripTest {
         runBlocking {
             service.postLedger(
                 ledger, tx.id, tx.payerActorRef(), tx.payeeActorRef(),
-                shares, tx.amountPaise, tx.ledgerEffect
+                shares, tx.amountPaise, tx.ledgerEffect, IouLegs.resolve(tx, shares)
             )
         }
         return ledger.calls
@@ -62,7 +67,7 @@ class ParcelLedgerRoundTripTest {
             transaction = tx,
             shares = shares,
             recipientFriendId = bInAsBook,
-            friendName = { mapOf(bInAsBook to "Bob", charlieInAsBook to "Charlie")[it] },
+            friendName = { mapOf(bInAsBook to "Bob", charlieInAsBook to "Charlie", danInAsBook to "Dan")[it] },
             merchantName = { "Swiggy" }
         )
         val decoded = ParcelCodec.decode(ParcelCodec.encode(Parcel(ParcelFormat.VERSION, "tok", listOf(row))))
@@ -77,13 +82,30 @@ class ParcelLedgerRoundTripTest {
         )
     }
 
-    /** Asserts both sides agree, and that the imported row is one the app can actually review. */
+    /** What a recording ledger posted against [friendId], signed the way the IOU table is. */
+    private fun netFor(calls: List<String>, friendId: Long): Long {
+        var net = 0L
+        calls.forEach { call ->
+            val (kind, id, amount) = call.split(":")
+            if (id.toLong() == friendId) net += if (kind == "repayment") -amount.toLong() else amount.toLong()
+        }
+        return net
+    }
+
+    /**
+     * Asserts A and B agree about each other to the paisa, and that the imported row is one the app can
+     * actually review.
+     */
     private fun assertMirrors(
         writerCalls: List<String>,
         readerCalls: List<String>,
         imported: LocalParcelRow
     ) {
-        assertEquals(writerCalls.size, readerCalls.size)
+        assertEquals(
+            "A and B disagree about what B owes A",
+            netFor(writerCalls, bInAsBook),
+            -netFor(readerCalls, aInBsBook)
+        )
         assertTrue(
             "shares do not add up on the imported row",
             PendingReviewRules.sharesAreValid(imported.transaction, imported.shares)
@@ -98,7 +120,8 @@ class ParcelLedgerRoundTripTest {
         payeeActorType: String = ActorType.FRIEND,
         payeeFriendId: Long? = bInAsBook,
         payeeMerchantId: Long? = null,
-        ledgerEffect: LedgerEffect = LedgerEffect.DEBT
+        ledgerEffect: LedgerEffect = LedgerEffect.DEBT,
+        iouRecovery: IouRecovery = IouRecovery.FROM_SECONDARY_PAYERS
     ) = Transaction(
         id = 41L,
         amountPaise = amountPaise,
@@ -113,7 +136,8 @@ class ParcelLedgerRoundTripTest {
         reason = "Dinner",
         dateEpoch = 1_700_000_000_000L,
         source = "MANUAL",
-        ledgerEffect = ledgerEffect
+        ledgerEffect = ledgerEffect,
+        iouRecovery = iouRecovery
     )
 
     private fun share(side: String, participantType: String, amountPaise: Long, friendId: Long? = null) =
@@ -156,7 +180,7 @@ class ParcelLedgerRoundTripTest {
         assertEquals(listOf("balance:$bInAsBook:10000", "balance:$charlieInAsBook:10000"), writer)
         // Charlie owes A, not B. B's ledger names only A.
         assertEquals(listOf("balance:$aInBsBook:-10000"), reader)
-        assertTrue(PendingReviewRules.sharesAreValid(imported.transaction, imported.shares))
+        assertMirrors(writer, reader, imported)
         assertTrue(PendingReviewRules.canAutoReview(imported.transaction))
     }
 
@@ -170,6 +194,7 @@ class ParcelLedgerRoundTripTest {
 
         assertEquals(listOf("settlement:$bInAsBook:50000"), writer)
         assertEquals(listOf("repayment:$aInBsBook:50000"), reader)
+        assertMirrors(writer, reader, imported)
         // Deliberately not auto-reviewable: only B can say whether this settled a debt or was a gift.
         assertFalse(PendingReviewRules.canAutoReview(imported.transaction))
     }
@@ -188,6 +213,7 @@ class ParcelLedgerRoundTripTest {
 
         assertEquals(listOf("repayment:$bInAsBook:50000"), writer)
         assertEquals(listOf("settlement:$aInBsBook:50000"), reader)
+        assertMirrors(writer, reader, imported)
         assertTrue(PendingReviewRules.canAutoReview(imported.transaction))
     }
 
@@ -242,25 +268,172 @@ class ParcelLedgerRoundTripTest {
         assertFalse(PendingReviewRules.sharesAreValid(imported.transaction, withoutCharlie))
     }
 
+    // (vii) A paid B 300, of which 100 was really Charlie's to borrow.
+    private fun paidBForBAndCharlie(recovery: IouRecovery) = tx(iouRecovery = recovery) to listOf(
+        share("PAYER", ActorType.ME, 30000L),
+        share("PAYEE", ActorType.FRIEND, 20000L, bInAsBook),
+        share("PAYEE", ActorType.FRIEND, 10000L, charlieInAsBook)
+    )
+
     @Test
-    fun `giving a stranger an id would post a debt B does not owe`() {
-        // The payee-side split that makes the unmapped default load-bearing: A paid B 300, of
-        // which 100 was really Charlie's.
-        val source = tx()
-        val shares = listOf(
-            share("PAYEE", ActorType.FRIEND, 20000L, bInAsBook),
-            share("PAYEE", ActorType.FRIEND, 10000L, charlieInAsBook)
-        )
+    fun `recovering from co-payees, B owes A their own share and Charlie owes A theirs`() {
+        val (source, shares) = paidBForBAndCharlie(IouRecovery.FROM_SECONDARY_PAYEES)
+        val writer = post(source, shares)
         val imported = asImported(source, shares)
-        // B owes A their own 200, and nothing at all to Charlie -- that part was A's to collect.
+        val reader = post(imported.transaction, imported.shares)
+
+        assertEquals(listOf("balance:$bInAsBook:20000", "balance:$charlieInAsBook:10000"), writer)
+        assertEquals(listOf("balance:$aInBsBook:-20000"), reader)
+        assertMirrors(writer, reader, imported)
+    }
+
+    @Test
+    fun `recovering from co-payers, B owes A the lot and the payee split is B's own business`() {
+        val (source, shares) = paidBForBAndCharlie(IouRecovery.FROM_SECONDARY_PAYERS)
+        val writer = post(source, shares)
+        val imported = asImported(source, shares)
+        val reader = post(imported.transaction, imported.shares)
+
+        assertEquals(listOf("balance:$bInAsBook:30000"), writer)
+        assertEquals(listOf("balance:$aInBsBook:-30000"), reader)
+        assertMirrors(writer, reader, imported)
+    }
+
+    @Test
+    fun `a name only moves money once B has said who it is`() {
+        val (source, shares) = paidBForBAndCharlie(IouRecovery.FROM_SECONDARY_PAYEES)
+        val imported = asImported(source, shares)
         assertEquals(listOf("balance:$aInBsBook:-20000"), post(imported.transaction, imported.shares))
 
-        val ifResolved = imported.shares.map {
-            if (it.rawLabel == "Charlie") it.copy(friendId = 55L) else it
-        }
-        assertTrue(
-            "resolving a name by string match books a debt to a stranger",
-            post(imported.transaction, ifResolved).any { it == "balance:55:-10000" }
+        // Once B maps Charlie, B holds Charlie's 100 and owes it on. An automatic name match would have
+        // booked that against whichever "Charlie" happened to be in B's list.
+        val mapped = imported.shares.map { if (it.rawLabel == "Charlie") it.copy(friendId = 55L) else it }
+        assertEquals(
+            listOf("balance:$aInBsBook:-20000", "balance:55:-10000"),
+            post(imported.transaction, mapped)
         )
+    }
+
+    // (viii) A paid B 400 for A and Charlie, and it was for B and Dan: both sides split.
+    private fun bothSidesSplit(recovery: IouRecovery) = tx(amountPaise = 40000L, iouRecovery = recovery) to listOf(
+        share("PAYER", ActorType.ME, 20000L),
+        share("PAYER", ActorType.FRIEND, 20000L, charlieInAsBook),
+        share("PAYEE", ActorType.FRIEND, 30000L, bInAsBook),
+        share("PAYEE", ActorType.FRIEND, 10000L, danInAsBook)
+    )
+
+    @Test
+    fun `split on both sides and recovering from co-payers, both books agree`() {
+        val (source, shares) = bothSidesSplit(IouRecovery.FROM_SECONDARY_PAYERS)
+        val writer = post(source, shares)
+        val imported = asImported(source, shares)
+        val reader = post(imported.transaction, imported.shares)
+
+        // B owes A their 200 and Charlie theirs; Charlie owes A the 200 A fronted. Dan is B's business.
+        assertEquals(listOf("balance:$bInAsBook:20000", "balance:$charlieInAsBook:20000"), writer)
+        assertEquals(listOf("balance:$aInBsBook:-20000"), reader)
+        assertMirrors(writer, reader, imported)
+    }
+
+    @Test
+    fun `split on both sides and recovering from co-payees, both books agree`() {
+        val (source, shares) = bothSidesSplit(IouRecovery.FROM_SECONDARY_PAYEES)
+        val writer = post(source, shares)
+        val imported = asImported(source, shares)
+        val reader = post(imported.transaction, imported.shares)
+
+        // B owes A their own 300 and Dan owes A 100. Charlie is A's business.
+        assertEquals(listOf("balance:$bInAsBook:30000", "balance:$danInAsBook:10000"), writer)
+        assertEquals(listOf("balance:$aInBsBook:-30000"), reader)
+        assertMirrors(writer, reader, imported)
+    }
+
+    // (ix) Charlie paid a shop, and A, B and Charlie split it. A sends it to B and Charlie at once.
+    @Test
+    fun `a bill a third party paid lands as B owing them, and only once B has linked them`() {
+        val aUid = "aUid00000000000000000000000"
+        val charlieUid = "charlieUid00000000000000000"
+        val charlieInBsBook = 12L
+
+        val source = tx(
+            payerActorType = ActorType.FRIEND, payerFriendId = charlieInAsBook,
+            payeeActorType = ActorType.MERCHANT, payeeFriendId = null, payeeMerchantId = 11L
+        )
+        val shares = listOf(
+            share("PAYER", ActorType.ME, 10000L),
+            share("PAYER", ActorType.FRIEND, 10000L, bInAsBook),
+            share("PAYER", ActorType.FRIEND, 10000L, charlieInAsBook)
+        )
+        // A owes Charlie A's own share, and nothing about B moves in A's ledger.
+        assertEquals(listOf("balance:$charlieInAsBook:-10000"), post(source, shares))
+
+        val sent = ParcelPerspective.flipForRecipient(
+            transaction = source,
+            shares = shares,
+            recipientFriendId = bInAsBook,
+            friendName = { mapOf(bInAsBook to "Bob", charlieInAsBook to "Charlie")[it] },
+            merchantName = { "Swiggy" },
+            linkedUidOf = { if (it == charlieInAsBook) charlieUid else null }
+        ).copy(sourceId = 0L, shareRef = "shareRef001")
+        val body = ParcelFormat.format(Parcel(ParcelFormat.MAILBOX_VERSION, null, listOf(sent)))
+        val received = (ParcelFormat.parse(body, ParcelFormat.MAILBOX_VERSION) as ParcelDecodeResult.Ok)
+            .parcel.transactions.single()
+
+        fun landed(charlieHere: Long?) = ParcelPerspective.toLocalFromMailbox(
+            row = received,
+            senderFriendId = aInBsBook,
+            senderUid = aUid,
+            mapPerson = { null },
+            resolveLinked = { uid -> charlieHere.takeIf { uid == charlieUid } },
+            resolveShop = { null },
+            carryUpiRefId = true
+        )
+
+        // B owes Charlie B's share. A's share is A's business with Charlie and never reaches B.
+        val linked = landed(charlieHere = charlieInBsBook)
+        assertEquals(listOf("balance:$charlieInBsBook:-10000"), post(linked.transaction, linked.shares))
+        assertTrue(PendingReviewRules.sharesAreValid(linked.transaction, linked.shares))
+
+        // Unlinked, Charlie is a name: the row still balances, and moves nothing until B says who.
+        val unlinked = landed(charlieHere = null)
+        assertTrue(post(unlinked.transaction, unlinked.shares).isEmpty())
+        assertTrue(PendingReviewRules.sharesAreValid(unlinked.transaction, unlinked.shares))
+    }
+
+    // (x) A paid a shop and split it with B, then treated B: B's IOU left out.
+    @Test
+    fun `an IOU the writer left out is left out of both books`() {
+        val source = tx(payeeActorType = ActorType.MERCHANT, payeeFriendId = null, payeeMerchantId = 11L)
+        val shares = listOf(
+            share("PAYER", ActorType.ME, 20000L),
+            share("PAYER", ActorType.FRIEND, 10000L, bInAsBook).copy(keepPayerLeg = false)
+        )
+        val writer = post(source, shares)
+        val imported = asImported(source, shares)
+        val reader = post(imported.transaction, imported.shares)
+
+        assertTrue(writer.isEmpty())
+        assertTrue(reader.isEmpty())
+        assertMirrors(writer, reader, imported)
+    }
+
+    // (xi) A paid a shop and split it with Charlie, then pasted it to B, who is in none of it.
+    @Test
+    fun `a parcel to someone not in it lands with no you in it and moves nothing`() {
+        val source = tx(payeeActorType = ActorType.MERCHANT, payeeFriendId = null, payeeMerchantId = 11L)
+        val shares = listOf(
+            share("PAYER", ActorType.ME, 15000L),
+            share("PAYER", ActorType.FRIEND, 15000L, charlieInAsBook)
+        )
+        assertNull(ParcelEligibility.pasteBlockedReason(source))
+
+        val imported = asImported(source, shares)
+
+        assertEquals(ActorType.FRIEND, imported.transaction.payerActorType)
+        assertEquals(aInBsBook, imported.transaction.payerFriendId)
+        assertTrue(imported.shares.none { it.participantType == ActorType.ME })
+        // A's split with Charlie is A's business: B's ledger records nothing about it.
+        assertTrue(post(imported.transaction, imported.shares).isEmpty())
+        assertTrue(PendingReviewRules.sharesAreValid(imported.transaction, imported.shares))
     }
 }

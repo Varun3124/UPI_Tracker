@@ -387,9 +387,23 @@ class AllTransactionsActivity : AppCompatActivity() {
     }
 
     private fun showEntryActions(entry: LedgerEntry) {
-        AlertDialog.Builder(this)
-            .setItems(arrayOf("Delete")) { _, _ -> showDeleteDialog(entry) }
-            .show()
+        when (entry) {
+            // By mailbox to the people it involves, or as a parcel to paste to anyone -- see
+            // RecipientPicker.
+            is LedgerEntry.Tx -> AlertDialog.Builder(this)
+                .setItems(arrayOf("Share…", "Delete")) { _, index ->
+                    if (index == 0) {
+                        com.varun.upitracker.ui.share.RecipientPicker(this).show(setOf(entry.transaction.id))
+                    } else {
+                        showDeleteDialog(entry)
+                    }
+                }
+                .show()
+            // A transfer between your own accounts is nobody else's business.
+            is LedgerEntry.Transfer -> AlertDialog.Builder(this)
+                .setItems(arrayOf("Delete")) { _, _ -> showDeleteDialog(entry) }
+                .show()
+        }
     }
 
     private fun showDeleteDialog(entry: LedgerEntry) {

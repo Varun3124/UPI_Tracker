@@ -1,7 +1,6 @@
 ﻿package com.varun.upitracker.domain.transactionentry.share
 
 import com.varun.upitracker.database.entity.CategoryKind
-import com.varun.upitracker.database.entity.LedgerEffect
 import com.varun.upitracker.ui.ActorType
 
 enum class SectionBalanceState {
@@ -80,26 +79,21 @@ class ShareCalculator {
      * How much of this transaction ME can attribute to categories, and which direction those
      * categories measure.
      *
-     * Zero means the transaction is not categorisable: a plain loan to a friend moves debt around
-     * but consumes nothing.
+     * [meNetPaise] is what the transaction leaves ME up or down once the IOUs it records are counted
+     * -- see [com.varun.upitracker.domain.iou.IouLegs.meNet]. Zero means nothing to categorise: a
+     * plain loan to a friend moves money into a debt and consumes nothing. Leaving an IOU out is what
+     * turns part of it into ME's own spending or income.
      */
     fun categoryTargeting(
         payerActorType: String,
         payeeActorType: String,
-        ledgerEffect: LedgerEffect,
         isLinkedRefund: Boolean,
-        payerMeSharePaise: Long,
-        payeeMeSharePaise: Long
+        meNetPaise: Long
     ): CategoryTargeting {
-        val merchantInvolved = payerActorType == ActorType.MERCHANT || payeeActorType == ActorType.MERCHANT
-        if (!merchantInvolved && ledgerEffect != LedgerEffect.NONE) {
-            return CategoryTargeting(0L, CategoryKind.EXPENSE)
-        }
-
-        // Direction comes from the transaction's shape, never from which side happens to carry a
-        // non-zero share. Amounts are typed after the actors are picked, so reading the direction
-        // off them made a fresh merchant purchase offer INCOME categories until the first
-        // keystroke, then silently swap them for EXPENSE ones.
+        // Direction comes from the transaction's shape wherever the shape settles it, never from
+        // amounts. Amounts are typed after the actors are picked, so reading the direction off them
+        // made a fresh merchant purchase offer INCOME categories until the first keystroke, then
+        // silently swap them for EXPENSE ones.
         val kind = when {
             // A refund puts ME on the payee side, but it is an expense running backwards: its
             // pills are the purchase's own expense categories.
@@ -108,19 +102,17 @@ class ShareCalculator {
             payerActorType == ActorType.MERCHANT -> CategoryKind.INCOME
             payerActorType == ActorType.ME -> CategoryKind.EXPENSE
             payeeActorType == ActorType.ME -> CategoryKind.INCOME
-            // Neither side is ME or a merchant: ME is only a secondary sharer, so fall back to
-            // whichever side actually carries ME's money.
-            payerMeSharePaise > 0L -> CategoryKind.EXPENSE
-            else -> CategoryKind.INCOME
+            // Neither side is ME or a merchant: ME is only in the split, and only which way ME came
+            // out says which way it went.
+            meNetPaise > 0L -> CategoryKind.INCOME
+            else -> CategoryKind.EXPENSE
         }
 
-        // Pick a side rather than summing. ME can hold a share on both sides at once -- the "Me"
-        // option is offered per side -- and summing would double-count.
-        val sharePaise = if (kind == CategoryKind.EXPENSE && !isLinkedRefund) {
-            payerMeSharePaise
-        } else {
-            payeeMeSharePaise
-        }
+        val sharePaise = when {
+            isLinkedRefund -> meNetPaise
+            kind == CategoryKind.EXPENSE -> -meNetPaise
+            else -> meNetPaise
+        }.coerceAtLeast(0L)
         return CategoryTargeting(sharePaise, kind)
     }
 }
