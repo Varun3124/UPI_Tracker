@@ -331,6 +331,75 @@ interface TransactionDao {
         toEpochInclusive: Long
     ): List<com.varun.upitracker.database.entity.Transaction>
 
+    // --- chapters -----------------------------------------------------------------------------
+
+    @Query("UPDATE transactions SET chapterId = :chapterId WHERE id = :transactionId")
+    suspend fun setChapter(transactionId: Long, chapterId: Long?)
+
+    /** R6: a refund goes wherever the purchase it reverses goes, and never moves on its own. */
+    @Query("UPDATE transactions SET chapterId = :chapterId WHERE refundsTransactionId = :originalId")
+    suspend fun setChapterForRefundsOf(originalId: Long, chapterId: Long?)
+
+    /** R11: deleting a chapter returns every transaction in it to the base ledger. */
+    @Query("UPDATE transactions SET chapterId = NULL WHERE chapterId = :chapterId")
+    suspend fun untagChapter(chapterId: Long)
+
+    /**
+     * Everything the base ledger should hold for these friends, oldest first.
+     *
+     * Tagged rows are excluded because their effect reaches a balance through `chapter_balances`
+     * instead (R15). "Involves" mirrors [getTransactionsForFriendSync]: either end, a sided share,
+     * or an existing entry -- the last of which catches a friend whose only trace is an entry an
+     * edit has since orphaned.
+     *
+     * The `isPending = 0 OR EXISTS(...)` is load-bearing, not caution. CategorySplitBackfill and
+     * MerchantCreditReviewBackfill both flip already-reviewed rows back to pending *without*
+     * clearing their entries, and a restore re-arms both -- so a plain `isPending = 0` would delete
+     * those entries here and never post them again.
+     */
+    @Query(
+        """
+        SELECT t.* FROM transactions t
+        WHERE t.chapterId IS NULL
+          AND (
+            t.isPending = 0
+            OR EXISTS (SELECT 1 FROM iou_entries e
+                        WHERE e.transactionId = t.id AND e.friendId IN (:friendIds))
+          )
+          AND (
+            t.payerFriendId IN (:friendIds)
+            OR t.payeeFriendId IN (:friendIds)
+            OR EXISTS (SELECT 1 FROM transaction_shares s
+                        WHERE s.transactionId = t.id AND s.side IS NOT NULL
+                          AND s.friendId IN (:friendIds))
+            OR EXISTS (SELECT 1 FROM iou_entries e2
+                        WHERE e2.transactionId = t.id AND e2.friendId IN (:friendIds))
+          )
+        ORDER BY t.dateEpoch ASC, t.id ASC
+        """
+    )
+    suspend fun getUntaggedPostedForFriends(friendIds: List<Long>): List<com.varun.upitracker.database.entity.Transaction>
+
+    /** The friend page lists only what the base ledger still holds; the rest lives in its chapter. */
+    @Query(
+        """
+        SELECT DISTINCT t.* FROM transactions t
+        LEFT JOIN iou_entries i
+            ON t.id = i.transactionId
+           AND i.friendId = :friendId
+        LEFT JOIN transaction_shares s
+            ON t.id = s.transactionId
+           AND s.friendId = :friendId
+        WHERE t.chapterId IS NULL
+          AND (t.payerFriendId = :friendId
+           OR t.payeeFriendId = :friendId
+           OR i.friendId = :friendId
+           OR s.friendId = :friendId)
+        ORDER BY t.dateEpoch DESC, t.id DESC
+        """
+    )
+    suspend fun getUntaggedTransactionsForFriendSync(friendId: Long): List<com.varun.upitracker.database.entity.Transaction>
+
     @Query(
         """
         SELECT DISTINCT t.* FROM transactions t

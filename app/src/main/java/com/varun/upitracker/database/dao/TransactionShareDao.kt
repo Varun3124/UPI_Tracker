@@ -17,6 +17,10 @@ interface TransactionShareDao {
     @Query("SELECT * FROM transaction_shares WHERE transactionId = :transactionId")
     suspend fun getSharesForTransaction(transactionId: Long): List<com.varun.upitracker.database.entity.TransactionShare>
 
+    /** Batched, so a replay over a friend's whole history is one query rather than one per row. */
+    @Query("SELECT * FROM transaction_shares WHERE transactionId IN (:transactionIds)")
+    suspend fun getSharesForTransactions(transactionIds: List<Long>): List<com.varun.upitracker.database.entity.TransactionShare>
+
     @Query("DELETE FROM transaction_shares WHERE transactionId = :transactionId")
     suspend fun deleteForTransaction(transactionId: Long)
 
