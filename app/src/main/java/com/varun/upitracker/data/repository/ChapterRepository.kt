@@ -179,7 +179,8 @@ class ChapterRepository(private val db: AppDatabase) {
         transactionId: Long,
         previous: Long?,
         current: Long?,
-        alsoReplay: Set<Long> = emptySet()
+        alsoReplay: Set<Long> = emptySet(),
+        crossedBooks: Boolean = (previous == null) != (current == null)
     ) {
         val refundIds = db.transactionDao().getRefundIdsForOriginal(transactionId)
         val rows = rowsFor(listOf(transactionId) + refundIds)
@@ -197,7 +198,7 @@ class ChapterRepository(private val db: AppDatabase) {
             addMembersInTransaction(current, missing.toSet(), System.currentTimeMillis())
         }
 
-        if ((previous == null) != (current == null)) replayer.replay(friends)
+        if (crossedBooks) replayer.replay(friends)
 
         previous?.let { recomputeInTransaction(it) }
         current?.let { recomputeInTransaction(it) }
@@ -296,14 +297,17 @@ object RepositoryChapterSync : ChapterSync {
         transactionId: Long,
         previous: Long?,
         current: Long?,
-        friendsBefore: Set<Long>
+        friendsBefore: Set<Long>,
+        wasExisting: Boolean
     ) {
         if (previous == null && current == null) return
         ChapterRepository(db).applyChapterChangeInTransaction(
             transactionId = transactionId,
             previous = previous,
             current = current,
-            alsoReplay = friendsBefore
+            alsoReplay = friendsBefore,
+            // A row created straight into a chapter was never in the base ledger to begin with.
+            crossedBooks = wasExisting && (previous == null) != (current == null)
         )
     }
 }

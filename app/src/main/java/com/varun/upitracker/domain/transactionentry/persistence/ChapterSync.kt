@@ -33,13 +33,20 @@ interface ChapterSync {
         chapterId: Long?
     ): Set<Long>
 
-    /** Called once the row and its shares are written, with what [prepare] returned. */
+    /**
+     * Called once the row and its shares are written, with what [prepare] returned.
+     *
+     * [wasExisting] is false for a row being created. A brand-new transaction has never been in the
+     * base ledger, so tagging it cannot have taken anything out of one -- there is nothing to
+     * rebuild, and rebuilding anyway would re-settle unrelated entries for no reason.
+     */
     suspend fun afterPersist(
         db: AppDatabase,
         transactionId: Long,
         previous: Long?,
         current: Long?,
-        friendsBefore: Set<Long>
+        friendsBefore: Set<Long>,
+        wasExisting: Boolean
     )
 
     /** For tests and for any caller that has no business with chapters. */
@@ -56,7 +63,8 @@ interface ChapterSync {
             transactionId: Long,
             previous: Long?,
             current: Long?,
-            friendsBefore: Set<Long>
+            friendsBefore: Set<Long>,
+            wasExisting: Boolean
         ) = Unit
     }
 }

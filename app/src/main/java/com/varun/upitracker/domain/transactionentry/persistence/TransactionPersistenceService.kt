@@ -98,7 +98,10 @@ class TransactionPersistenceService(
                         request.amountPaise, ledgerEffect, iouRecovery
                     )
                 }
-                chapterSync.afterPersist(db, transactionId, previousChapterId, chapterId, friendsBefore)
+                chapterSync.afterPersist(
+                    db, transactionId, previousChapterId, chapterId, friendsBefore,
+                    wasExisting = tx != null
+                )
                 persistedTransactionId = transactionId
             }
         }
