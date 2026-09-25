@@ -234,6 +234,53 @@
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
+            <!-- ===================== Chapter ===================== -->
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/chapterCard"
+                style="@style/Widget.UPI.Card.Clickable"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="@dimen/space_m"
+                android:visibility="gone">
+
+                <LinearLayout
+                    android:id="@+id/chapterSection"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:padding="@dimen/space_l">
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Chapter"
+                            android:textAppearance="@style/TextAppearance.UPI.Label" />
+
+                        <TextView
+                            android:id="@+id/tvChapterValue"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="@dimen/space_xxs"
+                            android:textAppearance="@style/TextAppearance.UPI.Body" />
+
+                        <TextView
+                            android:id="@+id/tvChapterHint"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="@dimen/space_xxs"
+                            android:textAppearance="@style/TextAppearance.UPI.Label"
+                            android:visibility="gone" />
+                    </LinearLayout>
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
             <EditText
                 android:id="@+id/etDescription"
                 style="@style/Widget.UPI.TextField"

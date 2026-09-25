@@ -6,6 +6,8 @@ import android.content.Intent
 import android.os.Build
 import android.os.Bundle
 import android.view.LayoutInflater
+import android.widget.LinearLayout
+import com.varun.upitracker.ui.chapter.ChapterDetailActivity
 import android.view.View
 import android.view.ViewGroup
 import android.widget.Button
@@ -134,9 +136,66 @@ class FriendDetailActivity : AppCompatActivity() {
             )
         }
 
+        renderChapters(state)
         renderLink(state)
         renderList(state)
         renderSelectionBar(state)
+    }
+
+    /**
+     * The chapter half of the headline balance.
+     *
+     * A member who comes out even still gets a row: the point is that the chapter is there and has
+     * been accounted for, which "even" says and an absent row does not.
+     */
+    private fun renderChapters(state: FriendDetailUiState) {
+        val container = findViewById<LinearLayout>(R.id.friendChapterContainer)
+        val personal = findViewById<TextView>(R.id.tvFriendPersonalBalance)
+        container.removeAllViews()
+
+        val summary = state.summary
+        val chapters = summary?.chapterBalances.orEmpty()
+        if (summary == null || chapters.isEmpty()) {
+            personal.visibility = View.GONE
+            return
+        }
+
+        // Only worth splitting out once a chapter is actually moving the figure above.
+        personal.visibility = View.VISIBLE
+        personal.text = when {
+            summary.personalBalancePaise > 0L ->
+                "Directly between you: +${AmountFormat.rupees(summary.personalBalancePaise)}"
+            summary.personalBalancePaise < 0L ->
+                "Directly between you: -${AmountFormat.rupees(-summary.personalBalancePaise)}"
+            else -> "Directly between you: settled"
+        }
+
+        chapters.forEach { chapter ->
+            val row = LayoutInflater.from(this).inflate(R.layout.item_chapter_line, container, false)
+            row.findViewById<TextView>(R.id.tvChapterLineLabel).text = chapter.name
+            val amount = row.findViewById<TextView>(R.id.tvChapterLineAmount)
+            when {
+                chapter.amountPaise > 0L -> {
+                    amount.text = "owes you ${AmountFormat.rupees(chapter.amountPaise)}"
+                    amount.setTextColor(themeColor(ThemeAttr.positive))
+                }
+                chapter.amountPaise < 0L -> {
+                    amount.text = "you owe ${AmountFormat.rupees(-chapter.amountPaise)}"
+                    amount.setTextColor(themeColor(ThemeAttr.negative))
+                }
+                else -> {
+                    amount.text = "even"
+                    amount.setTextColor(themeColor(ThemeAttr.textMuted))
+                }
+            }
+            row.setOnClickListener {
+                startActivity(
+                    Intent(this, ChapterDetailActivity::class.java)
+                        .putExtra(ChapterDetailActivity.EXTRA_CHAPTER_ID, chapter.chapterId)
+                )
+            }
+            container.addView(row)
+        }
     }
 
     private fun renderLink(state: FriendDetailUiState) {

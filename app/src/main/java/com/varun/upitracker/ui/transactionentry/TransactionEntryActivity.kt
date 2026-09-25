@@ -50,7 +50,12 @@ import com.varun.upitracker.database.entity.Merchant
 import com.varun.upitracker.database.entity.MerchantCategory
 import com.varun.upitracker.database.entity.MerchantRawName
 import com.varun.upitracker.database.entity.MerchantUpiId
+import com.varun.upitracker.data.repository.ChapterRepository
+import com.varun.upitracker.database.entity.ChapterState
 import com.varun.upitracker.database.entity.Transaction
+import com.varun.upitracker.domain.chapter.ChapterOption
+import com.varun.upitracker.domain.chapter.ChapterPrompt
+import kotlinx.coroutines.suspendCancellableCoroutine
 import com.varun.upitracker.database.entity.TransactionCategorySplit
 import com.varun.upitracker.database.entity.TransactionShare
 import com.varun.upitracker.database.entity.EntrySource
@@ -154,6 +159,11 @@ class TransactionEntryActivity : AppCompatActivity() {
     private lateinit var viewModel: TransactionEntryViewModel
 
     private var currentTransaction: Transaction? = null
+    /** Every chapter, open or not: a transaction may already sit in a closed one. */
+    private var chapterOptions: List<ChapterOption> = emptyList()
+    private var selectedChapterId: Long? = null
+    /** R8: the row is inside a closed chapter, so nothing here may be saved at all. */
+    private var chapterLocked = false
     private var currentTransfer: AccountTransfer? = null
     private var isSmsSource = false
     private var allFriends = listOf<Friend>()
@@ -220,6 +230,9 @@ class TransactionEntryActivity : AppCompatActivity() {
     private lateinit var categoryScrollView: View
     private lateinit var formScroll: ScrollView
     private lateinit var etDescription: EditText
+    private lateinit var chapterCard: View
+    private lateinit var tvChapterValue: TextView
+    private lateinit var tvChapterHint: TextView
     private lateinit var ledgerOptionsCard: View
     private lateinit var iouRecoverySection: LinearLayout
     private lateinit var iouRecoveryPills: View
@@ -329,6 +342,10 @@ class TransactionEntryActivity : AppCompatActivity() {
             viewModel.onAction(TransactionEntryAction.IouRecoverySelected(IouRecovery.FROM_SECONDARY_PAYEES))
         }
         refundSection.setOnClickListener { showRefundPicker() }
+        chapterCard = findViewById(R.id.chapterCard)
+        tvChapterValue = findViewById(R.id.tvChapterValue)
+        tvChapterHint = findViewById(R.id.tvChapterHint)
+        chapterCard.setOnClickListener { showChapterPicker() }
     }
 
     private suspend fun setupUi(db: AppDatabase) {
@@ -358,6 +375,7 @@ class TransactionEntryActivity : AppCompatActivity() {
             tx != null -> populateExistingTransaction(tx, db)
             else -> seedDefaultState()
         }
+        setupChapterField(db)
         ensureBaseShareRows()
         enforceTransferModeRows()
         updatePrimaryRowLabel(true)
@@ -1691,6 +1709,11 @@ class TransactionEntryActivity : AppCompatActivity() {
         // Must precede the amount check: in transfer mode etAmount is disabled and empty.
         if (isTransferMode()) return handleDoneTransfer()
 
+        if (chapterLocked) {
+            val name = chapterOptions.firstOrNull { it.chapter.id == selectedChapterId }?.chapter?.name
+            return toast("In ${name ?: "a closed chapter"} (closed). Reopen it to edit.")
+        }
+
         val amountPaise = getCurrentAmountPaise()
         if (amountPaise <= 0) return toast("Enter an amount")
         val payerLabel = primaryLabel(true)
@@ -1738,7 +1761,12 @@ class TransactionEntryActivity : AppCompatActivity() {
         }
 
         val db = AppDatabase.Companion.getInstance(applicationContext)
+
+        if (!resolveChapterBeforeSaving(db, amountPaise)) return
+
+        val membersBefore = chapterMemberIds(db, selectedChapterId)
         withContext(Dispatchers.IO) { persistTransaction(db, amountPaise, payerLabel, payeeLabel, myShare) }
+        reportAddedMembers(db, membersBefore)
         currentTransaction?.let { TransactionNotificationHelper.cancel(applicationContext, it.id.toInt()) }
         finish()
     }
@@ -1873,6 +1901,179 @@ class TransactionEntryActivity : AppCompatActivity() {
     }
 
     /** [categoryAmountPaise] is the figure the categories were just validated against. */
+    // --- chapters -------------------------------------------------------------------------------
+
+    /**
+     * Loads the chapter field and decides what it starts on.
+     *
+     * A transfer is never in a chapter, so the field stays hidden there. An existing row keeps the
+     * chapter it already has; a new one starts on the active chapter, but only when that chapter
+     * could take it and would not have to grow to do so (R19).
+     */
+    private suspend fun setupChapterField(db: AppDatabase) {
+        if (isTransferMode()) {
+            chapterCard.visibility = View.GONE
+            return
+        }
+        chapterOptions = withContext(Dispatchers.IO) {
+            val repository = ChapterRepository(db)
+            db.chapterDao().getAll().map { chapter ->
+                ChapterOption(
+                    chapter = chapter,
+                    memberIds = db.chapterDao().memberIds(chapter.id).toSet(),
+                    settled = repository.resultFor(chapter.id).settled
+                )
+            }
+        }
+        val tx = currentTransaction
+        val current = tx?.chapterId?.let { id -> chapterOptions.firstOrNull { it.chapter.id == id } }
+        chapterLocked = current?.chapter?.state == ChapterState.CLOSED
+
+        selectedChapterId = when {
+            tx?.chapterId != null -> tx.chapterId
+            tx != null -> {
+                val original = withContext(Dispatchers.IO) {
+                    tx.refundsTransactionId?.let { db.transactionDao().getTransactionById(it) }
+                }
+                val shares = withContext(Dispatchers.IO) { db.transactionShareDao().getSharesForTransaction(tx.id) }
+                ChapterPrompt.preselect(tx, shares, chapterOptions, original)?.chapter?.id
+            }
+            // A blank manual entry names nobody yet, so the active chapter can only be right.
+            else -> chapterOptions.firstOrNull { it.chapter.isActive && it.chapter.state == ChapterState.OPEN }
+                ?.chapter?.id
+        }
+        renderChapterField()
+    }
+
+    private fun renderChapterField() {
+        if (isTransferMode() || chapterOptions.isEmpty()) {
+            chapterCard.visibility = View.GONE
+            return
+        }
+        chapterCard.visibility = View.VISIBLE
+        val selected = chapterOptions.firstOrNull { it.chapter.id == selectedChapterId }
+        tvChapterValue.text = selected?.chapter?.name ?: "Not in a chapter"
+
+        if (chapterLocked && selected != null) {
+            tvChapterHint.text = "In ${selected.chapter.name} (closed). Reopen it to edit this."
+            tvChapterHint.setTextColor(themeColor(ThemeAttr.warning))
+            tvChapterHint.visibility = View.VISIBLE
+        } else {
+            tvChapterHint.visibility = View.GONE
+        }
+    }
+
+    private fun showChapterPicker() {
+        if (chapterLocked) {
+            toast("This is in a closed chapter. Reopen it to make changes.")
+            return
+        }
+        val open = chapterOptions.filter { it.chapter.state == ChapterState.OPEN }
+        if (open.isEmpty()) {
+            toast("No open chapters")
+            return
+        }
+        val labels = (listOf("Not in a chapter") + open.map { it.chapter.name }).toTypedArray()
+        AlertDialog.Builder(this)
+            .setTitle("Chapter")
+            .setItems(labels) { _, which ->
+                selectedChapterId = if (which == 0) null else open[which - 1].chapter.id
+                renderChapterField()
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    /** What the settle-up prompt came back with. Cancelling is not the same as saying "no chapter". */
+    private sealed interface ChapterChoice {
+        data class Picked(val chapterId: Long?) : ChapterChoice
+        data object Cancelled : ChapterChoice
+    }
+
+    /**
+     * R18. Money straight between two people who are both in an open, unsettled chapter is very
+     * likely settling it up -- and if it is, the chapter has to know, or its plan will keep asking
+     * for a payment that has already been made.
+     */
+    private suspend fun askAboutSettleUp(candidates: List<ChapterOption>): ChapterChoice =
+        suspendCancellableCoroutine { continuation ->
+            val labels = (candidates.map { it.chapter.name } + "Not for a chapter").toTypedArray()
+            val dialog = AlertDialog.Builder(this)
+                .setTitle("Is this settling up?")
+                .setItems(labels) { _, which ->
+                    val id = if (which == candidates.size) null else candidates[which].chapter.id
+                    if (continuation.isActive) continuation.resume(ChapterChoice.Picked(id)) {  _, _, _ -> }
+                }
+                .setOnCancelListener {
+                    if (continuation.isActive) continuation.resume(ChapterChoice.Cancelled) { _, _, _ -> }
+                }
+                .create()
+            continuation.invokeOnCancellation { dialog.dismiss() }
+            dialog.show()
+        }
+
+    /**
+     * Asks about a settle-up when one is on the cards, and returns whether to go on saving.
+     *
+     * Skipped when a chapter is already chosen -- the question has been answered -- and when the
+     * shape is not money straight between two people who share a chapter.
+     */
+    private suspend fun resolveChapterBeforeSaving(db: AppDatabase, amountPaise: Long): Boolean {
+        if (isTransferMode() || selectedChapterId != null) return true
+        val provisional = provisionalTransaction(amountPaise) ?: return true
+        val candidates = ChapterPrompt.settleUpCandidates(provisional, emptyList(), chapterOptions)
+        if (candidates.isEmpty()) return true
+
+        return when (val choice = askAboutSettleUp(candidates)) {
+            is ChapterChoice.Picked -> {
+                selectedChapterId = choice.chapterId
+                renderChapterField()
+                true
+            }
+            ChapterChoice.Cancelled -> false
+        }
+    }
+
+    /**
+     * The transaction as it stands on screen, good enough to ask [ChapterPrompt] about.
+     *
+     * Only the settle-up shape is being tested, so the two ends and the amount are the whole of
+     * what matters; anything with a share row is not that shape and returns null early.
+     */
+    private fun provisionalTransaction(amountPaise: Long): Transaction? {
+        if (buildSharesForPersistence(0L).isNotEmpty()) return null
+        return Transaction(
+            id = currentTransaction?.id ?: 0L,
+            amountPaise = amountPaise,
+            payerActorType = payerActorType,
+            payerFriendId = payerFriendId,
+            payeeActorType = payeeActorType,
+            payeeFriendId = payeeFriendId,
+            dateEpoch = selectedDateEpoch,
+            source = currentTransaction?.source ?: "MANUAL",
+            chapterId = null
+        )
+    }
+
+    private suspend fun chapterMemberIds(db: AppDatabase, chapterId: Long?): Set<Long> {
+        if (chapterId == null) return emptySet()
+        return withContext(Dispatchers.IO) { db.chapterDao().memberIds(chapterId).toSet() }
+    }
+
+    /** R5: tagging pulls everyone in a transaction into the chapter, so say who that was. */
+    private suspend fun reportAddedMembers(db: AppDatabase, before: Set<Long>) {
+        val chapterId = selectedChapterId ?: return
+        val names = withContext(Dispatchers.IO) {
+            val after = db.chapterDao().memberIds(chapterId).toSet()
+            val chapterName = db.chapterDao().getById(chapterId)?.name
+            (after - before).mapNotNull { db.friendDao().getFriendById(it)?.name } to chapterName
+        }
+        val (added, chapterName) = names
+        if (added.isNotEmpty() && chapterName != null) {
+            toast("Added ${added.joinToString(", ")} to $chapterName")
+        }
+    }
+
     private suspend fun persistTransaction(
         db: AppDatabase,
         amountPaise: Long,
@@ -1888,7 +2089,8 @@ class TransactionEntryActivity : AppCompatActivity() {
                 selectedAccountId = accountIdForPersistence(),
                 dateEpoch = selectedDateEpoch,
                 description = etDescription.text.toString().trim().ifEmpty { null },
-                refundsTransactionId = refundsTransactionId
+                refundsTransactionId = refundsTransactionId,
+                chapterId = selectedChapterId
             ),
             resolveActors = {
                 val payer = resolveActor(db, true, payerActorType, payerLabel)

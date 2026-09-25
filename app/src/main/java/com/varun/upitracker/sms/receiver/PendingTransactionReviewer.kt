@@ -2,6 +2,9 @@ package com.varun.upitracker.sms.receiver
 
 import android.content.Context
 import com.varun.upitracker.database.AppDatabase
+import com.varun.upitracker.data.repository.ChapterRepository
+import com.varun.upitracker.domain.chapter.ChapterOption
+import com.varun.upitracker.domain.chapter.ChapterPrompt
 import com.varun.upitracker.domain.iou.IouLegs
 import com.varun.upitracker.domain.transactionentry.persistence.LedgerPostingService
 import com.varun.upitracker.domain.transactionentry.validation.PendingReviewRules
@@ -25,14 +28,19 @@ object PendingTransactionReviewer {
         val db = AppDatabase.getInstance(context)
         val tx = withContext(Dispatchers.IO) { db.transactionDao().getTransactionById(transactionId) } ?: return false
         if (!tx.isPending) return true
-        // A tagged transaction posts nothing to the base ledger, and confirming it has to recompute
-        // its chapter. Both are the entry screen's business -- and the screen is also where the user
-        // can see which chapter they are confirming into.
-        if (tx.chapterId != null) return false
         if (!PendingReviewRules.canAutoReview(tx)) return false
 
         val shares = withContext(Dispatchers.IO) { db.transactionShareDao().getSharesForTransaction(tx.id) }
         if (!PendingReviewRules.sharesAreValid(tx, shares)) return false
+
+        // Confirming from a notification posts straight to the ledger and never shows a chapter. So
+        // anything a chapter would be chosen for has to go to the entry screen, where the user can
+        // see the choice being made for them and say otherwise.
+        val chapterOptions = withContext(Dispatchers.IO) { chapterOptions(db) }
+        val originalOfRefund = withContext(Dispatchers.IO) {
+            tx.refundsTransactionId?.let { db.transactionDao().getTransactionById(it) }
+        }
+        if (ChapterPrompt.needsEntryScreen(tx, shares, chapterOptions, originalOfRefund)) return false
 
         return withContext(Dispatchers.IO) {
             db.runInTransaction<Boolean> {
@@ -51,6 +59,17 @@ object PendingTransactionReviewer {
                     true
                 }
             }
+        }
+    }
+
+    private suspend fun chapterOptions(db: AppDatabase): List<ChapterOption> {
+        val repository = ChapterRepository(db)
+        return db.chapterDao().getOpen().map { chapter ->
+            ChapterOption(
+                chapter = chapter,
+                memberIds = db.chapterDao().memberIds(chapter.id).toSet(),
+                settled = repository.resultFor(chapter.id).settled
+            )
         }
     }
 }

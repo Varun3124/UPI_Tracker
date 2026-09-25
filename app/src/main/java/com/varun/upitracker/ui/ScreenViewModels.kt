@@ -435,7 +435,7 @@ class FriendDetailViewModel(context: Context) : ViewModel() {
             val current = _uiState.value ?: FriendDetailUiState()
             _uiState.value = FriendDetailUiState(isLoading = true)
             _uiState.value = withContext(Dispatchers.IO) {
-                val transactions = db.transactionDao().getTransactionsForFriendSync(friendId)
+                val transactions = db.transactionDao().getUntaggedTransactionsForFriendSync(friendId)
                 val eligibility = exportRepository.eligibility(transactions)
                 FriendDetailUiState(
                     isLoading = false,
