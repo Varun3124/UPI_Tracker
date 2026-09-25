@@ -348,9 +348,9 @@ interface TransactionDao {
      * Everything the base ledger should hold for these friends, oldest first.
      *
      * Tagged rows are excluded because their effect reaches a balance through `chapter_balances`
-     * instead (R15). "Involves" mirrors [getTransactionsForFriendSync]: either end, a sided share,
-     * or an existing entry -- the last of which catches a friend whose only trace is an entry an
-     * edit has since orphaned.
+     * instead (R15). "Involves" means either end, a sided share, or an existing entry -- the last of
+     * which catches a friend whose only trace is an entry an edit has since orphaned.
+     * [getUntaggedTransactionsForFriendSync] asks the same question for the friend page.
      *
      * The `isPending = 0 OR EXISTS(...)` is load-bearing, not caution. CategorySplitBackfill and
      * MerchantCreditReviewBackfill both flip already-reviewed rows back to pending *without*
@@ -399,24 +399,6 @@ interface TransactionDao {
         """
     )
     suspend fun getUntaggedTransactionsForFriendSync(friendId: Long): List<com.varun.upitracker.database.entity.Transaction>
-
-    @Query(
-        """
-        SELECT DISTINCT t.* FROM transactions t
-        LEFT JOIN iou_entries i
-            ON t.id = i.transactionId
-           AND i.friendId = :friendId
-        LEFT JOIN transaction_shares s
-            ON t.id = s.transactionId
-           AND s.friendId = :friendId
-        WHERE t.payerFriendId = :friendId
-           OR t.payeeFriendId = :friendId
-           OR i.friendId = :friendId
-           OR s.friendId = :friendId
-        ORDER BY t.dateEpoch DESC, t.id DESC
-        """
-    )
-    suspend fun getTransactionsForFriendSync(friendId: Long): List<com.varun.upitracker.database.entity.Transaction>
 
     @Query(
         """

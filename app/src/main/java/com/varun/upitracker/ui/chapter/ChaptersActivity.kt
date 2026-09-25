@@ -76,7 +76,6 @@ class ChaptersActivity : AppCompatActivity() {
 
     private fun showCreateDialog() {
         val nameInput = EditText(this).apply {
-            hint = "Goa trip"
             setSingleLine()
         }
         val checked = BooleanArray(friends.size)
