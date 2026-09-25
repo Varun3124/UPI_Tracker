@@ -25,6 +25,10 @@ object PendingTransactionReviewer {
         val db = AppDatabase.getInstance(context)
         val tx = withContext(Dispatchers.IO) { db.transactionDao().getTransactionById(transactionId) } ?: return false
         if (!tx.isPending) return true
+        // A tagged transaction posts nothing to the base ledger, and confirming it has to recompute
+        // its chapter. Both are the entry screen's business -- and the screen is also where the user
+        // can see which chapter they are confirming into.
+        if (tx.chapterId != null) return false
         if (!PendingReviewRules.canAutoReview(tx)) return false
 
         val shares = withContext(Dispatchers.IO) { db.transactionShareDao().getSharesForTransaction(tx.id) }

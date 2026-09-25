@@ -265,16 +265,32 @@ class SettingsRepository(private val context: Context) {
             }
             db.mailboxDao().moveLink(source.id, target.id)
         }
+        // Gathered before anything moves: the memberships about to be rewritten are what says which
+        // chapters have to work their plans out again.
+        val affectedChapters = db.chapterDao().chapterIdsForFriends(listOf(source.id, target.id)).toSet()
+
         db.mailboxDao().reassignInvites(source.id, target.id)
         db.mailboxDao().reassignDeliveries(source.id, target.id)
         db.transactionDao().reassignPayerFriend(source.id, target.id)
         db.transactionDao().reassignPayeeFriend(source.id, target.id)
         db.transactionShareDao().reassignFriend(source.id, target.id)
         db.iouDao().reassignFriend(source.id, target.id)
+        // `chapter_members` is keyed on (chapterId, friendId), so a plain UPDATE would collide
+        // wherever both friends are already in the same chapter. Drop the source's duplicates first
+        // and only the rows with no counterpart are left to move.
+        db.chapterDao().dropDuplicateMemberships(source.id, target.id)
+        db.chapterDao().reassignMemberships(source.id, target.id)
+        // Derived, and rebuilt by the recompute below. It also has to go before `deleteFriend`.
+        db.chapterDao().deleteBalancesForFriend(source.id)
         db.friendDao().moveAllRawNames(source.id, target.id)
         db.friendDao().moveAllUpiIds(source.id, target.id)
         db.friendDao().updateFriend(target.copy(name = targetName, avatarInitials = aliasInitials(targetName)))
         db.friendDao().deleteFriend(source)
+
+        // After the merge, so the actors and shares the plans are worked out from already name the
+        // friend that survived.
+        val chapters = ChapterRepository(db)
+        affectedChapters.forEach { chapters.recomputeInTransaction(it) }
     }
 
     private suspend fun mergeMerchantInto(source: Merchant, target: Merchant, targetName: String) {
@@ -296,7 +312,10 @@ class SettingsRepository(private val context: Context) {
     private suspend fun friendHasHistory(friendId: Long): Boolean {
         return db.transactionDao().countReferencesForFriend(friendId) > 0 ||
             db.iouDao().countEntriesForFriend(friendId) > 0 ||
-            db.transactionShareDao().countForFriend(friendId) > 0
+            db.transactionShareDao().countForFriend(friendId) > 0 ||
+            // Belonging to a chapter is history too: it is something the user stated, and the
+            // RESTRICT on chapter_members would refuse the delete anyway -- with a far worse message.
+            db.chapterDao().countMembershipsForFriend(friendId) > 0
     }
 
     private suspend fun merchantHasHistory(merchantId: Long): Boolean {

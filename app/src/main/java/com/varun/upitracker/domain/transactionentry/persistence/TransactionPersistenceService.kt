@@ -5,6 +5,7 @@ import com.varun.upitracker.database.entity.IouRecovery
 import com.varun.upitracker.database.entity.LedgerEffect
 import com.varun.upitracker.database.entity.Transaction
 import com.varun.upitracker.database.entity.TransactionShare
+import com.varun.upitracker.data.repository.RepositoryChapterSync
 import com.varun.upitracker.domain.iou.IouLegs
 import com.varun.upitracker.ledger.LedgerManager
 import com.varun.upitracker.ui.ActorRef
@@ -16,11 +17,17 @@ data class PersistTransactionRequest(
     val selectedAccountId: String?,
     val dateEpoch: Long,
     val description: String? = null,
-    val refundsTransactionId: Long? = null
+    val refundsTransactionId: Long? = null,
+
+    /** The chapter this transaction should end up in, or null for the base ledger. */
+    val chapterId: Long? = null
 )
 
 class TransactionPersistenceService(
-    private val ledgerPostingService: LedgerPostingService = LedgerPostingService()
+    private val ledgerPostingService: LedgerPostingService = LedgerPostingService(),
+    // Defaults to the real one so every existing call site gets chapter handling without opting in:
+    // a save path that quietly skipped it would leave a chapter's balances stale.
+    private val chapterSync: ChapterSync = RepositoryChapterSync
 ) {
 
     /**
@@ -58,6 +65,12 @@ class TransactionPersistenceService(
                 )
                 val ledgerEffect = IouLegs.ledgerEffect(payer, payee, shares, request.amountPaise, iouRecovery)
 
+                // Before any write, so the refusal costs nothing and so the friends who are about to
+                // be replayed can still be read off the row as it stands.
+                val previousChapterId = tx?.chapterId
+                val chapterId = request.chapterId
+                val friendsBefore = chapterSync.prepare(db, tx, shares, chapterId)
+
                 val base = buildTransactionEntity(tx, request, payer, payee, ledgerEffect, iouRecovery)
                 val transactionId = if (tx == null) {
                     db.transactionDao().insert(base)
@@ -74,10 +87,18 @@ class TransactionPersistenceService(
                 if (persistedShares.isNotEmpty()) db.transactionShareDao().insertAll(persistedShares)
 
                 persistCategories(transactionId, toCategorisePaise, payer, payee)
-                ledgerPostingService.postLedger(
-                    LedgerManager(db), transactionId, payer, payee, persistedShares,
-                    request.amountPaise, ledgerEffect, iouRecovery
-                )
+
+                // A tagged transaction posts nothing here: its effect reaches a friend's balance
+                // through `chapter_balances` instead (R15). When it has just crossed between the two
+                // books, the replay inside `afterPersist` reposts it along with everything else the
+                // base ledger holds for those friends, so posting it again here would double it.
+                if (chapterId == null && previousChapterId == null) {
+                    ledgerPostingService.postLedger(
+                        LedgerManager(db), transactionId, payer, payee, persistedShares,
+                        request.amountPaise, ledgerEffect, iouRecovery
+                    )
+                }
+                chapterSync.afterPersist(db, transactionId, previousChapterId, chapterId, friendsBefore)
                 persistedTransactionId = transactionId
             }
         }
@@ -109,7 +130,8 @@ class TransactionPersistenceService(
             isPending = false,
             refundsTransactionId = request.refundsTransactionId,
             ledgerEffect = ledgerEffect,
-            iouRecovery = iouRecovery
+            iouRecovery = iouRecovery,
+            chapterId = request.chapterId
         )).copy(
             amountPaise = request.amountPaise,
             payerActorType = payer.actorType,
@@ -128,7 +150,10 @@ class TransactionPersistenceService(
             // non-null and only the fields named in this copy survive.
             refundsTransactionId = request.refundsTransactionId,
             ledgerEffect = ledgerEffect,
-            iouRecovery = iouRecovery
+            iouRecovery = iouRecovery,
+            // Named here too, for the reason above it: on an edit `tx` is non-null and a chapter
+            // change would otherwise be silently dropped.
+            chapterId = request.chapterId
         )
     }
 }

@@ -9,6 +9,7 @@ import androidx.lifecycle.viewModelScope
 import androidx.room.withTransaction
 import com.varun.upitracker.data.repository.AccountMutationException
 import com.varun.upitracker.data.repository.AccountRepository
+import com.varun.upitracker.data.repository.ChapterRepository
 import com.varun.upitracker.data.repository.LedgerRepository
 import com.varun.upitracker.data.repository.ParcelExportRepository
 import com.varun.upitracker.data.repository.SettingsRepository
@@ -360,8 +361,12 @@ class AllTransactionsViewModel(context: Context) : ViewModel() {
             }
             withContext(Dispatchers.IO) {
                 db.withTransaction {
+                    // Read before the row goes. A tagged transaction owns no iou_entries, so there
+                    // is nothing to replay -- but its chapter's plan has to be worked out again.
+                    val chapterId = db.transactionDao().getTransactionById(transactionId)?.chapterId
                     db.transactionShareDao().deleteForTransaction(transactionId)
                     db.transactionDao().deleteById(transactionId)
+                    chapterId?.let { ChapterRepository(db).recomputeInTransaction(it) }
                 }
             }
             loadCurrentMonth()
@@ -575,8 +580,12 @@ class FriendDetailViewModel(context: Context) : ViewModel() {
             }
             withContext(Dispatchers.IO) {
                 db.withTransaction {
+                    // Read before the row goes. A tagged transaction owns no iou_entries, so there
+                    // is nothing to replay -- but its chapter's plan has to be worked out again.
+                    val chapterId = db.transactionDao().getTransactionById(transactionId)?.chapterId
                     db.transactionShareDao().deleteForTransaction(transactionId)
                     db.transactionDao().deleteById(transactionId)
+                    chapterId?.let { ChapterRepository(db).recomputeInTransaction(it) }
                 }
             }
             load(friendId)

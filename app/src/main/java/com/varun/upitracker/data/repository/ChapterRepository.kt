@@ -12,6 +12,7 @@ import com.varun.upitracker.domain.chapter.ChapterEligibility
 import com.varun.upitracker.domain.chapter.ChapterMath
 import com.varun.upitracker.domain.chapter.ChapterResult
 import com.varun.upitracker.domain.chapter.TaggedTx
+import com.varun.upitracker.domain.transactionentry.persistence.ChapterSync
 import com.varun.upitracker.ledger.LedgerManager
 import com.varun.upitracker.ledger.LedgerReplayer
 import com.varun.upitracker.ledger.RoomReplaySource
@@ -174,10 +175,18 @@ class ChapterRepository(private val db: AppDatabase) {
      * crossed between the base ledger and a chapter -- moving from one chapter to another never
      * touched `iou_entries`, and neither did a row being created for the first time.
      */
-    suspend fun applyChapterChangeInTransaction(transactionId: Long, previous: Long?, current: Long?) {
+    suspend fun applyChapterChangeInTransaction(
+        transactionId: Long,
+        previous: Long?,
+        current: Long?,
+        alsoReplay: Set<Long> = emptySet()
+    ) {
         val refundIds = db.transactionDao().getRefundIdsForOriginal(transactionId)
         val rows = rowsFor(listOf(transactionId) + refundIds)
-        val friends = affectedFriends(rows.map { it.transaction })
+        // [alsoReplay] is whoever was on the row before a save changed it. They can no longer be
+        // read off the transaction, and their entries for it are already gone, so the caller has to
+        // have captured them first.
+        val friends = affectedFriends(rows.map { it.transaction }) + alsoReplay
 
         db.transactionDao().setChapter(transactionId, current)
         db.transactionDao().setChapterForRefundsOf(transactionId, current)
@@ -255,4 +264,46 @@ class ChapterRepository(private val db: AppDatabase) {
 
     private suspend fun requireChapter(chapterId: Long): Chapter =
         db.chapterDao().getById(chapterId) ?: throw ChapterException("That chapter is gone")
+}
+
+/**
+ * [ChapterSync] backed by [ChapterRepository]. The default for every save.
+ *
+ * Constructs the repository from the database handed to it, the way the save path already
+ * constructs [com.varun.upitracker.ledger.LedgerManager] inline -- `persist` takes its database as
+ * an argument rather than holding one.
+ */
+object RepositoryChapterSync : ChapterSync {
+
+    override suspend fun prepare(
+        db: AppDatabase,
+        existing: Transaction?,
+        shares: List<com.varun.upitracker.database.entity.TransactionShare>,
+        chapterId: Long?
+    ): Set<Long> {
+        val repository = ChapterRepository(db)
+        // R8: a row already sitting in a closed chapter is frozen, whatever the save wants.
+        repository.assertNotLockedByClosedChapter(existing?.chapterId)
+        if (chapterId != null) {
+            val subject = existing ?: return emptySet()
+            repository.assertTaggable(subject, shares, chapterId)
+        }
+        return existing?.let { repository.affectedFriends(listOf(it)) } ?: emptySet()
+    }
+
+    override suspend fun afterPersist(
+        db: AppDatabase,
+        transactionId: Long,
+        previous: Long?,
+        current: Long?,
+        friendsBefore: Set<Long>
+    ) {
+        if (previous == null && current == null) return
+        ChapterRepository(db).applyChapterChangeInTransaction(
+            transactionId = transactionId,
+            previous = previous,
+            current = current,
+            alsoReplay = friendsBefore
+        )
+    }
 }
