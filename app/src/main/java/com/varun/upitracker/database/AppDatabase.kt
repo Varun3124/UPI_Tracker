@@ -12,6 +12,7 @@ import com.varun.upitracker.database.dao.AccountTransferDao
 import com.varun.upitracker.database.dao.BalanceSnapshotDao
 import com.varun.upitracker.database.dao.BudgetDao
 import com.varun.upitracker.database.dao.CategoryDao
+import com.varun.upitracker.database.dao.ChapterDao
 import com.varun.upitracker.database.dao.FixedDepositDao
 import com.varun.upitracker.database.dao.FriendDao
 import com.varun.upitracker.database.dao.IouDao
@@ -25,6 +26,9 @@ import com.varun.upitracker.database.entity.AccountTransfer
 import com.varun.upitracker.database.entity.BalanceSnapshot
 import com.varun.upitracker.database.entity.BudgetSettings
 import com.varun.upitracker.database.entity.Category
+import com.varun.upitracker.database.entity.Chapter
+import com.varun.upitracker.database.entity.ChapterBalance
+import com.varun.upitracker.database.entity.ChapterMember
 import com.varun.upitracker.database.entity.CategoryKind
 import com.varun.upitracker.database.entity.FixedDepositDetail
 import com.varun.upitracker.database.entity.Friend
@@ -68,9 +72,12 @@ import kotlinx.coroutines.launch
         FriendLink::class,
         LinkInvite::class,
         MailboxMessage::class,
-        TransactionDelivery::class
+        TransactionDelivery::class,
+        Chapter::class,
+        ChapterMember::class,
+        ChapterBalance::class
     ],
-    version = 19,
+    version = 20,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -81,6 +88,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun balanceSnapshotDao(): BalanceSnapshotDao
     abstract fun budgetDao(): BudgetDao
     abstract fun categoryDao(): CategoryDao
+    abstract fun chapterDao(): ChapterDao
     abstract fun fixedDepositDao(): FixedDepositDao
     abstract fun friendDao(): FriendDao
     abstract fun iouDao(): IouDao
@@ -499,6 +507,62 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Chapters: private group IOU tracking. Three tables and one column.
+         *
+         * Every column is INTEGER or TEXT because [com.varun.upitracker.data.backup.DatabaseDumpRepository]
+         * refuses to back up anything else -- and within that limit it picks up new tables with no
+         * change of its own. Restore order needs no work either: it holds foreign keys until COMMIT
+         * with `PRAGMA defer_foreign_keys`, which is what makes its alphabetical table order legal.
+         *
+         * `transactions.chapterId` is nullable with no DEFAULT, so an older backup restored into this
+         * schema lands every row untagged -- exactly as it was before chapters existed.
+         */
+        private val MIGRATION_19_20 = object : Migration(19, 20) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Nullable, no DEFAULT, not a foreign key: ADD COLUMN is legal outright, as in 14->15.
+                // A foreign key here would mean rebuilding `transactions`; the app untags every row
+                // before deleting a chapter instead.
+                if (!hasColumn(db, "transactions", "chapterId")) {
+                    db.execSQL("ALTER TABLE `transactions` ADD COLUMN `chapterId` INTEGER")
+                }
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_transactions_chapterId` " +
+                        "ON `transactions` (`chapterId`)"
+                )
+
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `chapters` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`name` TEXT NOT NULL, `createdEpoch` INTEGER NOT NULL, `state` TEXT NOT NULL, " +
+                        "`closedEpoch` INTEGER, `isActive` INTEGER NOT NULL, `notes` TEXT)"
+                )
+
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `chapter_members` (`chapterId` INTEGER NOT NULL, " +
+                        "`friendId` INTEGER NOT NULL, `addedEpoch` INTEGER NOT NULL, " +
+                        "PRIMARY KEY(`chapterId`, `friendId`), " +
+                        "FOREIGN KEY(`chapterId`) REFERENCES `chapters`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE , " +
+                        "FOREIGN KEY(`friendId`) REFERENCES `friends`(`id`) ON UPDATE NO ACTION ON DELETE RESTRICT )"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_chapter_members_friendId` " +
+                        "ON `chapter_members` (`friendId`)"
+                )
+
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `chapter_balances` (`chapterId` INTEGER NOT NULL, " +
+                        "`friendId` INTEGER NOT NULL, `amountPaise` INTEGER NOT NULL, " +
+                        "PRIMARY KEY(`chapterId`, `friendId`), " +
+                        "FOREIGN KEY(`chapterId`) REFERENCES `chapters`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE , " +
+                        "FOREIGN KEY(`friendId`) REFERENCES `friends`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_chapter_balances_friendId` " +
+                        "ON `chapter_balances` (`friendId`)"
+                )
+            }
+        }
+
         private fun hasColumn(db: SupportSQLiteDatabase, table: String, column: String): Boolean {
             db.query("PRAGMA table_info(`$table`)").use { cursor ->
                 val nameColumnIndex = cursor.getColumnIndex("name")
@@ -530,7 +594,8 @@ abstract class AppDatabase : RoomDatabase() {
                     .addMigrations(
                         MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12,
                         MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16,
-                        MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19
+                        MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19,
+                        MIGRATION_19_20
                     )
                     .addCallback(object : Callback() {
                         override fun onCreate(db: SupportSQLiteDatabase) {

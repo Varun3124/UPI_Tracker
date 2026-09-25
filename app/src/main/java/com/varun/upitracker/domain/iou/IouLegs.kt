@@ -245,6 +245,33 @@ object IouLegs {
         )
     }
 
+    /**
+     * The shape that settles up directly -- two ends and nothing split at all -- as (payer, payee),
+     * or null when this is not that shape. Non-null means exactly one leg: the payee owes the payer
+     * the whole amount.
+     *
+     * The test is `shares.isEmpty()`, deliberately, and not "no share carries a side". A legacy
+     * sideless split says nothing about who owes what, so [legs] posts nothing for it -- and so must
+     * anything claiming to agree with [legs]. Deriving it the other way would give a tagged
+     * transaction a contribution the base ledger never had, and tagging it would silently move a
+     * balance. See docs/chapters-design.md R13.
+     *
+     * [com.varun.upitracker.domain.transactionentry.persistence.LedgerPostingService] reads its two
+     * settle-up branches off this, and [com.varun.upitracker.domain.chapter.ChapterMath] reads the
+     * chapter's single leg off it, so the two cannot drift apart.
+     */
+    fun directPaymentParties(
+        payer: ActorRef,
+        payee: ActorRef,
+        shares: List<TransactionShare>,
+        amountPaise: Long
+    ): Pair<IouParty, IouParty>? {
+        if (shares.isNotEmpty() || amountPaise <= 0L) return null
+        val payerParty = partyOf(payer)
+        val payeeParty = partyOf(payee)
+        return if (payerParty == payeeParty) null else payerParty to payeeParty
+    }
+
     fun partyOf(actor: ActorRef): IouParty = when (actor.actorType) {
         ActorType.ME -> IouParty.Me
         ActorType.FRIEND -> actor.friendId?.let { IouParty.Friend(it) } ?: IouParty.Person(actor.rawLabel)

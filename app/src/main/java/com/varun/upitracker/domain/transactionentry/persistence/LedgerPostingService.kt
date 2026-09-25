@@ -4,9 +4,9 @@ import com.varun.upitracker.database.entity.IouRecovery
 import com.varun.upitracker.database.entity.LedgerEffect
 import com.varun.upitracker.database.entity.TransactionShare
 import com.varun.upitracker.domain.iou.IouLegs
+import com.varun.upitracker.domain.iou.IouParty
 import com.varun.upitracker.ledger.LedgerPort
 import com.varun.upitracker.ui.ActorRef
-import com.varun.upitracker.ui.ActorType
 
 class LedgerPostingService {
 
@@ -32,22 +32,20 @@ class LedgerPostingService {
         // as a repayment and settle debt the friend still genuinely owes.
         if (ledgerEffect == LedgerEffect.NONE) return
 
-        if (payer.actorType == ActorType.FRIEND
-            && payee.actorType == ActorType.ME
-            && shares.isEmpty()
-            && payer.friendId != null
-        ) {
-            ledger.applyRepayment(transactionId, payer.friendId, amountPaise)
-            return
-        }
-
-        if (payer.actorType == ActorType.ME
-            && payee.actorType == ActorType.FRIEND
-            && shares.isEmpty()
-            && payee.friendId != null
-        ) {
-            ledger.applyOutgoingSettlement(transactionId, payee.friendId, amountPaise)
-            return
+        // Read off IouLegs so a chapter deriving the same shape cannot disagree with what was
+        // posted here. The two ends being a known friend and ME is exactly what the explicit
+        // actorType/friendId checks used to say.
+        val direct = IouLegs.directPaymentParties(payer, payee, shares, amountPaise)
+        if (direct != null) {
+            val (payerParty, payeeParty) = direct
+            if (payerParty is IouParty.Friend && payeeParty == IouParty.Me) {
+                ledger.applyRepayment(transactionId, payerParty.friendId, amountPaise)
+                return
+            }
+            if (payerParty == IouParty.Me && payeeParty is IouParty.Friend) {
+                ledger.applyOutgoingSettlement(transactionId, payeeParty.friendId, amountPaise)
+                return
+            }
         }
 
         val legs = IouLegs.legs(payer, payee, shares, amountPaise, ledgerEffect, iouRecovery)

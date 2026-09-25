@@ -69,7 +69,8 @@ import androidx.room.PrimaryKey
         // Every date-range query filters on this alone. Without it, and with no ANALYZE to build
         // sqlite_stat1, the planner reaches for index_transactions_refundsTransactionId instead --
         // a nonsense choice for a date range, and measurably slower than a plain scan would be.
-        Index("dateEpoch")
+        Index("dateEpoch"),
+        Index("chapterId")
     ]
 )
 data class Transaction(
@@ -143,5 +144,19 @@ data class Transaction(
      * the rows it still has to bring forward. Read it through
      * [com.varun.upitracker.domain.iou.IouLegs.resolve], which covers that gap.
      */
-    val iouRecovery: IouRecovery? = IouRecovery.FROM_SECONDARY_PAYERS
+    val iouRecovery: IouRecovery? = IouRecovery.FROM_SECONDARY_PAYERS,
+
+    /**
+     * The chapter this transaction belongs to, or null for the base ledger. A transaction is in at
+     * most one chapter.
+     *
+     * Deliberately not a foreign key: SQLite cannot add one with ALTER TABLE ADD COLUMN, and
+     * rebuilding this table to gain it is not worth it. `ChapterRepository.delete` untags every row
+     * before deleting the chapter, so nothing is left pointing at one that has gone.
+     *
+     * A tagged transaction posts nothing to `iou_entries`. Its effect reaches a friend's balance
+     * only through `chapter_balances`, so anything that moves this column has to replay the base
+     * ledger for the friends involved -- see `LedgerReplayer`.
+     */
+    val chapterId: Long? = null
 )
