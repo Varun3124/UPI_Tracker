@@ -17,6 +17,8 @@ import com.varun.upitracker.maintenance.MailboxCollection
 import com.varun.upitracker.sms.SmsBacklogScanner
 import com.varun.upitracker.ui.LedgerEntry
 import kotlinx.coroutines.Dispatchers
+import com.varun.upitracker.data.repository.ChapterRepository
+import com.varun.upitracker.domain.chapter.ChapterParty
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -30,7 +32,18 @@ data class DashboardUiState(
     /** Parcels and invite replies from friends, collected and not yet looked at. */
     val mailboxWaiting: Int = 0,
     /** Whether this phone is signed in to the friends mailbox, which is what puts the bell there. */
-    val mailboxOn: Boolean = false
+    val mailboxOn: Boolean = false,
+    /** Open chapters, so the dashboard can show where group money stands without opening one. */
+    val chapters: List<DashboardChapter> = emptyList()
+)
+
+/** One open chapter, reduced to what a dashboard row needs. */
+data class DashboardChapter(
+    val chapterId: Long,
+    val name: String,
+    val myNetPaise: Long,
+    val settled: Boolean,
+    val isActive: Boolean
 )
 
 class DashboardViewModel(private val context: Context) : ViewModel() {
@@ -57,7 +70,19 @@ class DashboardViewModel(private val context: Context) : ViewModel() {
                     accountLabels = db.accountDao().getAllSync().associate { it.id to it.label },
                     iouSummaries = LedgerRepository(db).getAllSummaries(),
                     mailboxWaiting = db.mailboxDao().countInState(MailboxMessageState.NEW),
-                    mailboxOn = identities.isSignedIn()
+                    mailboxOn = identities.isSignedIn(),
+                    chapters = ChapterRepository(db).let { chapters ->
+                        db.chapterDao().getOpen().map { chapter ->
+                            val result = chapters.resultFor(chapter.id)
+                            DashboardChapter(
+                                chapterId = chapter.id,
+                                name = chapter.name,
+                                myNetPaise = result.nets[ChapterParty.Me] ?: 0L,
+                                settled = result.settled,
+                                isActive = chapter.isActive
+                            )
+                        }
+                    }
                 )
             }
             _uiState.value = state

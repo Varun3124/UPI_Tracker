@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- One line of a chapter's plan or balances: a sentence on the left, an amount on the right. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="horizontal"
+    android:gravity="center_vertical"
+    android:paddingTop="@dimen/space_s"
+    android:paddingBottom="@dimen/space_s">
+
+    <TextView
+        android:id="@+id/tvChapterLineLabel"
+        android:layout_width="0dp"
+        android:layout_height="wrap_content"
+        android:layout_weight="1"
+        android:ellipsize="end"
+        android:maxLines="2" />
+
+    <TextView
+        android:id="@+id/tvChapterLineAmount"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="@dimen/space_s"
+        android:textAppearance="@style/TextAppearance.UPI.Amount.Medium" />
+</LinearLayout>

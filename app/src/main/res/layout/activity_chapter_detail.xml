@@ -1,0 +1,128 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/main"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="?android:attr/colorBackground">
+
+    <LinearLayout
+        style="@style/Widget.UPI.TopBar">
+
+        <ImageButton
+            android:id="@+id/btnBackChapterDetail"
+            style="@style/Widget.UPI.IconButton"
+            android:src="@drawable/ic_arrow_back"
+            android:contentDescription="@string/cd_back" />
+
+        <TextView
+            android:id="@+id/tvChapterDetailTitle"
+            style="@style/Widget.UPI.TopBarTitle"
+            android:text="Chapter" />
+
+        <ImageButton
+            android:id="@+id/btnChapterOverflow"
+            style="@style/Widget.UPI.IconButton"
+            android:src="@drawable/ic_more_vert"
+            android:contentDescription="@string/cd_chapter_overflow" />
+    </LinearLayout>
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:fillViewport="true">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="12dp">
+
+            <TextView
+                android:id="@+id/tvChapterDetailState"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="@dimen/space_s"
+                android:textAppearance="@style/TextAppearance.UPI.Label" />
+
+            <CheckBox
+                android:id="@+id/switchChapterActive"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="@dimen/space_s"
+                android:text="Add new transactions to this chapter" />
+
+            <TextView
+                style="@style/TextAppearance.UPI.SectionHeader"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="Who pays whom" />
+
+            <TextView
+                android:id="@+id/tvChapterPlanEmpty"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingTop="@dimen/space_s"
+                android:paddingBottom="@dimen/space_s"
+                android:text="Nobody owes anybody."
+                android:textColor="?attr/appTextMuted"
+                android:textSize="13sp" />
+
+            <LinearLayout
+                android:id="@+id/chapterPlanContainer"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical" />
+
+            <TextView
+                style="@style/TextAppearance.UPI.SectionHeader"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_m"
+                android:text="Balances" />
+
+            <LinearLayout
+                android:id="@+id/chapterBalancesContainer"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical" />
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_m"
+                android:orientation="horizontal"
+                android:gravity="center_vertical">
+
+                <TextView
+                    style="@style/TextAppearance.UPI.SectionHeader"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="Transactions" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnAddChapterTransactions"
+                    style="@style/Widget.UPI.Button.Text"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Add" />
+            </LinearLayout>
+
+            <TextView
+                android:id="@+id/tvChapterTransactionsEmpty"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:paddingTop="@dimen/space_s"
+                android:text="Nothing tagged here yet."
+                android:textColor="?attr/appTextMuted"
+                android:textSize="13sp" />
+
+            <LinearLayout
+                android:id="@+id/chapterTransactionsContainer"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical" />
+        </LinearLayout>
+    </ScrollView>
+</LinearLayout>

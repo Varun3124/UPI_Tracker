@@ -82,6 +82,9 @@
         <activity android:name=".ui.CategorySettingsActivity" android:exported="false" />
         <activity android:name=".ui.AliasMappingsActivity" android:exported="false" />
         <activity android:name=".ui.FriendDetailActivity" android:exported="false" />
+        <activity android:name=".ui.chapter.ChaptersActivity" android:exported="false" />
+        <activity android:name=".ui.chapter.ChapterDetailActivity" android:exported="false" />
+        <activity android:name=".ui.chapter.ChapterAddTransactionsActivity" android:exported="false" />
         <activity android:name=".ui.AllTransactionsActivity" android:exported="false" />
         <activity android:name=".ui.statistics.StatisticsActivity" android:exported="false" />
         <activity android:name=".ui.onboarding.OnboardingActivity" android:exported="false" />

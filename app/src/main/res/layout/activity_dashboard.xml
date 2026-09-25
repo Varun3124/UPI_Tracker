@@ -291,6 +291,29 @@
                 android:layout_marginTop="@dimen/space_s"
                 android:text="Show insignificant"
                 android:textColor="?attr/appTextMuted" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_xl"
+                android:layout_marginBottom="@dimen/space_m"
+                android:text="Chapters"
+                android:textAppearance="@style/TextAppearance.UPI.SectionHeader" />
+
+            <LinearLayout
+                android:id="@+id/chapterContainer"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnOpenChapters"
+                style="@style/Widget.UPI.Button.Text"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_gravity="center_horizontal"
+                android:layout_marginTop="@dimen/space_s"
+                android:text="All chapters" />
         </LinearLayout>
     </ScrollView>
 </LinearLayout>

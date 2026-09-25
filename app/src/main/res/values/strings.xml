@@ -11,6 +11,8 @@
     <string name="cd_add_person">Add person</string>
     <string name="cd_add_account">Add account</string>
     <string name="cd_add_category">Add category</string>
+    <string name="cd_add_chapter">New chapter</string>
+    <string name="cd_chapter_overflow">More</string>
     <string name="cd_add_alias">Add alias</string>
     <string name="cd_remove">Remove</string>
     <string name="cd_edit">Edit</string>

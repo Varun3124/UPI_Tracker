@@ -45,6 +45,8 @@ import com.varun.upitracker.util.AmountFormat
 import android.widget.ImageButton
 import com.varun.upitracker.ui.ActorType
 import com.varun.upitracker.ui.theme.Avatars
+import com.varun.upitracker.ui.chapter.ChapterDetailActivity
+import com.varun.upitracker.ui.chapter.ChaptersActivity
 import com.varun.upitracker.ui.theme.ThemeAttr
 import com.varun.upitracker.ui.theme.themeColor
 import com.varun.upitracker.ui.theme.dp
@@ -60,6 +62,7 @@ class DashboardActivity : AppCompatActivity() {
     private lateinit var dividerCashFlow2: View
     private lateinit var recentRow: LinearLayout
     private lateinit var iouContainer: LinearLayout
+    private lateinit var chapterContainer: LinearLayout
     private lateinit var btnToggleInsignificantIou: TextView
     private val dateFmt = SimpleDateFormat("dd MMM", Locale.getDefault())
     private lateinit var viewModel: DashboardViewModel
@@ -95,6 +98,8 @@ class DashboardActivity : AppCompatActivity() {
         dividerCashFlow2 = findViewById(R.id.dividerCashFlow2)
         recentRow = findViewById(R.id.recentTransactionsRow)
         iouContainer = findViewById(R.id.iouContainer)
+        chapterContainer = findViewById(R.id.chapterContainer)
+        findViewById<View>(R.id.btnOpenChapters).setOnClickListener { openChapters() }
         btnToggleInsignificantIou = findViewById(R.id.btnToggleInsignificantIou)
         btnToggleInsignificantIou.setOnClickListener {
             showInsignificantIou = !showInsignificantIou
@@ -127,6 +132,7 @@ class DashboardActivity : AppCompatActivity() {
             latestIouSummaries = state.iouSummaries
             buildIouSection(latestIouSummaries)
             renderMailboxBell(state.mailboxOn, state.mailboxWaiting)
+            buildChapterSection(state.chapters)
         }
         loadData()
     }
@@ -289,6 +295,64 @@ class DashboardActivity : AppCompatActivity() {
         viewAll.findViewById<TextView>(R.id.tvCardDate).text = "This month"
         viewAll.setOnClickListener { startActivity(Intent(this, AllTransactionsActivity::class.java)) }
         recentRow.addView(viewAll)
+    }
+
+    private fun openChapters() {
+        startActivity(Intent(this, ChaptersActivity::class.java))
+    }
+
+    /**
+     * Open chapters only. A closed one still counts towards every balance, but there is nothing left
+     * to do about it, so it stays out of the way on the chapters screen.
+     */
+    private fun buildChapterSection(chapters: List<DashboardChapter>) {
+        chapterContainer.removeAllViews()
+        if (chapters.isEmpty()) {
+            chapterContainer.addView(TextView(this).apply {
+                text = "No open chapters"
+                textSize = 13f
+                setTextColor(themeColor(ThemeAttr.textMuted))
+                setPadding(0, dp(8), 0, dp(8))
+            })
+            return
+        }
+
+        chapters.forEach { chapter ->
+            val card = LayoutInflater.from(this).inflate(R.layout.item_chapter, chapterContainer, false)
+            card.findViewById<TextView>(R.id.tvChapterName).text = chapter.name
+            card.findViewById<TextView>(R.id.tvChapterActive).visibility =
+                if (chapter.isActive) View.VISIBLE else View.GONE
+            card.findViewById<TextView>(R.id.tvChapterSubtitle).text =
+                if (chapter.settled) "Settled" else "Open"
+
+            val label = card.findViewById<TextView>(R.id.tvChapterNetLabel)
+            val net = card.findViewById<TextView>(R.id.tvChapterNet)
+            when {
+                chapter.myNetPaise > 0L -> {
+                    label.text = "owed to you"
+                    net.text = AmountFormat.rupees(chapter.myNetPaise)
+                    net.setTextColor(themeColor(ThemeAttr.positive))
+                }
+                chapter.myNetPaise < 0L -> {
+                    label.text = "you owe"
+                    net.text = AmountFormat.rupees(-chapter.myNetPaise)
+                    net.setTextColor(themeColor(ThemeAttr.negative))
+                }
+                else -> {
+                    label.text = ""
+                    net.text = "Even"
+                    net.setTextColor(themeColor(ThemeAttr.amountNeutral))
+                }
+            }
+
+            card.setOnClickListener {
+                startActivity(
+                    Intent(this, ChapterDetailActivity::class.java)
+                        .putExtra(ChapterDetailActivity.EXTRA_CHAPTER_ID, chapter.chapterId)
+                )
+            }
+            chapterContainer.addView(card)
+        }
     }
 
     private fun buildIouSection(summaries: List<FriendLedgerSummary>) {

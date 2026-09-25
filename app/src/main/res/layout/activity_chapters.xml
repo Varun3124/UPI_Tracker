@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/main"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="?android:attr/colorBackground">
+
+    <LinearLayout
+        style="@style/Widget.UPI.TopBar">
+
+        <ImageButton
+            android:id="@+id/btnBackChapters"
+            style="@style/Widget.UPI.IconButton"
+            android:src="@drawable/ic_arrow_back"
+            android:contentDescription="@string/cd_back" />
+
+        <TextView
+            style="@style/Widget.UPI.TopBarTitle"
+            android:text="Chapters" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnAddChapter"
+            style="@style/Widget.UPI.Button.Text"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="New"
+            app:icon="@drawable/ic_add"
+            app:iconGravity="start"
+            android:contentDescription="@string/cd_add_chapter" />
+    </LinearLayout>
+
+    <TextView
+        android:id="@+id/tvEmptyChapters"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="No chapters yet.\n\nA chapter tracks who owes whom on a trip, a flat or a party, and works out the fewest payments that settle everyone."
+        android:textAlignment="center"
+        android:textColor="?attr/appTextMuted"
+        android:textSize="13sp"
+        android:paddingTop="28dp"
+        android:paddingStart="32dp"
+        android:paddingEnd="32dp"
+        android:visibility="gone" />
+
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/rvChapters"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:padding="12dp"
+        android:clipToPadding="false" />
+</LinearLayout>
