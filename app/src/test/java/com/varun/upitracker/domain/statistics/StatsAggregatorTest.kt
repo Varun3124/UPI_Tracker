@@ -300,4 +300,16 @@ class PayeeSliceTest {
         assertEquals(1, slices.size)
         assertEquals(0L, slices.single().categoryId)
     }
+
+    /** A tapped slice has to name the same merchant or friend its total was summed for. */
+    @Test
+    fun aSliceUnpacksToThePayeeItWasBuiltFrom() {
+        val slices = StatsAggregator.toPayeeSlices(
+            listOf(merchant(7, "Swiggy", 500), friend(7, "Asha", 400), PayeeTotal(null, null, "Corner Shop", 300))
+        )
+        assertEquals(
+            listOf(PayeeRef.Merchant(7), PayeeRef.Friend(7), PayeeRef.Unmapped),
+            slices.map { StatsAggregator.payeeOf(it) }
+        )
+    }
 }

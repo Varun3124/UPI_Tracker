@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- bg_pill_selector's job, for a row of headings rather than a row of pills: the chosen one is
+     simply brighter. A filled pill would read as a filter, and these are section headings. -->
+<selector xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:state_selected="true" android:color="?attr/colorOnSurface" />
+    <item android:color="?attr/appTextMuted" />
+</selector>

@@ -11,6 +11,7 @@ import com.varun.upitracker.data.repository.AccountRepository
 import com.varun.upitracker.data.repository.LedgerRepository
 import com.varun.upitracker.database.AppDatabase
 import com.varun.upitracker.database.entity.MailboxMessageState
+import com.varun.upitracker.domain.statistics.PerDayRate
 import com.varun.upitracker.domain.statistics.StatisticsPeriods
 import com.varun.upitracker.domain.statistics.StatsPeriod
 import com.varun.upitracker.maintenance.MailboxCollection
@@ -18,7 +19,8 @@ import com.varun.upitracker.sms.SmsBacklogScanner
 import com.varun.upitracker.ui.LedgerEntry
 import kotlinx.coroutines.Dispatchers
 import com.varun.upitracker.data.repository.ChapterRepository
-import com.varun.upitracker.domain.chapter.ChapterParty
+import com.varun.upitracker.domain.chapter.ChapterPlanLabels
+import com.varun.upitracker.domain.chapter.ChapterPlanRow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -26,6 +28,12 @@ data class DashboardUiState(
     val dailySpendPaise: Long = 0L,
     val weeklySpendPaise: Long = 0L,
     val monthlySpendPaise: Long = 0L,
+    /**
+     * Days of this week and this month that have happened, so the figures above can be read as a
+     * rate. Today is deliberately absent: a day's rate is the day's figure.
+     */
+    val weeklyDays: Int = 0,
+    val monthlyDays: Int = 0,
     val recentEntries: List<LedgerEntry> = emptyList(),
     val accountLabels: Map<String, String> = emptyMap(),
     val iouSummaries: List<com.varun.upitracker.data.repository.FriendLedgerSummary> = emptyList(),
@@ -37,13 +45,17 @@ data class DashboardUiState(
     val chapters: List<DashboardChapter> = emptyList()
 )
 
-/** One open chapter, reduced to what a dashboard row needs. */
+/**
+ * One open chapter, reduced to what the IOU slider needs: a heading, and the payments that settle it.
+ *
+ * The plan rather than the user's net, because the plan is the thing there is something to do about
+ * -- and it is the whole of the chapter, including the payments between two friends that the user's
+ * own net says nothing about.
+ */
 data class DashboardChapter(
     val chapterId: Long,
     val name: String,
-    val myNetPaise: Long,
-    val settled: Boolean,
-    val isActive: Boolean
+    val plan: List<ChapterPlanRow>
 )
 
 class DashboardViewModel(private val context: Context) : ViewModel() {
@@ -60,10 +72,16 @@ class DashboardViewModel(private val context: Context) : ViewModel() {
                 // Taking 5 of each is exact: the overall newest 5 can only come from these.
                 val transactions = db.transactionDao().getRecentTransactions(5).map(LedgerEntry::Tx)
                 val transfers = db.accountTransferDao().getRecentTransfers(5).map(LedgerEntry::Transfer)
+                val weekly = StatisticsPeriods.rangeFor(StatsPeriod.WEEKLY, now)
+                val monthly = StatisticsPeriods.rangeFor(StatsPeriod.MONTHLY, now)
                 DashboardUiState(
                     dailySpendPaise = accountRepository.getSpendSince(spendFrom(StatsPeriod.DAILY, now)),
-                    weeklySpendPaise = accountRepository.getSpendSince(spendFrom(StatsPeriod.WEEKLY, now)),
-                    monthlySpendPaise = accountRepository.getSpendSince(spendFrom(StatsPeriod.MONTHLY, now)),
+                    weeklySpendPaise = accountRepository.getSpendSince(weekly.fromExclusive),
+                    monthlySpendPaise = accountRepository.getSpendSince(monthly.fromExclusive),
+                    // fromExclusive is one millisecond before the first day; add it back to get the
+                    // inclusive start the day count is measured from.
+                    weeklyDays = PerDayRate.daysElapsed(weekly.fromExclusive + 1, weekly.toInclusive, now),
+                    monthlyDays = PerDayRate.daysElapsed(monthly.fromExclusive + 1, monthly.toInclusive, now),
                     recentEntries = (transactions + transfers)
                         .sortedByDescending { it.dateEpoch }
                         .take(5),
@@ -71,21 +89,34 @@ class DashboardViewModel(private val context: Context) : ViewModel() {
                     iouSummaries = LedgerRepository(db).getAllSummaries(),
                     mailboxWaiting = db.mailboxDao().countInState(MailboxMessageState.NEW),
                     mailboxOn = identities.isSignedIn(),
-                    chapters = ChapterRepository(db).let { chapters ->
-                        db.chapterDao().getOpen().map { chapter ->
-                            val result = chapters.resultFor(chapter.id)
-                            DashboardChapter(
-                                chapterId = chapter.id,
-                                name = chapter.name,
-                                myNetPaise = result.nets[ChapterParty.Me] ?: 0L,
-                                settled = result.settled,
-                                isActive = chapter.isActive
-                            )
-                        }
-                    }
+                    chapters = loadOpenChapters(db)
                 )
             }
             _uiState.value = state
+        }
+    }
+
+    /**
+     * Every open chapter's plan, with the names already resolved.
+     *
+     * The friend names are read once for the whole set rather than per payment: a chapter's plan
+     * names members by id, and asking the database per row would be one query per person per
+     * chapter on every dashboard load.
+     *
+     * A closed chapter is left out. It still counts towards every balance, but there is nothing left
+     * to do about it, so it stays on the chapters screen.
+     */
+    private suspend fun loadOpenChapters(db: AppDatabase): List<DashboardChapter> {
+        val open = db.chapterDao().getOpen()
+        if (open.isEmpty()) return emptyList()
+        val names = db.friendDao().getAllFriendsSync().associate { it.id to it.name }
+        val chapters = ChapterRepository(db)
+        return open.map { chapter ->
+            DashboardChapter(
+                chapterId = chapter.id,
+                name = chapter.name,
+                plan = chapters.resultFor(chapter.id).plan.map { ChapterPlanLabels.rowFor(it, names) }
+            )
         }
     }
 

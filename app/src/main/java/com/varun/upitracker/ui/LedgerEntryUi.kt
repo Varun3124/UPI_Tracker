@@ -4,7 +4,9 @@ import com.varun.upitracker.database.entity.AccountTransfer
 import com.varun.upitracker.database.entity.AccountTransferType
 import com.varun.upitracker.database.entity.Transaction
 import com.varun.upitracker.domain.BalanceDeltaCalculator
+import com.varun.upitracker.domain.statistics.AccountScope
 import com.varun.upitracker.domain.statistics.BalanceMovement
+import com.varun.upitracker.domain.statistics.PayeeRef
 import com.varun.upitracker.domain.TransactionDeltaInput
 import com.varun.upitracker.domain.TransferDeltaInput
 import com.varun.upitracker.util.AmountFormat
@@ -29,6 +31,64 @@ sealed interface LedgerEntry {
 fun LedgerEntry.stableId(): String = when (this) {
     is LedgerEntry.Tx -> "T:${transaction.id}"
     is LedgerEntry.Transfer -> "X:${transfer.id}"
+}
+
+/**
+ * Whether this entry belongs to [scope], whose accounts resolve to [ids].
+ *
+ * **A policy scope keeps entries with no account recorded; a named one does not.** Plenty of rows
+ * carry no `myAccountId` at all -- an SMS or notification parse has no way to know which account was
+ * used -- and Liquid is the default the screen opens on, so excluding them would silently hide a good
+ * part of the list. Naming an account is a different act: an unattributed row is not on the account
+ * you asked for, and it is left out. Either way the balance row is unaffected, because an entry that
+ * moves no account has a [balanceDeltaFor] of zero.
+ */
+fun LedgerEntry.isInScope(scope: AccountScope, ids: Set<String>): Boolean {
+    val named = scope is AccountScope.Single || scope is AccountScope.Custom
+    return when (this) {
+        is LedgerEntry.Tx -> {
+            val account = transaction.myAccountId ?: return !named
+            account in ids
+        }
+        // Either endpoint counts as involvement; an external leg is null and matches nothing.
+        is LedgerEntry.Transfer ->
+            transfer.fromAccountId in ids || transfer.toAccountId in ids
+    }
+}
+
+/**
+ * Whether the figure this row shows falls within `[minPaise, maxPaise]`, either end optional.
+ *
+ * Compared against what is on screen rather than against a signed amount: the bounds are typed into
+ * a field labelled with a rupee symbol, and a user asking for "over 500" means the number they can
+ * see, not a direction.
+ */
+fun LedgerEntry.matchesAmount(minPaise: Long?, maxPaise: Long?): Boolean {
+    if (minPaise == null && maxPaise == null) return true
+    val shown = when (this) {
+        is LedgerEntry.Tx -> transaction.amountPaise
+        is LedgerEntry.Transfer -> transfer.amountFromPaise
+    }
+    val magnitude = kotlin.math.abs(shown)
+    if (minPaise != null && magnitude < minPaise) return false
+    if (maxPaise != null && magnitude > maxPaise) return false
+    return true
+}
+
+/**
+ * Whether [payee] is at either end of this entry.
+ *
+ * Either end, not only the payee side: a refund has the merchant as its payer, and it is part of what
+ * that merchant's slice on Statistics nets out. A transfer has no counterparty, so it never matches;
+ * nor does anything for [PayeeRef.Unmapped], which names nobody and is searched for by text instead.
+ */
+fun LedgerEntry.involves(payee: PayeeRef): Boolean {
+    val tx = (this as? LedgerEntry.Tx)?.transaction ?: return false
+    return when (payee) {
+        is PayeeRef.Merchant -> tx.payerMerchantId == payee.merchantId || tx.payeeMerchantId == payee.merchantId
+        is PayeeRef.Friend -> tx.payerFriendId == payee.friendId || tx.payeeFriendId == payee.friendId
+        PayeeRef.Unmapped -> false
+    }
 }
 
 /** How much this entry moved [accountId] alone. The primitive [balanceDelta] sums over. */

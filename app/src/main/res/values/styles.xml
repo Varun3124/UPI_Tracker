@@ -188,6 +188,41 @@
         <item name="android:focusable">true</item>
     </style>
 
+    <!--
+      A section heading that is also a choice. Same 11sp all-caps rubric as
+      TextAppearance.UPI.SectionHeader, because that is the point: the dashboard's IOU heading now
+      slides sideways over the open chapters and every tab has to read as the same heading, with the
+      chosen one simply brighter. Not Widget.UPI.Pill: a filled pill reads as a filter.
+    -->
+    <style name="Widget.UPI.SectionTab" parent="">
+        <item name="android:layout_width">wrap_content</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:minHeight">@dimen/touch_target_min</item>
+        <item name="android:gravity">center_vertical</item>
+        <item name="android:paddingStart">@dimen/space_xs</item>
+        <item name="android:paddingEnd">@dimen/space_l</item>
+        <item name="android:textAppearance">@style/TextAppearance.UPI.SectionHeader</item>
+        <item name="android:textColor">@color/section_tab_text_selector</item>
+        <item name="android:maxLines">1</item>
+        <item name="android:ellipsize">end</item>
+        <item name="android:background">?attr/selectableItemBackground</item>
+        <item name="android:clickable">true</item>
+        <item name="android:focusable">true</item>
+    </style>
+
+    <!--
+      The same heading-as-a-choice, for a row of sub-pages that shares a panel's whole width equally:
+      a chapter's Transactions and Balances, Statistics' Categories and Trends. Weighted rather than
+      wrapped, so each half is a target the size of half the screen and the row reads as one control.
+    -->
+    <style name="Widget.UPI.SectionTab.Split">
+        <item name="android:layout_width">0dp</item>
+        <item name="android:layout_weight">1</item>
+        <item name="android:gravity">center</item>
+        <item name="android:paddingStart">@dimen/space_s</item>
+        <item name="android:paddingEnd">@dimen/space_s</item>
+    </style>
+
     <style name="Widget.UPI.Avatar" parent="">
         <item name="android:layout_width">@dimen/avatar_size_md</item>
         <item name="android:layout_height">@dimen/avatar_size_md</item>

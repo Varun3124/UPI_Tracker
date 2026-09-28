@@ -24,6 +24,18 @@ data class DayStack(
     val totalPaise: Long
 )
 
+/**
+ * Who a payee slice stands for: the key [StatsAggregator.toPayeeSlices] packs into
+ * [CategorySlice.categoryId], unpacked again. See [StatsAggregator.payeeOf].
+ */
+sealed interface PayeeRef {
+    data class Merchant(val merchantId: Long) : PayeeRef
+    data class Friend(val friendId: Long) : PayeeRef
+
+    /** A payee never saved as a merchant or a friend. It can only be found by its name. */
+    data object Unmapped : PayeeRef
+}
+
 /** A window's breakdown. [days] is empty for every period except the weekly one. */
 data class Breakdown(
     val slices: List<CategorySlice>,
@@ -95,6 +107,16 @@ object StatsAggregator {
             }
             .sortedWith(compareByDescending<CategorySlice> { it.paise }.thenBy { it.categoryId })
             .toList()
+
+    /**
+     * The inverse of the key [toPayeeSlices] packs, so a tapped slice can say which merchant or friend
+     * it was. Kept beside the packing so the two sign conventions cannot drift apart.
+     */
+    fun payeeOf(slice: CategorySlice): PayeeRef = when {
+        slice.categoryId > 0L -> PayeeRef.Merchant(slice.categoryId)
+        slice.categoryId < 0L -> PayeeRef.Friend(-slice.categoryId)
+        else -> PayeeRef.Unmapped
+    }
 
     /**
      * Folds per-day breakdowns into the week's, re-expressing each day against that same ordered

@@ -313,6 +313,17 @@ interface TransactionDao {
     @Query("SELECT MIN(dateEpoch) FROM transactions WHERE myAccountId IN (:accountIds)")
     suspend fun getEarliestDateEpochForAccounts(accountIds: List<String>): Long?
 
+    /**
+     * The oldest transaction on record, whatever account it sits on, or null on an empty database.
+     *
+     * What "all time" actually begins at, which is how the statistics screen divides an all-time
+     * total into a per-day rate. Deliberately unscoped, unlike [getEarliestDateEpochForAccounts]:
+     * the category totals it divides are not scoped to an account either, so a row with no account
+     * recorded is counted in the total and has to be counted in the span.
+     */
+    @Query("SELECT MIN(dateEpoch) FROM transactions")
+    suspend fun getEarliestDateEpoch(): Long?
+
     @Query("DELETE FROM transactions WHERE id = :id")
     suspend fun deleteById(id: Long)
 

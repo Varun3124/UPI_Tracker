@@ -10,34 +10,44 @@ import android.widget.ImageButton
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.addCallback
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
+import androidx.recyclerview.widget.LinearLayoutManager
+import androidx.recyclerview.widget.RecyclerView
 import com.varun.upitracker.R
 import com.varun.upitracker.database.entity.ChapterState
-import com.varun.upitracker.database.entity.Transaction
+import com.varun.upitracker.ui.LedgerEntry
+import com.varun.upitracker.ui.TransactionListAdapter
 import com.varun.upitracker.ui.formatRupees
+import com.varun.upitracker.ui.share.RecipientPicker
+import com.varun.upitracker.ui.stableId
 import com.varun.upitracker.ui.theme.ThemeAttr
 import com.varun.upitracker.ui.theme.padRootForSystemBars
 import com.varun.upitracker.ui.theme.themeColor
 import com.varun.upitracker.ui.transactionentry.TransactionEntryActivity
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
-import java.util.Date
 import java.util.Locale
 
-/** One chapter: who pays whom, where each member stands, and what is in it. */
+/** One chapter: what is in it, and where each member stands. */
 class ChapterDetailActivity : AppCompatActivity() {
 
     companion object {
         const val EXTRA_CHAPTER_ID = "chapter_id"
     }
 
+    /** Which of the two sub-pages is showing. */
+    private enum class Page { TRANSACTIONS, BALANCES }
+
     private lateinit var viewModel: ChapterDetailViewModel
+    private lateinit var adapter: TransactionListAdapter
     private var chapterId: Long = -1L
     private var state: ChapterDetailUiState = ChapterDetailUiState()
+    private var page = Page.TRANSACTIONS
 
     private val dateFormat = SimpleDateFormat("d MMM yyyy", Locale.getDefault())
 
@@ -58,13 +68,32 @@ class ChapterDetailActivity : AppCompatActivity() {
         )[ChapterDetailViewModel::class.java]
         padRootForSystemBars(R.id.main)
 
-        findViewById<ImageButton>(R.id.btnBackChapterDetail).setOnClickListener { finish() }
+        findViewById<ImageButton>(R.id.btnBackChapterDetail).setOnClickListener { onBack() }
+        onBackPressedDispatcher.addCallback(this) { onBack() }
         findViewById<ImageButton>(R.id.btnChapterOverflow).setOnClickListener { showOverflow() }
         findViewById<View>(R.id.btnAddChapterTransactions).setOnClickListener {
             startActivity(
                 Intent(this, ChapterAddTransactionsActivity::class.java)
                     .putExtra(ChapterAddTransactionsActivity.EXTRA_CHAPTER_ID, chapterId)
             )
+        }
+
+        findViewById<View>(R.id.btnChapterTransactions).setOnClickListener { selectPage(Page.TRANSACTIONS) }
+        findViewById<View>(R.id.btnChapterBalances).setOnClickListener { selectPage(Page.BALANCES) }
+        findViewById<View>(R.id.btnChapterFriendFilter).setOnClickListener { showFriendFilter() }
+        findViewById<View>(R.id.btnChapterMerchantFilter).setOnClickListener { showMerchantFilter() }
+        wireSelectionBar()
+
+        adapter = TransactionListAdapter(
+            dateFmt = dateFormat,
+            onTap = { entry ->
+                if (state.selectionMode) viewModel.toggleSelection(entry.stableId()) else openEntry(entry)
+            },
+            onLongPress = { entry -> startSelection(entry) }
+        )
+        findViewById<RecyclerView>(R.id.rvChapterTransactions).apply {
+            layoutManager = LinearLayoutManager(this@ChapterDetailActivity)
+            adapter = this@ChapterDetailActivity.adapter
         }
 
         lifecycleScope.launch {
@@ -75,6 +104,19 @@ class ChapterDetailActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         viewModel.load(chapterId)
+    }
+
+    /** Leaving a selection is a step back, not a step off the screen. */
+    private fun onBack() {
+        if (state.selectionMode) viewModel.exitSelection() else finish()
+    }
+
+    private fun selectPage(next: Page) {
+        if (page == next) return
+        page = next
+        // A selection belongs to the list; carrying it onto the balances page would strand the bar.
+        viewModel.exitSelection()
+        render(state)
     }
 
     private fun render(ui: ChapterDetailUiState) {
@@ -101,29 +143,21 @@ class ChapterDetailActivity : AppCompatActivity() {
             viewModel.setActive(chapterId, isChecked, ::showError)
         }
 
-        renderPlan(ui)
+        renderPage()
         renderBalances(ui)
         renderTransactions(ui)
+        renderSelectionBar(ui)
     }
 
-    private fun renderPlan(ui: ChapterDetailUiState) {
-        val container = findViewById<LinearLayout>(R.id.chapterPlanContainer)
-        container.removeAllViews()
-        findViewById<TextView>(R.id.tvChapterPlanEmpty).visibility =
-            if (ui.plan.isEmpty()) View.VISIBLE else View.GONE
-
-        ui.plan.forEach { payment ->
-            val row = LayoutInflater.from(this).inflate(R.layout.item_chapter_line, container, false)
-            val label = row.findViewById<TextView>(R.id.tvChapterLineLabel)
-            val amount = row.findViewById<TextView>(R.id.tvChapterLineAmount)
-            label.text = "${payment.debtorLabel} pays ${payment.creditorLabel}"
-            amount.text = formatRupees(payment.amountPaise)
-            // The user's own rows are the ones that move their money; the rest are for information.
-            val colour = if (payment.involvesMe) ThemeAttr.positive else ThemeAttr.textMuted
-            amount.setTextColor(row.themeColor(colour))
-            label.setTextColor(row.themeColor(if (payment.involvesMe) ThemeAttr.onSurface else ThemeAttr.textMuted))
-            container.addView(row)
-        }
+    /** Whichever page is chosen takes the whole weight. */
+    private fun renderPage() {
+        val onTransactions = page == Page.TRANSACTIONS
+        findViewById<View>(R.id.btnChapterTransactions).isSelected = onTransactions
+        findViewById<View>(R.id.btnChapterBalances).isSelected = !onTransactions
+        findViewById<View>(R.id.chapterTransactionsPage).visibility =
+            if (onTransactions) View.VISIBLE else View.GONE
+        findViewById<View>(R.id.chapterBalancesPage).visibility =
+            if (onTransactions) View.GONE else View.VISIBLE
     }
 
     private fun renderBalances(ui: ChapterDetailUiState) {
@@ -152,43 +186,153 @@ class ChapterDetailActivity : AppCompatActivity() {
     }
 
     private fun renderTransactions(ui: ChapterDetailUiState) {
-        val container = findViewById<LinearLayout>(R.id.chapterTransactionsContainer)
-        container.removeAllViews()
-        findViewById<TextView>(R.id.tvChapterTransactionsEmpty).visibility =
-            if (ui.transactions.isEmpty()) View.VISIBLE else View.GONE
+        adapter.submit(ui.entries, ui.rows)
+        adapter.updateSelection(ui.selectionMode, ui.selected, ui.shareable)
 
-        ui.transactions.forEach { tx ->
-            val row = LayoutInflater.from(this).inflate(R.layout.item_chapter_line, container, false)
-            val label = row.findViewById<TextView>(R.id.tvChapterLineLabel)
-            val pendingMark = if (tx.isPending) " · pending" else ""
-            label.text = "${dateFormat.format(Date(tx.dateEpoch))}$pendingMark\n${tx.reason.orEmpty()}".trim()
-            row.findViewById<TextView>(R.id.tvChapterLineAmount).text = formatRupees(tx.amountPaise)
-            row.setOnClickListener { openTransaction(tx) }
-            row.setOnLongClickListener {
-                showTransactionActions(tx)
-                true
+        findViewById<TextView>(R.id.btnChapterFriendFilter).apply {
+            text = ui.friendOptions.firstOrNull { it.id == ui.friendFilterId }?.name ?: "Anyone"
+            isSelected = ui.friendFilterId != null
+            isEnabled = ui.friendOptions.isNotEmpty()
+        }
+        findViewById<TextView>(R.id.btnChapterMerchantFilter).apply {
+            text = ui.merchantOptions.firstOrNull { it.id == ui.merchantFilterId }?.name ?: "Anywhere"
+            isSelected = ui.merchantFilterId != null
+            isEnabled = ui.merchantOptions.isNotEmpty()
+        }
+        findViewById<TextView>(R.id.tvChapterFilterHint).text = if (ui.isFiltered) {
+            "${ui.entries.size} of ${ui.totalCount}"
+        } else {
+            ""
+        }
+        // Sits on the list's own filter row, so it comes and goes with the Transactions page.
+        findViewById<View>(R.id.btnAddChapterTransactions).visibility =
+            if (ui.chapter?.state == ChapterState.OPEN) View.VISIBLE else View.GONE
+
+        val empty = findViewById<TextView>(R.id.tvChapterTransactionsEmpty)
+        empty.visibility = if (ui.entries.isEmpty()) View.VISIBLE else View.GONE
+        empty.text = if (ui.isFiltered) "Nothing here matches those." else "Nothing tagged here yet."
+    }
+
+    // --- filters ----------------------------------------------------------------------------------
+
+    /**
+     * A list of who is actually in this chapter's transactions, not a search box.
+     *
+     * A chapter is a small, known set of people and places -- that is what makes it a chapter -- so
+     * being shown the choices beats being asked to remember them. Each row carries its count, which
+     * is the quickest way to see who most of the spending involves.
+     */
+    private fun showFriendFilter() {
+        showOptionPicker("Who", state.friendOptions, state.friendFilterId, "Anyone", viewModel::setFriendFilter)
+    }
+
+    private fun showMerchantFilter() {
+        showOptionPicker("Where", state.merchantOptions, state.merchantFilterId, "Anywhere", viewModel::setMerchantFilter)
+    }
+
+    private fun showOptionPicker(
+        title: String,
+        options: List<ChapterFilterOption>,
+        current: Long?,
+        clearLabel: String,
+        onPicked: (Long?) -> Unit
+    ) {
+        if (options.isEmpty()) return
+        val labels = listOf(clearLabel) + options.map { option ->
+            val tick = if (option.id == current) "✓ " else ""
+            "$tick${option.name} (${option.count})"
+        }
+        AlertDialog.Builder(this)
+            .setTitle(title)
+            .setItems(labels.toTypedArray()) { _, which ->
+                onPicked(if (which == 0) null else options[which - 1].id)
             }
-            container.addView(row)
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    // --- selection --------------------------------------------------------------------------------
+
+    /**
+     * Sharing is what a selection here is for. Taking rows out of the chapter is on the bar too,
+     * because long-press used to be the only way to reach it and it deletes nothing.
+     */
+    private fun wireSelectionBar() {
+        findViewById<View>(R.id.btnSelectAllRows).setOnClickListener { viewModel.selectAllShareable() }
+        findViewById<TextView>(R.id.btnSelectionPrimary).apply {
+            text = "Share…"
+            setOnClickListener { shareSelection() }
+        }
+        findViewById<TextView>(R.id.btnSelectionSecondary).apply {
+            text = "Remove"
+            setOnClickListener { confirmRemoveSelection() }
         }
     }
 
-    private fun openTransaction(tx: Transaction) {
+    private fun startSelection(entry: LedgerEntry) {
+        if (state.shareable.isEmpty() && state.chapter?.state == ChapterState.CLOSED) {
+            showError("Chapter is closed, and none of this can be shared.")
+            return
+        }
+        viewModel.enterSelection(entry.stableId())
+    }
+
+    private fun renderSelectionBar(ui: ChapterDetailUiState) {
+        val bar = findViewById<View>(R.id.barSelectionActions)
+        bar.visibility = if (ui.selectionMode && page == Page.TRANSACTIONS) View.VISIBLE else View.GONE
+        if (!ui.selectionMode) return
+
+        findViewById<TextView>(R.id.tvSelectionCount).text = when (ui.selected.size) {
+            0 -> "Pick what to share"
+            1 -> "1 selected"
+            else -> "${ui.selected.size} selected"
+        }
+        findViewById<View>(R.id.btnSelectionPrimary).isEnabled = ui.selectedTransactionIds.isNotEmpty()
+        // R8: a closed chapter is frozen, so nothing can leave it until it is reopened.
+        findViewById<View>(R.id.btnSelectionSecondary).isEnabled =
+            ui.selected.isNotEmpty() && ui.chapter?.state == ChapterState.OPEN
+        findViewById<View>(R.id.btnSelectAllRows).isEnabled = ui.shareable.isNotEmpty()
+    }
+
+    private fun shareSelection() {
+        val ids = state.selectedTransactionIds
+        if (ids.isEmpty()) return
+        RecipientPicker(this) { viewModel.load(chapterId) }.show(ids)
+        viewModel.exitSelection()
+    }
+
+    private fun confirmRemoveSelection() {
+        val ids = state.entries.filterIsInstance<LedgerEntry.Tx>()
+            .filter { it.stableId() in state.selected }
+            .map { it.transaction.id }
+        if (ids.isEmpty()) return
+        val what = if (ids.size == 1) "1 transaction" else "${ids.size} transactions"
+        AlertDialog.Builder(this)
+            .setTitle("Take $what out of ${state.chapter?.name}?")
+            .setMessage("They go back to your ordinary balances. None of them is deleted.")
+            .setPositiveButton("Remove") { _, _ ->
+                viewModel.untagAll(chapterId, ids.toSet()) { failures -> reportFailures(failures) }
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    /** One dialog for the whole run: several rows can be refused at once, for different reasons. */
+    private fun reportFailures(failures: List<String>) {
+        if (failures.isEmpty()) return
+        AlertDialog.Builder(this)
+            .setTitle(if (failures.size == 1) "One was kept" else "${failures.size} were kept")
+            .setMessage(failures.joinToString("\n\n"))
+            .setPositiveButton("OK", null)
+            .show()
+    }
+
+    private fun openEntry(entry: LedgerEntry) {
+        val tx = (entry as? LedgerEntry.Tx)?.transaction ?: return
         startActivity(
             Intent(this, TransactionEntryActivity::class.java)
                 .putExtra(TransactionEntryActivity.EXTRA_TRANSACTION_ID, tx.id)
         )
-    }
-
-    private fun showTransactionActions(tx: Transaction) {
-        if (state.chapter?.state == ChapterState.CLOSED) {
-            showError("Chapter is closed. Reopen it to change what is in it.")
-            return
-        }
-        AlertDialog.Builder(this)
-            .setItems(arrayOf("Open", "Remove from this chapter")) { _, which ->
-                if (which == 0) openTransaction(tx) else viewModel.untag(chapterId, tx.id, ::showError)
-            }
-            .show()
     }
 
     // --- overflow ---------------------------------------------------------------------------------
@@ -294,7 +438,7 @@ class ChapterDetailActivity : AppCompatActivity() {
     }
 
     private fun confirmDelete() {
-        val count = state.transactions.size
+        val count = state.totalCount
         val fate = if (count == 0) {
             "Nothing is tagged here."
         } else {

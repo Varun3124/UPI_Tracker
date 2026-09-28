@@ -74,7 +74,7 @@ class StatementResolvedActivity : AppCompatActivity() {
     }
 }
 
-/** Mirrors AllTransactionsAdapter so a resolved entry looks the same here as it does there. */
+/** Mirrors [com.varun.upitracker.ui.TransactionListAdapter] so a resolved entry looks the same here. */
 private class ResolvedAdapter(
     private val transactions: List<Transaction>,
     private val db: AppDatabase,

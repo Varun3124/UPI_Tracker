@@ -91,6 +91,23 @@ object AmountFormat {
     }
 
     /**
+     * The inverse of [forInput]: a typed amount back to paise, or null when the field is empty or
+     * does not read as a number.
+     *
+     * Ungrouped input only, which is exactly what [forInput] writes and what a `numberDecimal`
+     * field accepts. Kept here beside it rather than private to a screen, so a second field somewhere
+     * cannot start parsing amounts by its own slightly different rules.
+     *
+     * Rounded, not truncated: `2.99` is not exactly representable as a Double, so `* 100` lands a
+     * hair under 299 and truncating would quietly bank a rupee amount one paisa light.
+     */
+    fun paiseOrNull(text: String): Long? {
+        val value = text.trim()
+        if (value.isEmpty()) return null
+        return value.toDoubleOrNull()?.let { Math.round(it * 100) }
+    }
+
+    /**
      * Chart axis ticks, where lakh commas are too wide to fit beside a plot: `12k`, `1.5L`, `2.4Cr`.
      * One decimal only while the leading figure is a single digit, so labels keep a similar width as
      * the axis rescales.

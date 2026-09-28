@@ -4,6 +4,7 @@ import android.app.AlertDialog
 import android.app.DatePickerDialog
 import android.graphics.Color
 import android.os.Bundle
+import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.View
 import android.widget.LinearLayout
@@ -14,13 +15,17 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.ViewModelProvider
 import com.varun.upitracker.R
 import com.varun.upitracker.domain.statistics.CategorySlice
+import com.varun.upitracker.domain.statistics.ListWindow
+import com.varun.upitracker.domain.statistics.PerDayRate
 import com.varun.upitracker.domain.statistics.StatisticsPeriods
-import com.varun.upitracker.database.entity.Account
-import com.varun.upitracker.domain.statistics.AccountScope
+import com.varun.upitracker.domain.statistics.StatsAggregator
 import com.varun.upitracker.domain.statistics.StatsPeriod
 import com.varun.upitracker.domain.statistics.TrendBucket
 import com.varun.upitracker.domain.statistics.TrendsBuckets
+import com.varun.upitracker.ui.AccountScopePicker
+import com.varun.upitracker.ui.AllTransactionsActivity
 import com.varun.upitracker.ui.formatRupees
+import com.varun.upitracker.ui.scopeLabel
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
@@ -44,6 +49,7 @@ class StatisticsActivity : AppCompatActivity() {
     private lateinit var btnNextPeriod: ImageButton
     private lateinit var pieChart: PieChartView
     private lateinit var tvPieTotal: TextView
+    private lateinit var tvPiePerDay: TextView
     private lateinit var tvStatsEmpty: TextView
     private lateinit var tvCategoryCardTitle: TextView
     private lateinit var btnClearDrill: TextView
@@ -94,6 +100,7 @@ class StatisticsActivity : AppCompatActivity() {
         btnNextPeriod = findViewById(R.id.btnNextPeriod)
         pieChart = findViewById(R.id.pieChart)
         tvPieTotal = findViewById(R.id.tvPieTotal)
+        tvPiePerDay = findViewById(R.id.tvPiePerDay)
         tvStatsEmpty = findViewById(R.id.tvStatsEmpty)
         tvCategoryCardTitle = findViewById(R.id.tvCategoryCardTitle)
         btnClearDrill = findViewById(R.id.btnClearDrill)
@@ -126,10 +133,15 @@ class StatisticsActivity : AppCompatActivity() {
         btnSectionTrends.setOnClickListener { viewModel.selectSection(StatsSection.TRENDS) }
         btnClearDrill.setOnClickListener { viewModel.clearDrill() }
         pieChart.onSliceTapped = { index ->
-            // Drilling only makes sense one level deep; a tap inside the merchant pie is inert.
+            // A category drills into its merchants; a merchant, one level down, opens its
+            // transactions -- the same as tapping its row in the legend.
             val state = viewModel.uiState.value
-            if (state != null && state.drilledCategory == null) {
-                state.breakdown.slices.getOrNull(index)?.let { viewModel.drillInto(it) }
+            if (state != null) {
+                if (state.drilledCategory == null) {
+                    state.breakdown.slices.getOrNull(index)?.let { viewModel.drillInto(it) }
+                } else {
+                    state.payeeSlices.getOrNull(index)?.let { openPayeeTransactions(it) }
+                }
             }
         }
         weekBars.onDayTapped = { index ->
@@ -176,23 +188,25 @@ class StatisticsActivity : AppCompatActivity() {
 
         pieChart.setSlices(slices.map { it.paise }, slices.map { categoryColor(it) })
         tvPieTotal.text = formatRupees(total)
+        renderPerDay(tvPiePerDay, total, state.rangeDays)
         tvStatsEmpty.visibility = if (slices.isEmpty()) View.VISIBLE else View.GONE
         tvStatsEmpty.text = if (drilled != null) {
             "Nothing under ${drilled.name} in this period"
         } else {
             "No spending in this period"
         }
-        buildLegend(slices, total, drillable = drilled == null)
+        buildLegend(slices, total, state.rangeDays, drillable = drilled == null)
 
         renderWeekBars(state, drilled)
     }
 
     /**
      * The two sections share the header, the period control and the range label -- only the content
-     * and the stepping controls differ.
+     * and the controls beside the label differ.
      *
-     * Trends steps by panning rather than by the chevrons, so those hide there. The range label
-     * stays: Trends has a visible window of its own, and this is the only thing that names it.
+     * Trends steps by panning rather than by the chevrons, so those go there, and the account scope
+     * takes their row with the label moved to the start to make room. The range label stays: Trends
+     * has a visible window of its own, and this is the only thing that names it.
      */
     private fun renderSection(state: StatisticsUiState) {
         val categories = state.section == StatsSection.CATEGORIES
@@ -202,9 +216,16 @@ class StatisticsActivity : AppCompatActivity() {
         swipeContainer.visibility = if (categories) View.VISIBLE else View.GONE
         trendsScroll.visibility = if (categories) View.GONE else View.VISIBLE
         btnPickScope.visibility = if (categories) View.GONE else View.VISIBLE
+        tvRangeLabel.gravity = if (categories) Gravity.CENTER else Gravity.START or Gravity.CENTER_VERTICAL
 
+        // Invisible rather than gone on Categories, so a period that cannot step (all time, a custom
+        // range) keeps its label centred where the stepping ones put it.
         val steppable = categories && state.period.isShiftable
-        btnPrevPeriod.visibility = if (steppable) View.VISIBLE else View.INVISIBLE
+        btnPrevPeriod.visibility = when {
+            !categories -> View.GONE
+            steppable -> View.VISIBLE
+            else -> View.INVISIBLE
+        }
         btnNextPeriod.visibility = btnPrevPeriod.visibility
         btnNextPeriod.isEnabled = state.canGoForward
         btnNextPeriod.alpha = if (state.canGoForward) 1f else DISABLED_ALPHA
@@ -310,71 +331,11 @@ class StatisticsActivity : AppCompatActivity() {
         return "In ${formatRupees(income)} · Out ${formatRupees(expense)} · $verdict"
     }
 
-    /**
-     * Liquid / All accounts / each account / Choose accounts.
-     *
-     * An AlertDialog list, matching the period menu beside it, with the multi-select chained off the
-     * last row. The app has no multi-select anywhere else, and setMultiChoiceItems is the cheapest
-     * thing that still looks like the rest of it.
-     */
+    /** See [AccountScopePicker]; the transactions list offers the same choice. */
     private fun showScopeMenu() {
         val state = viewModel.uiState.value ?: return
-        val accounts = state.trends.accounts
-        val labels = listOf("Liquid (cash and savings)", "All accounts") +
-            accounts.map { accountLabel(it) } +
-            listOf("Choose accounts\u2026")
-
-        AlertDialog.Builder(this)
-            .setTitle("Balance for")
-            .setItems(labels.toTypedArray()) { _, which ->
-                when (which) {
-                    0 -> viewModel.selectScope(AccountScope.Liquid)
-                    1 -> viewModel.selectScope(AccountScope.Total)
-                    labels.lastIndex -> showCustomScopePicker(accounts, state.trends.scope)
-                    else -> viewModel.selectScope(AccountScope.Single(accounts[which - 2].id))
-                }
-            }
-            .setNegativeButton("Cancel", null)
-            .show()
-    }
-
-    private fun showCustomScopePicker(accounts: List<Account>, current: AccountScope) {
-        if (accounts.isEmpty()) return
-        val alreadyIn = when (current) {
-            is AccountScope.Custom -> current.ids
-            is AccountScope.Single -> setOf(current.id)
-            else -> emptySet()
-        }
-        val checked = accounts.map { it.id in alreadyIn }.toBooleanArray()
-
-        AlertDialog.Builder(this)
-            .setTitle("Choose accounts")
-            .setMultiChoiceItems(
-                accounts.map { accountLabel(it) }.toTypedArray(),
-                checked
-            ) { _, index, isChecked -> checked[index] = isChecked }
-            .setPositiveButton("Done") { _, _ ->
-                val picked = accounts.filterIndexed { index, _ -> checked[index] }.map { it.id }.toSet()
-                // An empty pick would draw a flat zero line; treat it as "never mind".
-                if (picked.isNotEmpty()) viewModel.selectScope(AccountScope.Custom(picked))
-            }
-            .setNegativeButton("Cancel", null)
-            .show()
-    }
-
-    private fun accountLabel(account: Account): String =
-        if (account.isArchived) "${account.label} (archived)" else account.label
-
-    /** Named scopes keep their name; a hand-picked set is counted rather than listed. */
-    private fun scopeLabel(scope: AccountScope, accounts: List<Account>): String = when (scope) {
-        AccountScope.Liquid -> "Liquid"
-        AccountScope.Total -> "All accounts"
-        is AccountScope.Single ->
-            accounts.firstOrNull { it.id == scope.id }?.label ?: "1 account"
-        is AccountScope.Custom -> {
-            val known = accounts.count { it.id in scope.ids }
-            if (known == 1) accounts.first { it.id in scope.ids }.label else "$known accounts"
-        }
+        AccountScopePicker(this, title = "Balance for")
+            .show(state.trends.accounts, state.trends.scope, viewModel::selectScope)
     }
 
     /**
@@ -442,6 +403,13 @@ class StatisticsActivity : AppCompatActivity() {
         tvPeakDay.text = if (peak > 0L) "Busiest day ${formatRupees(peak)}" else "Nothing spent this week"
     }
 
+    /** The rate beside a figure, hidden when the period is too short for one to mean anything. */
+    private fun renderPerDay(view: TextView, paise: Long, rangeDays: Int) {
+        val perDay = PerDayRate.perDayPaise(paise, rangeDays)
+        view.visibility = if (perDay == null) View.GONE else View.VISIBLE
+        view.text = perDay?.let { "${formatRupees(it)}/day" }.orEmpty()
+    }
+
     /**
      * A slice's colour, resolved for the current mode. [CategorySlice] carries only the palette key;
      * see ChartColors for why the two halves are separate.
@@ -449,7 +417,16 @@ class StatisticsActivity : AppCompatActivity() {
     private fun categoryColor(slice: CategorySlice): Int =
         ChartColors.forCategory(this, slice.categoryId)
 
-    private fun buildLegend(slices: List<CategorySlice>, totalPaise: Long, drillable: Boolean) {
+    /**
+     * The category split, and -- while drilled -- the merchant split, which comes through here too.
+     * One code path, so the two cannot end up describing themselves differently.
+     */
+    private fun buildLegend(
+        slices: List<CategorySlice>,
+        totalPaise: Long,
+        rangeDays: Int,
+        drillable: Boolean
+    ) {
         legendContainer.removeAllViews()
         val inflater = LayoutInflater.from(this)
         slices.forEach { slice ->
@@ -458,14 +435,33 @@ class StatisticsActivity : AppCompatActivity() {
                 ColorStateList.valueOf(categoryColor(slice))
             row.findViewById<TextView>(R.id.tvLegendName).text = slice.name
             row.findViewById<TextView>(R.id.tvLegendAmount).text = formatRupees(slice.paise)
+            renderPerDay(row.findViewById(R.id.tvLegendPerDay), slice.paise, rangeDays)
             row.findViewById<TextView>(R.id.tvLegendPercent).text =
                 if (totalPaise > 0L) "${(slice.paise * 100.0 / totalPaise).toInt()}%" else ""
-            if (drillable) {
-                row.isClickable = true
-                row.setOnClickListener { viewModel.drillInto(slice) }
+            row.isClickable = true
+            row.setOnClickListener {
+                if (drillable) viewModel.drillInto(slice) else openPayeeTransactions(slice)
             }
             legendContainer.addView(row)
         }
+    }
+
+    /**
+     * The transactions behind one merchant's slice, over the same span the pie is showing.
+     *
+     * The list narrows to the merchant alone, not to the category as well: it has no category
+     * filter, and what the user wants from here is usually "what did I spend there".
+     */
+    private fun openPayeeTransactions(slice: CategorySlice) {
+        val state = viewModel.uiState.value ?: return
+        startActivity(
+            AllTransactionsActivity.forPayee(
+                context = this,
+                payee = StatsAggregator.payeeOf(slice),
+                name = slice.name,
+                window = ListWindow.of(state.range)
+            )
+        )
     }
 
     /**

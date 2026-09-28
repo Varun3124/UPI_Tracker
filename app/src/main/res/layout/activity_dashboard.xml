@@ -207,6 +207,15 @@
                                 app:autoSizeTextType="uniform"
                                 app:autoSizeMinTextSize="12sp"
                                 app:autoSizeMaxTextSize="20sp" />
+                            <TextView
+                                android:id="@+id/tvWeeklyPerDay"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:alpha="0.7"
+                                android:textAppearance="@style/TextAppearance.UPI.Label"
+                                android:textColor="?attr/colorOnPrimaryContainer"
+                                android:visibility="gone" />
+
                         </LinearLayout>
 
                         <View
@@ -243,6 +252,15 @@
                                 app:autoSizeTextType="uniform"
                                 app:autoSizeMinTextSize="12sp"
                                 app:autoSizeMaxTextSize="20sp" />
+                            <TextView
+                                android:id="@+id/tvMonthlyPerDay"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:alpha="0.7"
+                                android:textAppearance="@style/TextAppearance.UPI.Label"
+                                android:textColor="?attr/colorOnPrimaryContainer"
+                                android:visibility="gone" />
+
                         </LinearLayout>
                     </LinearLayout>
                 </LinearLayout>
@@ -269,12 +287,45 @@
                     android:orientation="horizontal" />
             </HorizontalScrollView>
 
-            <TextView
-                android:layout_width="wrap_content"
+            <!-- The IOU heading, plus one heading per open chapter, with the way to every chapter
+                 pinned at the right-hand end. -->
+            <LinearLayout
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:layout_marginBottom="@dimen/space_m"
-                android:text="IOU"
-                android:textAppearance="@style/TextAppearance.UPI.SectionHeader" />
+                android:layout_marginBottom="@dimen/space_xs"
+                android:gravity="center_vertical"
+                android:orientation="horizontal">
+
+                <!-- Tabs are added in code; see DashboardActivity.renderIouTabs. Scrolls sideways
+                     rather than wrapping, so a long list of chapters never pushes the rows below
+                     it down the page; the fade says there is more under the Chapters link. -->
+                <HorizontalScrollView
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:clipToPadding="false"
+                    android:fadingEdgeLength="@dimen/space_xl"
+                    android:requiresFadingEdge="horizontal"
+                    android:scrollbars="none">
+
+                    <LinearLayout
+                        android:id="@+id/iouTabRow"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal" />
+                </HorizontalScrollView>
+
+                <!-- Closed chapters and making a new one; the open ones are tabs beside it. The
+                     heading's rubric so it sits in the row, in the accent so it reads as a way
+                     somewhere rather than a tab to choose. -->
+                <TextView
+                    android:id="@+id/btnOpenChapters"
+                    style="@style/Widget.UPI.SectionTab"
+                    android:paddingStart="@dimen/space_l"
+                    android:paddingEnd="@dimen/space_xs"
+                    android:text="Chapters"
+                    android:textColor="?attr/colorPrimary" />
+            </LinearLayout>
 
             <LinearLayout
                 android:id="@+id/iouContainer"
@@ -291,29 +342,6 @@
                 android:layout_marginTop="@dimen/space_s"
                 android:text="Show insignificant"
                 android:textColor="?attr/appTextMuted" />
-
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="@dimen/space_xl"
-                android:layout_marginBottom="@dimen/space_m"
-                android:text="Chapters"
-                android:textAppearance="@style/TextAppearance.UPI.SectionHeader" />
-
-            <LinearLayout
-                android:id="@+id/chapterContainer"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical" />
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/btnOpenChapters"
-                style="@style/Widget.UPI.Button.Text"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_gravity="center_horizontal"
-                android:layout_marginTop="@dimen/space_s"
-                android:text="All chapters" />
         </LinearLayout>
     </ScrollView>
 </LinearLayout>

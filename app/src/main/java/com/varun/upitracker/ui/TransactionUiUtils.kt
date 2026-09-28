@@ -69,6 +69,51 @@ suspend fun Transaction.resolvePrimaryDisplay(db: AppDatabase): String {
     }
 }
 
+/**
+ * Every name a transaction can be found or labelled by, given name maps already in memory.
+ *
+ * The two ends' resolved names plus the raw labels the parsers wrote. Both raw labels are kept even
+ * where an id resolved: an SMS alias is often what the user remembers typing, and the search box has
+ * to find it.
+ */
+fun Transaction.searchableNames(
+    friendNames: Map<Long, String>,
+    merchantNames: Map<Long, String>
+): List<String?> = listOf(
+    payerActorRef().displayName(friendNames, merchantNames),
+    payeeActorRef().displayName(friendNames, merchantNames),
+    payerRawLabel,
+    payeeRawLabel
+)
+
+/**
+ * [resolveActorDisplayName] without a database, for a list that has already loaded the name maps.
+ *
+ * A list resolving each row through the suspending version costs one query per row per redraw, which
+ * on a filtered list is one query per row per keystroke. The maps are two queries for the whole
+ * screen, so every list hands them in instead.
+ */
+fun ActorRef.displayName(
+    friendNames: Map<Long, String>,
+    merchantNames: Map<Long, String>
+): String = when (actorType) {
+    ActorType.ME -> "Me"
+    ActorType.FRIEND -> friendId?.let { friendNames[it] } ?: rawLabel ?: "Friend"
+    ActorType.MERCHANT -> merchantId?.let { merchantNames[it] } ?: rawLabel ?: "Merchant"
+    else -> rawLabel ?: "Unknown"
+}
+
+/** [resolvePrimaryDisplay] without a database. See [displayName]. */
+fun Transaction.resolvePrimaryDisplay(
+    friendNames: Map<Long, String>,
+    merchantNames: Map<Long, String>
+): String = when {
+    payerActorType == ActorType.ME -> payeeActorRef().displayName(friendNames, merchantNames)
+    payeeActorType == ActorType.ME -> payerActorRef().displayName(friendNames, merchantNames)
+    else -> "${payerActorRef().displayName(friendNames, merchantNames)} -> " +
+        payeeActorRef().displayName(friendNames, merchantNames)
+}
+
 fun Transaction.resolveTypeLabel(): String {
     return when {
         isPending -> "Pending"

@@ -32,48 +32,67 @@
             android:textStyle="bold"/>
     </LinearLayout>
 
-    <LinearLayout
+    <include layout="@layout/view_search_row" />
+
+    <!-- The pills no longer fit a phone side by side, so the row scrolls rather than eliding one. -->
+    <HorizontalScrollView
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:gravity="center_vertical"
         android:background="?attr/colorSurface"
+        android:clipToPadding="false"
         android:paddingStart="12dp"
         android:paddingEnd="12dp"
-        android:paddingBottom="10dp">
+        android:paddingBottom="10dp"
+        android:scrollbars="none">
 
-        <TextView
-            style="@style/Widget.UPI.Pill"
-            android:id="@+id/btnPendingOnly"
-            android:text="Only pending"
-            android:textSize="12sp" />
-
-        <TextView
-            style="@style/Widget.UPI.Pill"
-            android:id="@+id/btnAccountFilter"
-            android:layout_marginStart="@dimen/space_s"
-            android:ellipsize="end"
-            android:maxWidth="150dp"
-            android:singleLine="true"
-            android:textSize="12sp" />
-
-        <TextView
-            style="@style/Widget.UPI.Pill"
-            android:id="@+id/btnThirdPartyOnly"
-            android:layout_marginStart="@dimen/space_s"
-            android:text="Neither side me"
-            android:textSize="12sp" />
-
-        <TextView
-            android:id="@+id/tvFilterHint"
-            android:layout_width="0dp"
+        <LinearLayout
+            android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:layout_marginStart="10dp"
-            android:gravity="end"
-            android:textSize="11sp"
-            android:textColor="?attr/appTextMuted"/>
-    </LinearLayout>
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <!-- Only while the list is narrowed to one merchant or friend, which only Statistics
+                 does. First, because it is the filter the screen was opened for; a tap clears it. -->
+            <TextView
+                style="@style/Widget.UPI.Pill"
+                android:id="@+id/btnPayeeFilter"
+                android:layout_marginEnd="@dimen/space_s"
+                android:ellipsize="end"
+                android:maxWidth="180dp"
+                android:singleLine="true"
+                android:textSize="12sp"
+                android:visibility="gone" />
+
+            <TextView
+                style="@style/Widget.UPI.Pill"
+                android:id="@+id/btnAccountFilter"
+                android:ellipsize="end"
+                android:maxWidth="150dp"
+                android:singleLine="true"
+                android:textSize="12sp" />
+
+            <TextView
+                style="@style/Widget.UPI.Pill"
+                android:id="@+id/btnAmountRange"
+                android:layout_marginStart="@dimen/space_s"
+                android:text="Amount"
+                android:textSize="12sp" />
+
+            <TextView
+                style="@style/Widget.UPI.Pill"
+                android:id="@+id/btnPendingOnly"
+                android:layout_marginStart="@dimen/space_s"
+                android:text="Only pending"
+                android:textSize="12sp" />
+
+            <TextView
+                style="@style/Widget.UPI.Pill"
+                android:id="@+id/btnThirdPartyOnly"
+                android:layout_marginStart="@dimen/space_s"
+                android:text="Neither side me"
+                android:textSize="12sp" />
+        </LinearLayout>
+    </HorizontalScrollView>
 
     <LinearLayout
         android:layout_width="match_parent"
@@ -156,4 +175,6 @@
         android:layout_weight="1"
         android:padding="12dp"
         android:clipToPadding="false"/>
+
+    <include layout="@layout/view_selection_bar" />
 </LinearLayout>

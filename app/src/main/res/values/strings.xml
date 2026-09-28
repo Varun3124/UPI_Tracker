@@ -18,12 +18,13 @@
     <string name="cd_edit">Edit</string>
     <string name="cd_delete">Delete</string>
     <string name="cd_selected">Selected</string>
+    <string name="cd_clear_search">Clear search</string>
+    <string name="hint_search_transactions">Search name or note</string>
     <string name="cd_open">Open</string>
     <string name="cd_previous_period">Previous period</string>
     <string name="cd_next_period">Next period</string>
     <string name="cd_avatar">Avatar</string>
     <string name="cd_statistics">Statistics</string>
-    <string name="cd_share_transactions">Share transactions</string>
 
     <!-- The audience identifier Credential Manager signs the user in against. Not a secret: an
          OAuth client ID is public by design and ships inside every copy of the app. The client

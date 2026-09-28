@@ -23,9 +23,6 @@ interface IouDao {
     """)
     suspend fun getNetBalanceForFriend(friendId: Long): Long?
 
-    @Query("SELECT * FROM iou_entries WHERE transactionId = :transactionId")
-    suspend fun getEntriesForTransaction(transactionId: Long): List<com.varun.upitracker.database.entity.IouEntry>
-
     // For all friends at once — used by home screen IOU summary
     @Query("""
         SELECT friendId, SUM(amountPaise) as netAmount 

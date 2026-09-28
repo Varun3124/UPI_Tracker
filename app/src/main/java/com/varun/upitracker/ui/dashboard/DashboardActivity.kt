@@ -29,6 +29,7 @@ import com.varun.upitracker.ui.LedgerEntry
 import com.varun.upitracker.ui.mailbox.MailboxInboxActivity
 import com.varun.upitracker.ui.color
 import com.varun.upitracker.ui.formatTransferAmount
+import com.varun.upitracker.ui.colorAttr
 import com.varun.upitracker.ui.perspectiveColor
 import com.varun.upitracker.ui.settings.SettingsActivity
 import com.varun.upitracker.ui.statistics.StatisticsActivity
@@ -46,6 +47,7 @@ import android.widget.ImageButton
 import com.varun.upitracker.ui.ActorType
 import com.varun.upitracker.ui.theme.Avatars
 import com.varun.upitracker.ui.chapter.ChapterDetailActivity
+import com.varun.upitracker.domain.statistics.PerDayRate
 import com.varun.upitracker.ui.chapter.ChaptersActivity
 import com.varun.upitracker.ui.theme.ThemeAttr
 import com.varun.upitracker.ui.theme.themeColor
@@ -57,12 +59,14 @@ class DashboardActivity : AppCompatActivity() {
     private lateinit var tvDailySpend: TextView
     private lateinit var tvWeeklySpend: TextView
     private lateinit var tvMonthlySpend: TextView
+    private lateinit var tvWeeklyPerDay: TextView
+    private lateinit var tvMonthlyPerDay: TextView
     private lateinit var cardSpendingGradient: View
     private lateinit var dividerCashFlow1: View
     private lateinit var dividerCashFlow2: View
     private lateinit var recentRow: LinearLayout
     private lateinit var iouContainer: LinearLayout
-    private lateinit var chapterContainer: LinearLayout
+    private lateinit var iouTabRow: LinearLayout
     private lateinit var btnToggleInsignificantIou: TextView
     private val dateFmt = SimpleDateFormat("dd MMM", Locale.getDefault())
     private lateinit var viewModel: DashboardViewModel
@@ -83,6 +87,15 @@ class DashboardActivity : AppCompatActivity() {
     private var showInsignificantIou = false
     private var latestIouSummaries: List<FriendLedgerSummary> = emptyList()
 
+    /**
+     * Which heading of the IOU slider is chosen: null for IOU itself, else a chapter's id.
+     *
+     * Held by the screen rather than the ViewModel because nothing loaded depends on it -- every
+     * open chapter's plan arrives with the rest of the state, so switching tabs is a redraw.
+     */
+    private var selectedChapterId: Long? = null
+    private var latestChapters: List<DashboardChapter> = emptyList()
+
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
@@ -93,17 +106,19 @@ class DashboardActivity : AppCompatActivity() {
         tvDailySpend = findViewById(R.id.tvDailySpend)
         tvWeeklySpend = findViewById(R.id.tvWeeklySpend)
         tvMonthlySpend = findViewById(R.id.tvMonthlySpend)
+        tvWeeklyPerDay = findViewById(R.id.tvWeeklyPerDay)
+        tvMonthlyPerDay = findViewById(R.id.tvMonthlyPerDay)
         cardSpendingGradient = findViewById(R.id.cardSpendingGradient)
         dividerCashFlow1 = findViewById(R.id.dividerCashFlow1)
         dividerCashFlow2 = findViewById(R.id.dividerCashFlow2)
         recentRow = findViewById(R.id.recentTransactionsRow)
         iouContainer = findViewById(R.id.iouContainer)
-        chapterContainer = findViewById(R.id.chapterContainer)
+        iouTabRow = findViewById(R.id.iouTabRow)
         findViewById<View>(R.id.btnOpenChapters).setOnClickListener { openChapters() }
         btnToggleInsignificantIou = findViewById(R.id.btnToggleInsignificantIou)
         btnToggleInsignificantIou.setOnClickListener {
             showInsignificantIou = !showInsignificantIou
-            buildIouSection(latestIouSummaries)
+            renderIouBody()
         }
         viewModel = ViewModelProvider(
             this,
@@ -127,12 +142,14 @@ class DashboardActivity : AppCompatActivity() {
             tvDailySpend.text = AmountFormat.rupees(kotlin.math.abs(state.dailySpendPaise))
             tvWeeklySpend.text = AmountFormat.rupees(kotlin.math.abs(state.weeklySpendPaise))
             tvMonthlySpend.text = AmountFormat.rupees(kotlin.math.abs(state.monthlySpendPaise))
+            renderPerDay(tvWeeklyPerDay, state.weeklySpendPaise, state.weeklyDays)
+            renderPerDay(tvMonthlyPerDay, state.monthlySpendPaise, state.monthlyDays)
             styleCashFlowCard(state.dailySpendPaise, state.weeklySpendPaise, state.monthlySpendPaise)
             buildRecentRow(state.recentEntries)
             latestIouSummaries = state.iouSummaries
-            buildIouSection(latestIouSummaries)
+            latestChapters = state.chapters
+            renderIouSlider()
             renderMailboxBell(state.mailboxOn, state.mailboxWaiting)
-            buildChapterSection(state.chapters)
         }
         loadData()
     }
@@ -179,6 +196,18 @@ class DashboardActivity : AppCompatActivity() {
 
     private fun loadData() {
         viewModel.loadData()
+    }
+
+    /**
+     * The rate beside a period figure, hidden while there is no rate worth showing.
+     *
+     * Unsigned, like the figure above it: this card carries the sign in colour alone -- see
+     * [styleCashFlowCard] -- so a minus here would be the only one on it.
+     */
+    private fun renderPerDay(view: TextView, paise: Long, days: Int) {
+        val perDay = PerDayRate.perDayPaise(kotlin.math.abs(paise), days)
+        view.visibility = if (perDay == null) View.GONE else View.VISIBLE
+        view.text = perDay?.let { "${AmountFormat.rupees(it)}/day" }.orEmpty()
     }
 
     /**
@@ -302,68 +331,96 @@ class DashboardActivity : AppCompatActivity() {
     }
 
     /**
-     * Open chapters only. A closed one still counts towards every balance, but there is nothing left
-     * to do about it, so it stays out of the way on the chapters screen.
+     * The IOU heading and one heading per open chapter, plus whichever body the chosen one wants.
+     *
+     * A chapter that has since been closed or deleted -- this screen reloads on every resume -- can
+     * still be the chosen one, so the choice is validated against the fresh list before anything is
+     * drawn rather than left to produce an empty body.
      */
-    private fun buildChapterSection(chapters: List<DashboardChapter>) {
-        chapterContainer.removeAllViews()
-        if (chapters.isEmpty()) {
-            chapterContainer.addView(TextView(this).apply {
-                text = "No open chapters"
-                textSize = 13f
-                setTextColor(themeColor(ThemeAttr.textMuted))
-                setPadding(0, dp(8), 0, dp(8))
-            })
+    private fun renderIouSlider() {
+        if (latestChapters.none { it.chapterId == selectedChapterId }) selectedChapterId = null
+        renderIouTabs()
+        renderIouBody()
+    }
+
+    private fun renderIouTabs() {
+        iouTabRow.removeAllViews()
+        addIouTab("IOU", chapterId = null)
+        latestChapters.forEach { addIouTab(it.name, it.chapterId) }
+    }
+
+    private fun addIouTab(label: String, chapterId: Long?) {
+        val tab = TextView(this, null, 0, R.style.Widget_UPI_SectionTab).apply {
+            text = label
+            isSelected = chapterId == selectedChapterId
+            setOnClickListener {
+                if (selectedChapterId == chapterId) return@setOnClickListener
+                selectedChapterId = chapterId
+                renderIouTabs()
+                renderIouBody()
+            }
+        }
+        iouTabRow.addView(tab)
+    }
+
+    private fun renderIouBody() {
+        val chapterId = selectedChapterId
+        if (chapterId == null) {
+            buildIouSection(latestIouSummaries)
+            return
+        }
+        buildChapterPlanSection(latestChapters.first { it.chapterId == chapterId })
+    }
+
+    /**
+     * A chapter's plan, drawn as the same cards a friend's IOU is.
+     *
+     * Deliberately the same shape: "Dan owes you 700" means the same thing whether it came from the
+     * base ledger or from a chapter's simplification, and the only way to keep the two reading alike
+     * is to draw them with one layout and one set of colour roles.
+     */
+    private fun buildChapterPlanSection(chapter: DashboardChapter) {
+        iouContainer.removeAllViews()
+        btnToggleInsignificantIou.visibility = View.GONE
+
+        if (chapter.plan.isEmpty()) {
+            iouContainer.addView(mutedNote("Nobody owes anybody."))
             return
         }
 
-        chapters.forEach { chapter ->
-            val card = LayoutInflater.from(this).inflate(R.layout.item_chapter, chapterContainer, false)
-            card.findViewById<TextView>(R.id.tvChapterName).text = chapter.name
-            card.findViewById<TextView>(R.id.tvChapterActive).visibility =
-                if (chapter.isActive) View.VISIBLE else View.GONE
-            card.findViewById<TextView>(R.id.tvChapterSubtitle).text =
-                if (chapter.settled) "Settled" else "Open"
-
-            val label = card.findViewById<TextView>(R.id.tvChapterNetLabel)
-            val net = card.findViewById<TextView>(R.id.tvChapterNet)
-            when {
-                chapter.myNetPaise > 0L -> {
-                    label.text = "owed to you"
-                    net.text = AmountFormat.rupees(chapter.myNetPaise)
-                    net.setTextColor(themeColor(ThemeAttr.positive))
-                }
-                chapter.myNetPaise < 0L -> {
-                    label.text = "you owe"
-                    net.text = AmountFormat.rupees(-chapter.myNetPaise)
-                    net.setTextColor(themeColor(ThemeAttr.negative))
-                }
-                else -> {
-                    label.text = ""
-                    net.text = "Even"
-                    net.setTextColor(themeColor(ThemeAttr.amountNeutral))
-                }
+        chapter.plan.forEach { row ->
+            val card = LayoutInflater.from(this).inflate(R.layout.item_friend_iou, iouContainer, false)
+            Avatars.bind(
+                card.findViewById(R.id.tvFriendInitials), row.subjectName, ActorType.FRIEND, fallback = "F"
+            )
+            card.findViewById<TextView>(R.id.tvFriendName).text = row.subjectName
+            card.findViewById<TextView>(R.id.tvIouLabel).text = row.label
+            card.findViewById<TextView>(R.id.tvIouAmount).apply {
+                text = AmountFormat.rupees(row.amountPaise)
+                setTextColor(themeColor(row.direction.colorAttr()))
             }
-
             card.setOnClickListener {
                 startActivity(
                     Intent(this, ChapterDetailActivity::class.java)
                         .putExtra(ChapterDetailActivity.EXTRA_CHAPTER_ID, chapter.chapterId)
                 )
             }
-            chapterContainer.addView(card)
+            iouContainer.addView(card)
         }
+    }
+
+    /** The one empty-state shape these sections use. */
+    private fun mutedNote(message: String): TextView = TextView(this).apply {
+        text = message
+        textSize = 13f
+        setTextColor(themeColor(ThemeAttr.textMuted))
+        setPadding(0, dp(8), 0, dp(8))
     }
 
     private fun buildIouSection(summaries: List<FriendLedgerSummary>) {
         iouContainer.removeAllViews()
         if (summaries.isEmpty()) {
-            iouContainer.addView(TextView(this).apply {
-                text = "No IOU records yet"
-                textSize = 13f
-                setTextColor(themeColor(ThemeAttr.textMuted))
-                setPadding(0, dp(8), 0, dp(8))
-            })
+            iouContainer.addView(mutedNote("No IOU records yet"))
             btnToggleInsignificantIou.visibility = View.GONE
             return
         }
@@ -383,12 +440,7 @@ class DashboardActivity : AppCompatActivity() {
         }
 
         if (visibleSummaries.isEmpty()) {
-            iouContainer.addView(TextView(this).apply {
-                text = "No significant IOUs"
-                textSize = 13f
-                setTextColor(themeColor(ThemeAttr.textMuted))
-                setPadding(0, dp(8), 0, dp(8))
-            })
+            iouContainer.addView(mutedNote("No significant IOUs"))
             return
         }
 
@@ -425,6 +477,7 @@ class DashboardActivity : AppCompatActivity() {
             iouContainer.addView(card)
         }
     }
+
 
     private fun isInsignificantIou(summary: FriendLedgerSummary): Boolean =
         kotlin.math.abs(summary.netBalancePaise) < INSIGNIFICANT_IOU_THRESHOLD_PAISE

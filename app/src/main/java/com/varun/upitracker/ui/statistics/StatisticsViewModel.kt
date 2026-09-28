@@ -22,6 +22,7 @@ import com.varun.upitracker.domain.BalanceConfidence
 import com.varun.upitracker.domain.statistics.BalanceTimeline
 import com.varun.upitracker.domain.TransferDeltaInput
 import com.varun.upitracker.domain.statistics.PanMath
+import com.varun.upitracker.domain.statistics.PerDayRate
 import com.varun.upitracker.domain.statistics.TransferFlow
 import com.varun.upitracker.domain.statistics.parseAccountScope
 import com.varun.upitracker.domain.statistics.serialise
@@ -121,6 +122,13 @@ data class StatisticsUiState(
     val drilledCategory: CategorySlice? = null,
     val payeeSlices: List<CategorySlice> = emptyList(),
     val trends: TrendsUiState = TrendsUiState(),
+    /**
+     * Days of [range] that have happened, which every figure on the Categories half is divided by.
+     *
+     * Zero or one means there is no rate worth showing -- a single day's rate is the figure itself --
+     * and the screen hides all of them rather than printing each one twice.
+     */
+    val rangeDays: Int = 0,
     val isLoading: Boolean = true
 )
 
@@ -287,14 +295,15 @@ class StatisticsViewModel(context: Context) : ViewModel() {
         val drilled = this.drilled
 
         loadJob = viewModelScope.launch {
-            val (breakdown, payees) = withContext(Dispatchers.IO) {
+            val now = System.currentTimeMillis()
+            val (breakdown, payees, days) = withContext(Dispatchers.IO) {
                 val result = loadBreakdown(period, anchor, range)
                 val payeeTotals = drilled?.let {
                     repository.getPayeeTotalsForCategory(
                         CategoryKind.EXPENSE, it.categoryId, range.fromExclusive, range.toInclusive
                     )
                 }.orEmpty()
-                result to StatsAggregator.toPayeeSlices(payeeTotals)
+                Triple(result, StatsAggregator.toPayeeSlices(payeeTotals), daysIn(range, now))
             }
             _uiState.value = StatisticsUiState(
                 section = section,
@@ -311,10 +320,27 @@ class StatisticsViewModel(context: Context) : ViewModel() {
                 // but changes nothing the balance line is drawn from, and rebuilding the state
                 // wholesale would otherwise strand Trends on a spinner the cache never clears.
                 trends = _uiState.value?.trends ?: TrendsUiState(),
+                rangeDays = days,
                 isLoading = false
             )
             if (section == StatsSection.TRENDS) loadTrends()
         }
+    }
+
+    /**
+     * How many days the figures on screen are spread over.
+     *
+     * All time has no lower bound to measure from -- it is [Long.MIN_VALUE], and adding one to that
+     * would overflow -- so it is resolved to the oldest transaction on record. Unscoped, matching
+     * the category totals it divides: those count rows with no account recorded, so the span must too.
+     */
+    private suspend fun daysIn(range: DateRange, now: Long): Int {
+        val from = if (range.fromExclusive == Long.MIN_VALUE) {
+            db.transactionDao().getEarliestDateEpoch() ?: return 0
+        } else {
+            range.fromExclusive + 1
+        }
+        return PerDayRate.daysElapsed(from, range.toInclusive, now)
     }
 
     /**

@@ -34,49 +34,23 @@
             android:textStyle="bold" />
     </LinearLayout>
 
-    <!-- Two pills rather than a TabLayout: the app has none, and the closest existing idiom for a
-         mutually exclusive choice is the pill row on All Transactions. -->
+    <!-- The two sections, splitting the width equally. Headings rather than pills, the same as the
+         dashboard's IOU slider and a chapter's two pages: a pill reads as a filter. -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:background="?attr/colorSurface"
-        android:gravity="center_vertical"
-        android:orientation="horizontal"
-        android:paddingStart="16dp"
-        android:paddingEnd="16dp"
-        android:paddingBottom="10dp">
+        android:orientation="horizontal">
 
         <TextView
-            style="@style/Widget.UPI.Pill"
+            style="@style/Widget.UPI.SectionTab.Split"
             android:id="@+id/btnSectionCategories"
-            android:text="Categories"
-            android:textSize="12sp" />
+            android:text="Categories" />
 
         <TextView
-            style="@style/Widget.UPI.Pill"
+            style="@style/Widget.UPI.SectionTab.Split"
             android:id="@+id/btnSectionTrends"
-            android:layout_marginStart="@dimen/space_s"
-            android:text="Trends"
-            android:textSize="12sp" />
-
-        <!-- Beside the section pills, because it scopes everything under Trends: both the balance
-             line and the in-and-out figures read the same accounts. Hidden on Categories, whose
-             totals are per category and carry no account. Same flat shape as the period control. -->
-        <TextView
-            android:id="@+id/btnPickScope"
-            android:layout_width="wrap_content"
-            android:layout_height="30dp"
-            android:layout_marginStart="12dp"
-            android:background="?attr/colorSurfaceVariant"
-            android:clickable="true"
-            android:focusable="true"
-            android:gravity="center"
-            android:paddingStart="12dp"
-            android:paddingEnd="12dp"
-            android:textColor="?attr/colorOnSurface"
-            android:textSize="12sp"
-            android:textStyle="bold"
-            android:visibility="gone" />
+            android:text="Trends" />
     </LinearLayout>
 
     <LinearLayout
@@ -96,12 +70,14 @@
             app:tint="?attr/colorPrimary"
             android:contentDescription="@string/cd_previous_period" />
 
+        <!-- minHeight holds the row at the chevrons' height on Trends, where they are gone. -->
         <TextView
             android:id="@+id/tvRangeLabel"
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:gravity="center"
+            android:minHeight="@dimen/touch_target_min"
             android:textColor="?attr/colorOnSurface"
             android:textSize="14sp"
             android:textStyle="bold" />
@@ -112,6 +88,26 @@
             android:src="@drawable/ic_chevron_right"
             app:tint="?attr/colorPrimary"
             android:contentDescription="@string/cd_next_period" />
+
+        <!-- Trends only, where it takes the chevrons' place: Trends steps by panning, and this
+             scopes everything under it: the balance line and the in-and-out figures read the same
+             accounts. Categories' totals carry no account, so it has none. Same flat shape as the
+             period control. -->
+        <TextView
+            android:id="@+id/btnPickScope"
+            android:layout_width="wrap_content"
+            android:layout_height="30dp"
+            android:layout_marginStart="12dp"
+            android:background="?attr/colorSurfaceVariant"
+            android:clickable="true"
+            android:focusable="true"
+            android:gravity="center"
+            android:paddingStart="12dp"
+            android:paddingEnd="12dp"
+            android:textColor="?attr/colorOnSurface"
+            android:textSize="12sp"
+            android:textStyle="bold"
+            android:visibility="gone" />
     </LinearLayout>
 
     <!-- Wraps the Categories scroller only, so a horizontal drag anywhere over its charts steps
@@ -214,6 +210,14 @@
                                 android:textColor="?attr/colorOnSurface"
                                 android:textSize="20sp"
                                 android:textStyle="bold" />
+
+                            <TextView
+                                android:id="@+id/tvPiePerDay"
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:textColor="?attr/appTextMuted"
+                                android:textSize="11sp"
+                                android:visibility="gone" />
                         </LinearLayout>
                     </FrameLayout>
 

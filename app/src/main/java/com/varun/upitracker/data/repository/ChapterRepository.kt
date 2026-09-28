@@ -22,6 +22,16 @@ private const val TAG = "ChapterRepository"
 /** A chapter refused an operation, with a message fit to put in front of the user. */
 class ChapterException(message: String) : Exception(message)
 
+/** What [ChapterRepository.tagAll] did with a batch of transactions. */
+data class BulkTagResult(
+    /** How many of the batch now sit in the chapter, refunds carried along with their purchase included. */
+    val taggedCount: Int,
+    /** Friends the chapter had to take in to hold them (R5). */
+    val addedMemberIds: Set<Long>,
+    /** One reason per transaction that was refused, in the order they were tried. */
+    val failures: List<String>
+)
+
 /**
  * Chapters, their members, and keeping both books straight when a transaction moves between them.
  *
@@ -138,6 +148,41 @@ class ChapterRepository(private val db: AppDatabase) {
             assertTaggable(tx, shares, chapterId)
         }
         applyChapterChangeInTransaction(tx.id, previous = tx.chapterId, current = chapterId)
+    }
+
+    /**
+     * [setChapterFor] over a batch, each in its own database transaction, collecting what was refused
+     * rather than stopping at the first -- a selection off the transactions list mixes rows a chapter
+     * can take with ones it cannot, and the user needs to hear about all of them.
+     *
+     * A refund whose purchase is also in the batch is not tried on its own. Tagging the purchase
+     * carries it along, and trying it first would report "follows its original purchase" for a row
+     * that ends up exactly where it was asked to go.
+     */
+    suspend fun tagAll(chapterId: Long, transactionIds: Set<Long>): BulkTagResult {
+        val membersBefore = db.chapterDao().memberIds(chapterId).toSet()
+        val carried = transactionIds.filter { id ->
+            val original = db.transactionDao().getTransactionById(id)?.refundsTransactionId
+            original != null && original in transactionIds
+        }.toSet()
+
+        val failures = mutableListOf<String>()
+        (transactionIds - carried).forEach { id ->
+            try {
+                setChapterFor(id, chapterId)
+            } catch (e: ChapterException) {
+                failures += e.message ?: "That did not work"
+            }
+        }
+
+        // Counted from the rows rather than from the attempts, so a carried refund is counted when
+        // its purchase went in and not when it did not.
+        val tagged = transactionIds.count { db.transactionDao().getTransactionById(it)?.chapterId == chapterId }
+        return BulkTagResult(
+            taggedCount = tagged,
+            addedMemberIds = db.chapterDao().memberIds(chapterId).toSet() - membersBefore,
+            failures = failures
+        )
     }
 
     // --- recompute -------------------------------------------------------------------------------

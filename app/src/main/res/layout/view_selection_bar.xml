@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  The bar that appears while a transaction list has a selection running.
+
+  Included by All Transactions, a friend's page and a chapter's transactions, which differ only in
+  what the action buttons say and do. The list above each one is weighted, so this has room.
+-->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/barSelectionActions"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:background="?attr/colorSurface"
+    android:orientation="vertical"
+    android:padding="@dimen/space_l"
+    android:visibility="gone">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginBottom="@dimen/space_s"
+        android:gravity="center_vertical"
+        android:orientation="horizontal">
+
+        <TextView
+            android:id="@+id/tvSelectionCount"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textAppearance="@style/TextAppearance.UPI.Caption" />
+
+        <Button
+            android:id="@+id/btnSelectAllRows"
+            style="?attr/borderlessButtonStyle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Select all" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="horizontal">
+
+        <!-- The cautious action, outlined: removing, or the parcel-to-paste path. -->
+        <Button
+            android:id="@+id/btnSelectionSecondary"
+            style="?attr/materialButtonOutlinedStyle"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="@dimen/space_s"
+            android:layout_weight="1"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:paddingStart="@dimen/space_s"
+            android:paddingEnd="@dimen/space_s" />
+
+        <!-- A third action for the one screen that has one (All Transactions: into a chapter). Gone
+             everywhere else, so the other two split the bar as before. Tighter padding on all three
+             so a third of a phone's width still holds a word and an ellipsis on one line. -->
+        <Button
+            android:id="@+id/btnSelectionTertiary"
+            style="?attr/materialButtonOutlinedStyle"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="@dimen/space_s"
+            android:layout_weight="1"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:paddingStart="@dimen/space_s"
+            android:paddingEnd="@dimen/space_s"
+            android:visibility="gone" />
+
+        <Button
+            android:id="@+id/btnSelectionPrimary"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:ellipsize="end"
+            android:maxLines="1"
+            android:paddingStart="@dimen/space_s"
+            android:paddingEnd="@dimen/space_s" />
+    </LinearLayout>
+</LinearLayout>

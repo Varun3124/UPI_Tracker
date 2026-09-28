@@ -559,8 +559,4 @@ private fun AccountType.displayName(): String = enumDisplayName(name)
 /** Account balances show their paise, so this is the exact form rather than whole rupees. */
 private fun Long.formatPaise(): String = AmountFormat.rupeesExact(this)
 
-private fun String.toPaiseOrNull(): Long? {
-    val value = trim()
-    if (value.isEmpty()) return null
-    return value.toDoubleOrNull()?.let { (it * 100).toLong() }
-}
+private fun String.toPaiseOrNull(): Long? = AmountFormat.paiseOrNull(this)
