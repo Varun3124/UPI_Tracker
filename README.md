@@ -25,6 +25,7 @@ Features:<br/>
 5) Statistics (category wise expenditure)
 6) Import transactions from bank statement(HDFC, .xls format)
 7) Share transactions with friends: as a parcel pasted into any chat, or straight to linked friends, several at once, through the end-to-end encrypted mailbox (backend setup in [firebase/README.md](firebase/README.md))
+8) Agree on a balance with a linked friend without sharing your whole history: either of you declares what you owe each other, the other accepts, and both books carry on from that checkpoint. Chapters (group IOUs) can be shared with their members, so everyone sees the same plan. See [docs/declarations-design.md](docs/declarations-design.md).
 
 <br/>
 

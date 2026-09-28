@@ -172,7 +172,7 @@ base ledger would hold R +3,000 and P +2,000, and the friend↔friend debts woul
   The user can clear it. The one-tap notification confirm must also refuse a transaction the active chapter would pre-select. When a chapter is pre-selected, the prompt in R18 doesn't appear.
 
 ### Privacy and sharing
-- **R20. Chapters never leave the device in v1.** Parcel and mailbox sharing of a tagged transaction work as today, and `chapterId` is never written into a parcel. Parcel import lands transactions untagged (they're pending anyway, and R19 applies when they're reviewed).
+- **R20. A chapter stays on the device unless its owner shares it.** Parcel and mailbox sharing of a tagged transaction work as today, and `chapterId` is never written into a parcel. Parcel import lands transactions untagged (they're pending anyway, and R19 applies when they're reviewed). Sharing a whole chapter with its members is specified in [declarations-design.md](declarations-design.md) (rules S1–S10). It supersedes the v1 rule that chapters never leave the device.
 
 ---
 
@@ -393,7 +393,7 @@ JVM, `app/src/test/...`:
 
 ## 13. Future (not v1)
 - **Export:** a text summary for chat, and later CSV.
-- **Sharing a chapter** with members. Candidate approach: a parcel-like snapshot of the plan and member nets, sent over the existing paste parcel or mailbox, read-only on the other side.
+- ~~Sharing a chapter with members~~: done. See [declarations-design.md](declarations-design.md). The owner stays the only editor, linked members hold a live copy that uses the owner's plan, and anyone can be pasted a static copy.
 - True minimum payments via subset DP for small groups.
 - Per-chapter spend statistics, possibly including the user's solo spending during a trip, which R4 currently excludes.
 
