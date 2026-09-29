@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DhanMoney privacy policy</title>
+<meta name="description" content="What DhanMoney does with your data, and with the Google account data it asks for.">
+<style>
+  :root { color-scheme: light dark; }
+  body {
+    margin: 0 auto; padding: 2rem 1.25rem; max-width: 38rem;
+    font: 16px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  h1 { font-size: 1.4rem; margin: 0 0 .75rem; }
+  h2 { font-size: 1.1rem; margin: 2rem 0 .5rem; }
+  p, li { margin: 0 0 .6rem; }
+</style>
+</head>
+<body>
+<h1>DhanMoney privacy policy</h1>
+<p>Last updated 29 September 2026.</p>
+
+<p>DhanMoney keeps your spending, and what you and your friends owe each other, on your own phone.
+  There are no ads, no analytics and no tracking, and nothing is sold or shared with anyone.</p>
+
+<h2>What stays on your phone</h2>
+<p>Your transactions, accounts, categories, friends, chapters and balances are stored only on your
+  phone. To record payments for you, the app reads bank SMS messages and bank app notifications on the
+  phone, and statements you choose to import. It reads them on the phone and never sends them anywhere.</p>
+
+<h2>Google Sign-In</h2>
+<p>Two optional features ask you to sign in with Google. From your Google account DhanMoney uses only:</p>
+<ul>
+  <li><strong>Your name and email address</strong>, for the friends mailbox account described below.</li>
+  <li><strong>Google Drive app data</strong> (<code>drive.appdata</code>): a hidden folder in your own
+    Google Drive that only DhanMoney can see. It cannot see any of your other files.</li>
+</ul>
+<p>DhanMoney's use of information received from Google APIs adheres to the
+  <a href="https://developers.google.com/terms/api-services-user-data-policy">Google API Services User
+  Data Policy</a>, including the Limited Use requirements.</p>
+
+<h2>Backup to Google Drive (optional)</h2>
+<p>If you turn it on, a copy of the app's data is saved to the hidden app folder in <em>your own</em>
+  Google Drive, so you can restore it on a new phone. It goes from your phone straight to your Drive;
+  the developer never receives it. You can remove it at any time in Google Drive on the web:
+  Settings &rarr; Manage apps &rarr; DhanMoney &rarr; Options &rarr; Delete hidden app data.</p>
+
+<h2>Friends mailbox (optional)</h2>
+<p>The mailbox lets you send transactions, agreed balances and shared chapters to friends you have
+  linked with. If you turn it on:</p>
+<ul>
+  <li>An account is created with Firebase Authentication (Google), holding your email address and a
+    user ID.</li>
+  <li>Your public keys, and the list of friends allowed to send to you, are stored in Cloud Firestore
+    (Google).</li>
+  <li>Everything you send is encrypted on your phone for the one friend it is for, and signed. The
+    server stores it only until your friend's phone collects it. Neither the developer nor Google can
+    read it.</li>
+  <li>When you invite a friend, the invite carries the name on your Google account, so they can see
+    who it is from.</li>
+  <li>A copy of your mailbox key is kept in your own Google Drive's hidden app folder, so a new phone
+    can read what was sent to you.</li>
+</ul>
+<p>What you send is, by design, seen by the friend you send it to: the amounts, the dates, who was
+  involved and your notes on those transactions.</p>
+
+<h2>Deleting your data</h2>
+<p>Uninstalling the app deletes everything on your phone. To delete your mailbox account and
+  everything stored for it on the server, see <a href="/account-deletion">Deleting your friends
+  mailbox account</a>.</p>
+
+<h2>Children</h2>
+<p>DhanMoney is not meant for children under 13.</p>
+
+<h2>Changes</h2>
+<p>If this policy changes, the new version is published on this page with a new date.</p>
+
+<h2>Contact</h2>
+<p><a href="mailto:dhanmoney.feedback@gmail.com">dhanmoney.feedback@gmail.com</a></p>
+</body>
+</html>
