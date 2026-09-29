@@ -79,6 +79,43 @@
             android:layout_height="wrap_content" />
     </LinearLayout>
 
+    <!-- The balance agreed with them, and any proposal about it waiting on either side. -->
+    <LinearLayout
+        android:id="@+id/rowAgreement"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:minHeight="@dimen/touch_target_min"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="@dimen/page_gutter"
+        android:paddingEnd="@dimen/space_s"
+        android:background="?attr/selectableItemBackground"
+        android:clickable="true"
+        android:focusable="true"
+        android:visibility="gone">
+
+        <ImageView
+            android:layout_width="20dp"
+            android:layout_height="20dp"
+            android:layout_marginEnd="@dimen/space_m"
+            android:src="@drawable/ic_check"
+            app:tint="?attr/colorOnSurfaceVariant"
+            android:importantForAccessibility="no" />
+
+        <TextView
+            android:id="@+id/tvAgreementStatus"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_weight="1"
+            android:textAppearance="@style/TextAppearance.UPI.Caption" />
+
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnAgreementAction"
+            style="@style/Widget.UPI.Button.Text"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content" />
+    </LinearLayout>
+
     <!-- The personal half of the headline balance, and one row per chapter making up the rest. -->
     <TextView
         android:id="@+id/tvFriendPersonalBalance"

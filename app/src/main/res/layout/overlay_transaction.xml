@@ -234,6 +234,30 @@
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
 
+            <!-- ===================== Agreement ===================== -->
+            <!-- Shown when this row is dated at or before a balance agreed with someone in it (D8). -->
+            <LinearLayout
+                android:id="@+id/agreementNotice"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="@dimen/space_m"
+                android:orientation="vertical"
+                android:visibility="gone">
+
+                <TextView
+                    android:id="@+id/tvAgreementNotice"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:textAppearance="@style/TextAppearance.UPI.Label" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnAgreementAdd"
+                    style="@style/Widget.UPI.Button.Text"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:visibility="gone" />
+            </LinearLayout>
+
             <!-- ===================== Chapter ===================== -->
             <com.google.android.material.card.MaterialCardView
                 android:id="@+id/chapterCard"

@@ -32,6 +32,7 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import com.google.android.flexbox.FlexboxLayout
 import com.varun.upitracker.R
+import com.varun.upitracker.data.declaration.DeclarationRepository
 import com.varun.upitracker.database.AppDatabase
 import com.varun.upitracker.data.repository.AccountMutationException
 import com.varun.upitracker.data.repository.AccountRepository
@@ -53,6 +54,9 @@ import com.varun.upitracker.database.entity.MerchantUpiId
 import com.varun.upitracker.data.repository.ChapterRepository
 import com.varun.upitracker.database.entity.ChapterState
 import com.varun.upitracker.database.entity.Transaction
+import com.varun.upitracker.database.entity.FriendLinkState
+import com.varun.upitracker.database.entity.IouDeclaration
+import com.varun.upitracker.domain.chapter.ChapterMath
 import com.varun.upitracker.domain.chapter.ChapterOption
 import com.varun.upitracker.domain.chapter.ChapterPrompt
 import kotlinx.coroutines.suspendCancellableCoroutine
@@ -80,6 +84,8 @@ import com.varun.upitracker.domain.transactionentry.validation.AccountTransferVa
 import com.varun.upitracker.domain.transactionentry.validation.ShareValidationRow
 import com.varun.upitracker.domain.transactionentry.validation.ValidationResult
 import com.varun.upitracker.domain.transactionentry.validation.TransactionValidator
+import com.varun.upitracker.ui.declaration.AgreementDialogs
+import com.varun.upitracker.ui.declaration.AgreementText
 import com.varun.upitracker.domain.transactionentry.validation.TransferValidationInput
 import com.varun.upitracker.sms.receiver.TransactionNotificationHelper
 import com.varun.upitracker.ui.ActorRef
@@ -231,6 +237,20 @@ class TransactionEntryActivity : AppCompatActivity() {
     private lateinit var formScroll: ScrollView
     private lateinit var etDescription: EditText
     private lateinit var chapterCard: View
+    private lateinit var agreementNotice: View
+    private lateinit var tvAgreementNotice: TextView
+    private lateinit var btnAgreementAdd: TextView
+
+    /** Each friend's agreed checkpoint, loaded once: what this row's date is measured against (D8). */
+    private var checkpoints: Map<Long, IouDeclaration> = emptyMap()
+
+    /** Friends it is possible to propose anything to right now. */
+    private var linkedFriendIds: Set<Long> = emptySet()
+
+    private val declarations by lazy {
+        DeclarationRepository(applicationContext, AppDatabase.getInstance(applicationContext))
+    }
+    private val agreementDialogs by lazy { AgreementDialogs(this, declarations) {} }
     private lateinit var tvChapterValue: TextView
     private lateinit var tvChapterHint: TextView
     private lateinit var ledgerOptionsCard: View
@@ -346,6 +366,10 @@ class TransactionEntryActivity : AppCompatActivity() {
         tvChapterValue = findViewById(R.id.tvChapterValue)
         tvChapterHint = findViewById(R.id.tvChapterHint)
         chapterCard.setOnClickListener { showChapterPicker() }
+        agreementNotice = findViewById(R.id.agreementNotice)
+        tvAgreementNotice = findViewById(R.id.tvAgreementNotice)
+        btnAgreementAdd = findViewById(R.id.btnAgreementAdd)
+        btnAgreementAdd.setOnClickListener { askToAddSavedRow() }
     }
 
     private suspend fun setupUi(db: AppDatabase) {
@@ -376,6 +400,7 @@ class TransactionEntryActivity : AppCompatActivity() {
             else -> seedDefaultState()
         }
         setupChapterField(db)
+        loadAgreements(db)
         ensureBaseShareRows()
         enforceTransferModeRows()
         updatePrimaryRowLabel(true)
@@ -1135,6 +1160,7 @@ class TransactionEntryActivity : AppCompatActivity() {
 
             is TransactionEntryAction.DateChanged -> {
                 selectedDateEpoch = action.dateEpoch
+                renderAgreementNotice()
             }
 
             is TransactionEntryAction.ToggleMerchant -> {
@@ -1332,6 +1358,7 @@ class TransactionEntryActivity : AppCompatActivity() {
         updateSectionBalance(true)
         updateSectionBalance(false)
         updateIouRecoveryUi()
+        renderAgreementNotice()
 
         if (isTransferMode()) {
             tvBalance.text = transferSummaryText()
@@ -1765,9 +1792,13 @@ class TransactionEntryActivity : AppCompatActivity() {
         if (!resolveChapterBeforeSaving(db, amountPaise)) return
 
         val membersBefore = chapterMemberIds(db, selectedChapterId)
-        withContext(Dispatchers.IO) { persistTransaction(db, amountPaise, payerLabel, payeeLabel, myShare) }
+        // A row first counted now: typed in, or reviewed from pending. Nothing about it was known
+        // when any agreement it falls under was made.
+        val firstCounted = currentTransaction?.isPending ?: true
+        val savedId = withContext(Dispatchers.IO) { persistTransaction(db, amountPaise, payerLabel, payeeLabel, myShare) }
         reportAddedMembers(db, membersBefore)
         currentTransaction?.let { TransactionNotificationHelper.cancel(applicationContext, it.id.toInt()) }
+        if (firstCounted && offerToAddLateRow(db, savedId)) return
         finish()
     }
 
@@ -2080,7 +2111,7 @@ class TransactionEntryActivity : AppCompatActivity() {
         payerLabel: String,
         payeeLabel: String,
         categoryAmountPaise: Long
-    ) {
+    ): Long =
         transactionPersistenceService.persist(
             db = db,
             request = PersistTransactionRequest(
@@ -2105,6 +2136,130 @@ class TransactionEntryActivity : AppCompatActivity() {
                 persistCategories(db, transactionId, toCategorisePaise, payer, payee)
             }
         )
+
+    // --- agreed balances ----------------------------------------------------------------------------
+
+    private suspend fun loadAgreements(db: AppDatabase) {
+        checkpoints = declarations.allCheckpoints()
+        linkedFriendIds = withContext(Dispatchers.IO) {
+            db.mailboxDao().getAllLinks().filter { it.state == FriendLinkState.LINKED }.map { it.friendId }.toSet()
+        }
+        renderAgreementNotice()
+    }
+
+    /** Every friend this row names, as it stands on screen: either end, or a row of the split. */
+    private fun friendsInRow(): Set<Long> = buildSet {
+        if (payerActorType == ActorType.FRIEND) payerFriendId?.let(::add)
+        if (payeeActorType == ActorType.FRIEND) payeeFriendId?.let(::add)
+        (payerShareRows + payeeShareRows)
+            .filter { it.participantType == ActorType.FRIEND }
+            .mapNotNullTo(this) { it.friendId }
+    }
+
+    private fun friendNameOf(friendId: Long): String =
+        allFriends.firstOrNull { it.id == friendId }?.name ?: "your friend"
+
+    /** "Bob (10 Sep 2026) and Carol (2 Aug 2026)". */
+    private fun agreementNames(agreements: List<IouDeclaration>): String =
+        agreements.joinToString(" and ") { "${friendNameOf(it.friendId)} (${AgreementText.day(requireNotNull(it.asOfEpoch))})" }
+
+    /**
+     * D8 on the entry screen: says when this row is dated at or before a balance agreed with someone in
+     * it -- saving it changes nothing between the two of you -- and when an edit moves it past one.
+     */
+    private fun renderAgreementNotice() {
+        if (!::agreementNotice.isInitialized) return
+        if (isTransferMode() || checkpoints.isEmpty()) {
+            agreementNotice.visibility = View.GONE
+            return
+        }
+        val inRow = friendsInRow().mapNotNull { checkpoints[it] }
+        val covered = inRow.filter { requireNotNull(it.asOfEpoch) >= selectedDateEpoch }
+        val stored = currentTransaction
+        val movedPast = inRow.filter { checkpoint ->
+            val asOf = requireNotNull(checkpoint.asOfEpoch)
+            stored != null && stored.dateEpoch <= asOf && selectedDateEpoch > asOf
+        }
+        val text = when {
+            covered.isNotEmpty() ->
+                "Dated before your agreed balance with ${agreementNames(covered)}, so it does not change what you owe each other."
+            movedPast.isNotEmpty() ->
+                "Now dated after your agreed balance with ${agreementNames(movedPast)}, so it will count on top of it."
+            else -> null
+        }
+        if (text == null) {
+            agreementNotice.visibility = View.GONE
+            return
+        }
+        agreementNotice.visibility = View.VISIBLE
+        tvAgreementNotice.text = text
+        tvAgreementNotice.setTextColor(themeColor(ThemeAttr.warning))
+
+        // Only a saved row, as saved: what would be added is measured off the stored copy.
+        val askable = askableAgreements()
+        btnAgreementAdd.visibility = if (askable.isEmpty()) View.GONE else View.VISIBLE
+        btnAgreementAdd.text = if (askable.size == 1) {
+            "Ask ${friendNameOf(askable.single().friendId)} to add it"
+        } else {
+            "Ask to add it\u2026"
+        }
+    }
+
+    /** The agreements the saved row falls under that can still be amended, if the form still shows it as saved. */
+    private fun askableAgreements(): List<IouDeclaration> {
+        val stored = currentTransaction ?: return emptyList()
+        if (stored.isPending || stored.chapterId != null || selectedChapterId != null) return emptyList()
+        if (stored.dateEpoch != selectedDateEpoch) return emptyList()
+        return friendsInRow().mapNotNull { checkpoints[it] }.filter {
+            !it.archived && it.friendId in linkedFriendIds && requireNotNull(it.asOfEpoch) >= stored.dateEpoch
+        }
+    }
+
+    private fun askToAddSavedRow() {
+        val stored = currentTransaction ?: return
+        val askable = askableAgreements()
+        when (askable.size) {
+            0 -> return
+            1 -> askToAdd(stored, askable.single())
+            else -> AlertDialog.Builder(this)
+                .setTitle("Ask who?")
+                .setItems(askable.map { friendNameOf(it.friendId) }.toTypedArray()) { _, which ->
+                    askToAdd(stored, askable[which])
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
+        }
+    }
+
+    private fun askToAdd(tx: Transaction, checkpoint: IouDeclaration, onDone: () -> Unit = {}) {
+        lifecycleScope.launch {
+            val delta = declarations.effectOf(tx.id, checkpoint.friendId)
+            agreementDialogs.askToAdd(checkpoint.friendId, friendNameOf(checkpoint.friendId), checkpoint, delta, describe(tx), onDone)
+        }
+    }
+
+    /** How a row is named in the note an amendment carries. */
+    private fun describe(tx: Transaction): String {
+        val what = tx.reason?.takeIf { it.isNotBlank() }?.let { "\"$it\", " }.orEmpty()
+        return "${what}${AmountFormat.rupeesExact(tx.amountPaise)} on ${AgreementText.day(tx.dateEpoch)}"
+    }
+
+    /**
+     * D10, offered at the moment it matters: a row counted for the first time but dated at or before
+     * an agreement with a linked friend moved nothing, and right after saving it is when to ask them
+     * to fold it in. True when the question is up; the screen then finishes once it is answered.
+     */
+    private suspend fun offerToAddLateRow(db: AppDatabase, transactionId: Long): Boolean {
+        val saved = withContext(Dispatchers.IO) { db.transactionDao().getTransactionById(transactionId) } ?: return false
+        if (saved.chapterId != null || saved.isPending) return false
+        val shares = withContext(Dispatchers.IO) { db.transactionShareDao().getSharesForTransaction(saved.id) }
+        val checkpoint = ChapterMath.friendsIn(saved, shares)
+            .mapNotNull { checkpoints[it] }
+            .firstOrNull { !it.archived && it.friendId in linkedFriendIds && requireNotNull(it.asOfEpoch) >= saved.dateEpoch }
+            ?: return false
+        if (declarations.effectOf(saved.id, checkpoint.friendId) == 0L) return false
+        askToAdd(saved, checkpoint) { finish() }
+        return true
     }
 
     /** The rows that become shares on saving, each beside the share it becomes, in the order they are saved. */

@@ -97,6 +97,22 @@
                 android:orientation="vertical" />
 
             <TextView
+                android:id="@+id/tvProposalsHeader"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_s"
+                android:layout_marginBottom="@dimen/space_s"
+                android:text="BALANCES TO AGREE"
+                android:textAppearance="@style/TextAppearance.UPI.SectionHeader"
+                android:visibility="gone" />
+
+            <LinearLayout
+                android:id="@+id/containerProposals"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical" />
+
+            <TextView
                 android:id="@+id/tvParcelsHeader"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"

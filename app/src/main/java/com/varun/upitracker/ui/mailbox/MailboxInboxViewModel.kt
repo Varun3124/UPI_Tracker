@@ -6,6 +6,7 @@ import androidx.lifecycle.LiveData
 import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.varun.upitracker.data.declaration.DeclarationRepository
 import com.varun.upitracker.data.mailbox.LinkRepository
 import com.varun.upitracker.data.mailbox.MailboxIdentityRepository
 import com.varun.upitracker.data.mailbox.MailboxStatus
@@ -16,6 +17,7 @@ import com.varun.upitracker.database.entity.MailboxMessageState
 import com.varun.upitracker.domain.mailbox.MailboxKind
 import com.varun.upitracker.domain.parcel.ParcelDecodeResult
 import com.varun.upitracker.domain.parcel.ParcelFormat
+import com.varun.upitracker.ui.declaration.AgreementText
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -42,18 +44,30 @@ data class InboxLink(
 /** A message that could not be used, and what to tell the user about it. */
 data class InboxNotice(val messageId: String, val text: String)
 
+/** A friend's proposal about your agreed balance, waiting for an answer. */
+data class InboxProposal(
+    val declarationId: String,
+    val friendName: String,
+    /** What it asks, in one line from your seat. */
+    val summary: String,
+    /** Made by their app when the two of you linked, rather than by them. */
+    val auto: Boolean
+)
+
 data class MailboxInboxUiState(
     val status: MailboxStatus? = null,
     val replies: List<PendingLinkReply> = emptyList(),
     val links: List<InboxLink> = emptyList(),
     val parcels: List<InboxParcel> = emptyList(),
+    val proposals: List<InboxProposal> = emptyList(),
     val notices: List<InboxNotice> = emptyList(),
     /** Messages from accounts with no link here, kept a while in case the link turns up. */
     val heldCount: Int = 0,
     val busyMessage: String? = null
 ) {
     val isBusy: Boolean get() = busyMessage != null
-    val isEmpty: Boolean get() = replies.isEmpty() && links.isEmpty() && parcels.isEmpty() && notices.isEmpty()
+    val isEmpty: Boolean
+        get() = replies.isEmpty() && links.isEmpty() && parcels.isEmpty() && proposals.isEmpty() && notices.isEmpty()
 }
 
 class MailboxInboxViewModel(context: Context) : ViewModel() {
@@ -66,6 +80,7 @@ class MailboxInboxViewModel(context: Context) : ViewModel() {
     private val db = AppDatabase.getInstance(appContext)
     private val identities = MailboxIdentityRepository(appContext, db)
     private val links = LinkRepository(appContext, db)
+    val declarations = DeclarationRepository(appContext, db)
 
     private val _uiState = MutableLiveData(MailboxInboxUiState())
     val uiState: LiveData<MailboxInboxUiState> = _uiState
@@ -76,6 +91,7 @@ class MailboxInboxViewModel(context: Context) : ViewModel() {
         viewModelScope.launch {
             val status = identities.status()
             val replies = links.pendingReplies()
+            val incoming = declarations.openIncoming()
             val next = withContext(Dispatchers.IO) {
                 val names = db.friendDao().getAllFriendsSync().associate { it.id to it.name }
                 val messages = db.mailboxDao().getMessagesInStates(
@@ -109,6 +125,15 @@ class MailboxInboxViewModel(context: Context) : ViewModel() {
                                 sentEpoch = message.sentEpoch
                             )
                         },
+                    proposals = incoming.map { proposal ->
+                        val name = names[proposal.friendId] ?: "A friend"
+                        InboxProposal(
+                            declarationId = proposal.id,
+                            friendName = name,
+                            summary = AgreementText.sentence(AgreementText.proposal(proposal, name)) + ".",
+                            auto = proposal.auto
+                        )
+                    },
                     notices = messages
                         .filter { it.state == MailboxMessageState.UNREADABLE }
                         .map { message ->

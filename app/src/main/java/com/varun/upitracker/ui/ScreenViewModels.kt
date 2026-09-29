@@ -567,7 +567,9 @@ data class FriendDetailUiState(
     val link: com.varun.upitracker.database.entity.FriendLink? = null,
     /** When the newest invite to link sent to them runs out, if one is still on record. */
     val openInviteExpiresEpoch: Long? = null,
-    val mailboxOn: Boolean = false
+    val mailboxOn: Boolean = false,
+    /** The balance agreed with them, and any proposal about it waiting on either side. */
+    val agreement: com.varun.upitracker.data.declaration.FriendAgreement? = null
 ) {
     val isFiltered: Boolean get() = !window.isAllTime || query.isNotBlank()
 
@@ -593,6 +595,7 @@ class FriendDetailViewModel(context: Context) : ViewModel() {
     private val exportRepository = ParcelExportRepository(db, appContext)
     private val links = com.varun.upitracker.data.mailbox.LinkRepository(appContext, db)
     private val identities = com.varun.upitracker.data.mailbox.MailboxIdentityRepository(appContext, db)
+    private val declarations = com.varun.upitracker.data.declaration.DeclarationRepository(appContext, db)
     private val _uiState = MutableLiveData(FriendDetailUiState())
     val uiState: LiveData<FriendDetailUiState> = _uiState
 
@@ -613,7 +616,8 @@ class FriendDetailViewModel(context: Context) : ViewModel() {
         val shareable: Set<String>,
         val link: com.varun.upitracker.database.entity.FriendLink?,
         val openInviteExpiresEpoch: Long?,
-        val mailboxOn: Boolean
+        val mailboxOn: Boolean,
+        val agreement: com.varun.upitracker.data.declaration.FriendAgreement
     )
 
     fun load(friendId: Long) {
@@ -642,6 +646,9 @@ class FriendDetailViewModel(context: Context) : ViewModel() {
         // One query for the whole list rather than one per row: the old adapter asked per row, on
         // every bind, from the main thread.
         val iouByTransaction = db.iouDao().getAllEntriesForFriend(friendId).groupBy { it.transactionId }
+        val summary = LedgerRepository(db).getSummaryForFriend(friendId)
+        // Rows at or before the agreed checkpoint are covered by it: they post nothing (D8).
+        val coveredUntil = summary?.checkpoint?.asOfEpoch
         val sharesByTransaction = if (transactions.isEmpty()) {
             emptyMap()
         } else {
@@ -659,14 +666,15 @@ class FriendDetailViewModel(context: Context) : ViewModel() {
                 title = tx.resolvePrimaryDisplay(friendNames, merchantNames),
                 iouEntries = iouByTransaction[tx.id].orEmpty(),
                 shares = sharesByTransaction[tx.id].orEmpty(),
-                blockedReason = eligibility.blockedReasons[tx.id]
+                blockedReason = eligibility.blockedReasons[tx.id],
+                coveredUntil = coveredUntil
             )
             fields[key] = tx.searchableNames(friendNames, merchantNames) + tx.reason
         }
 
         return FriendLoad(
             friend = db.friendDao().getFriendById(friendId),
-            summary = LedgerRepository(db).getSummaryForFriend(friendId),
+            summary = summary,
             transactions = transactions,
             rows = rows,
             searchFields = fields,
@@ -675,7 +683,8 @@ class FriendDetailViewModel(context: Context) : ViewModel() {
                 .toSet(),
             link = db.mailboxDao().getLink(friendId),
             openInviteExpiresEpoch = db.mailboxDao().getInvitesForFriend(friendId).firstOrNull()?.expiresEpoch,
-            mailboxOn = identities.status() is com.varun.upitracker.data.mailbox.MailboxStatus.On
+            mailboxOn = identities.status() is com.varun.upitracker.data.mailbox.MailboxStatus.On,
+            agreement = declarations.agreement(friendId)
         )
     }
 
@@ -690,10 +699,17 @@ class FriendDetailViewModel(context: Context) : ViewModel() {
         title: String,
         iouEntries: List<com.varun.upitracker.database.entity.IouEntry>,
         shares: List<com.varun.upitracker.database.entity.TransactionShare>,
-        blockedReason: String?
+        blockedReason: String?,
+        coveredUntil: Long?
     ): TransactionRowInfo {
         val share = shares.firstOrNull { it.participantType == ActorType.FRIEND && it.friendId == friendId }
         return when {
+            coveredUntil != null && tx.dateEpoch <= coveredUntil -> TransactionRowInfo(
+                title = title,
+                note = "Covered by the agreement of " +
+                    com.varun.upitracker.ui.declaration.AgreementText.day(coveredUntil),
+                noteWhenSelecting = blockedReason
+            )
             iouEntries.isNotEmpty() -> {
                 val amount = iouEntries.sumOf { it.amountPaise }
                 TransactionRowInfo(
@@ -793,7 +809,8 @@ class FriendDetailViewModel(context: Context) : ViewModel() {
             selected = selected.intersect(visible).also { selected = it },
             link = load.link,
             openInviteExpiresEpoch = load.openInviteExpiresEpoch,
-            mailboxOn = load.mailboxOn
+            mailboxOn = load.mailboxOn,
+            agreement = load.agreement
         )
     }
 
@@ -836,12 +853,17 @@ class FriendDetailViewModel(context: Context) : ViewModel() {
                 db.mailboxDao().getInvitesForFriend(friendId).firstOrNull()?.expiresEpoch
             }
             val mailboxOn = identities.status() is com.varun.upitracker.data.mailbox.MailboxStatus.On
+            // An answer collected in the background, or given in the inbox, changes this too.
+            val agreement = declarations.agreement(friendId)
+            val balanceMoved = agreement.checkpoint?.id != current.agreement.checkpoint?.id
             loaded = current.copy(
                 link = link,
                 openInviteExpiresEpoch = inviteExpires,
-                mailboxOn = mailboxOn
+                mailboxOn = mailboxOn,
+                agreement = agreement
             )
-            emitState()
+            // A new checkpoint moves the balance and which rows it covers: that needs the full read.
+            if (balanceMoved) load(friendId) else emitState()
         }
     }
 

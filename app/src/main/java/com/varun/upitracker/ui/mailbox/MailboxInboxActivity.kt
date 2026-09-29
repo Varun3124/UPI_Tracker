@@ -17,6 +17,7 @@ import com.varun.upitracker.R
 import com.varun.upitracker.data.mailbox.MailboxStatus
 import com.varun.upitracker.data.mailbox.PendingLinkReply
 import com.varun.upitracker.domain.mailbox.KeyFingerprint
+import com.varun.upitracker.ui.declaration.AgreementDialogs
 import com.varun.upitracker.ui.parcel.ParcelImportActivity
 import com.varun.upitracker.ui.settings.AppViewModelFactory
 import com.varun.upitracker.ui.theme.padRootForSystemBars
@@ -35,6 +36,7 @@ class MailboxInboxActivity : AppCompatActivity() {
 
     private val dateFmt = SimpleDateFormat("dd MMM, HH:mm", Locale.getDefault())
     private lateinit var viewModel: MailboxInboxViewModel
+    private lateinit var agreementDialogs: AgreementDialogs
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
@@ -43,6 +45,7 @@ class MailboxInboxActivity : AppCompatActivity() {
         padRootForSystemBars(R.id.main)
 
         viewModel = ViewModelProvider(this, AppViewModelFactory(this))[MailboxInboxViewModel::class.java]
+        agreementDialogs = AgreementDialogs(this, viewModel.declarations) { viewModel.load() }
 
         findViewById<ImageButton>(R.id.btnBackInbox).setOnClickListener { finish() }
         findViewById<View>(R.id.btnCheckNow).setOnClickListener {
@@ -88,6 +91,19 @@ class MailboxInboxActivity : AppCompatActivity() {
                     "If that is not ${link.friendName}, unlink and send a new invite.",
                 primary = "OK" to { viewModel.dismissNotice(link.messageId) },
                 secondary = "Not them" to { confirmUnlink(link) }
+            )
+        }
+
+        renderSection(R.id.tvProposalsHeader, R.id.containerProposals, state.proposals) { container, proposal ->
+            row(
+                container,
+                title = if (proposal.auto) {
+                    "You linked with ${proposal.friendName}: agree on your balance?"
+                } else {
+                    "${proposal.friendName} asks you to agree on your balance"
+                },
+                detail = "${proposal.summary}\nNothing changes on either phone until you accept.",
+                primary = "Review" to { agreementDialogs.review(proposal.declarationId) }
             )
         }
 

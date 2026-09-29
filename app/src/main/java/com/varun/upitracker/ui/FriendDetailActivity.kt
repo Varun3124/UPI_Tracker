@@ -23,12 +23,16 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.varun.upitracker.R
+import com.varun.upitracker.data.declaration.DeclarationRepository
 import com.varun.upitracker.data.repository.ParcelExportRepository
+import com.varun.upitracker.database.AppDatabase
 import com.varun.upitracker.database.entity.FriendLink
 import com.varun.upitracker.database.entity.FriendLinkState
 import com.varun.upitracker.domain.mailbox.InviteCode
 import com.varun.upitracker.domain.mailbox.KeyFingerprint
 import com.varun.upitracker.ui.chapter.ChapterDetailActivity
+import com.varun.upitracker.ui.declaration.AgreementDialogs
+import com.varun.upitracker.ui.declaration.AgreementText
 import com.varun.upitracker.ui.mailbox.MailboxActivity
 import com.varun.upitracker.ui.share.RecipientPicker
 import com.varun.upitracker.ui.theme.ThemeAttr
@@ -55,6 +59,7 @@ class FriendDetailActivity : AppCompatActivity() {
     private var friendId: Long = -1L
     private var friendName: String = "your friend"
     private var searchWatcher: TextWatcher? = null
+    private lateinit var agreementDialogs: AgreementDialogs
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
@@ -78,6 +83,12 @@ class FriendDetailActivity : AppCompatActivity() {
         onBackPressedDispatcher.addCallback(this) { onBack() }
         findViewById<View>(R.id.rowLinkStatus).setOnClickListener { onLinkTapped() }
         findViewById<View>(R.id.btnLinkAction).setOnClickListener { onLinkTapped() }
+        agreementDialogs = AgreementDialogs(
+            this,
+            DeclarationRepository(applicationContext, AppDatabase.getInstance(applicationContext))
+        ) { viewModel.load(friendId) }
+        findViewById<View>(R.id.rowAgreement).setOnClickListener { onAgreementTapped() }
+        findViewById<View>(R.id.btnAgreementAction).setOnClickListener { onAgreementTapped() }
 
         monthControl = MonthRangeControl(this, findViewById(R.id.btnPickMonth), viewModel::setWindow)
         monthControl.attach()
@@ -148,6 +159,7 @@ class FriendDetailActivity : AppCompatActivity() {
         monthControl.render(state.window)
         renderChapters(state)
         renderLink(state)
+        renderAgreement(state)
         renderList(state)
         renderSelectionBar(state)
     }
@@ -234,6 +246,59 @@ class FriendDetailActivity : AppCompatActivity() {
             )
         }
         findViewById<TextView>(R.id.btnLinkAction).text = action
+    }
+
+    /**
+     * Where agreeing on a balance with them stands. Only shown once there is something to say: a
+     * checkpoint, a proposal either way, or a link that makes one possible.
+     */
+    private fun renderAgreement(state: FriendDetailUiState) {
+        val row = findViewById<View>(R.id.rowAgreement)
+        val agreement = state.agreement
+        val checkpoint = agreement?.checkpoint
+        val outgoing = agreement?.outgoing
+        val (status, action) = when {
+            agreement == null -> null to null
+            agreement.incoming.isNotEmpty() ->
+                "$friendName asks you to agree on your balance" to "Review"
+            outgoing != null && outgoing.sentEpoch == null ->
+                "Your proposal waits to be sent: ${AgreementText.proposal(outgoing, friendName)}" to "Withdraw"
+            outgoing != null ->
+                "Waiting for $friendName: ${AgreementText.proposal(outgoing, friendName)}" to "Withdraw"
+            checkpoint != null -> {
+                val agreed = "Agreed ${AgreementText.day(requireNotNull(checkpoint.asOfEpoch))}: " +
+                    AgreementText.balance(requireNotNull(checkpoint.amountPaise), friendName)
+                when {
+                    checkpoint.archived -> "$agreed (while linked)" to (if (agreement.linked) "Agree" else null)
+                    agreement.linked -> agreed to "Change"
+                    else -> agreed to null
+                }
+            }
+            agreement.linked -> "No agreed balance with $friendName yet" to "Agree"
+            else -> null to null
+        }
+        row.visibility = if (status == null) View.GONE else View.VISIBLE
+        row.isClickable = action != null
+        findViewById<TextView>(R.id.tvAgreementStatus).text = status.orEmpty()
+        findViewById<TextView>(R.id.btnAgreementAction).apply {
+            text = action.orEmpty()
+            visibility = if (action == null) View.GONE else View.VISIBLE
+        }
+    }
+
+    private fun onAgreementTapped() {
+        val state = viewModel.uiState.value ?: return
+        val agreement = state.agreement ?: return
+        val balance = state.summary?.netBalancePaise ?: 0L
+        val checkpoint = agreement.checkpoint
+        val outgoing = agreement.outgoing
+        when {
+            agreement.incoming.isNotEmpty() -> agreementDialogs.review(agreement.incoming.first().id)
+            outgoing != null -> agreementDialogs.withdraw(outgoing, friendName)
+            !agreement.linked -> Unit
+            checkpoint != null && !checkpoint.archived -> agreementDialogs.change(friendId, friendName, balance)
+            else -> agreementDialogs.propose(friendId, friendName, balance)
+        }
     }
 
     private fun renderList(state: FriendDetailUiState) {

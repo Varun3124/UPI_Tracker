@@ -84,6 +84,18 @@ data class ProposalPreview(
     val cannotAccept: String?
 )
 
+/** Where agreeing on a balance stands with one friend, for their page. */
+data class FriendAgreement(
+    /** The checkpoint in force, if they ever agreed one. It may be archived. */
+    val checkpoint: IouDeclaration?,
+    /** This phone's own proposal still waiting -- to be sent, or to be answered. */
+    val outgoing: IouDeclaration?,
+    /** Their proposals waiting for an answer here, oldest first. */
+    val incoming: List<IouDeclaration>,
+    /** Whether anything can be proposed or answered right now: the two are linked. */
+    val linked: Boolean
+)
+
 /**
  * Agreeing with a linked friend on what the two of you owe each other.
  *
@@ -258,6 +270,33 @@ class DeclarationRepository(context: Context, private val db: AppDatabase) {
     }
 
     // --- reading ------------------------------------------------------------------------------------
+
+    suspend fun agreement(friendId: Long): FriendAgreement = withContext(Dispatchers.IO) {
+        val rows = db.declarationDao().forFriend(friendId)
+        FriendAgreement(
+            checkpoint = DeclarationSet.effective(rows),
+            outgoing = rows.firstOrNull { it.proposedByMe && it.state == DeclarationState.OPEN },
+            incoming = rows
+                .filter { !it.proposedByMe && it.kind != null && it.state == DeclarationState.OPEN }
+                .sortedBy { it.proposedEpoch },
+            linked = db.mailboxDao().getLink(friendId)?.state == FriendLinkState.LINKED
+        )
+    }
+
+    /** Every proposal waiting for an answer on this phone, oldest first, for the inbox. */
+    suspend fun openIncoming(): List<IouDeclaration> = withContext(Dispatchers.IO) {
+        db.declarationDao().openIncoming()
+    }
+
+    /** Each friend's checkpoint, for every friend who has one: what a row's date is measured against. */
+    suspend fun allCheckpoints(): Map<Long, IouDeclaration> = withContext(Dispatchers.IO) {
+        CheckpointStore(db).effective(db.declarationDao().friendIdsWithAccepted())
+    }
+
+    /** Rows naming [friendId] still awaiting review and dated up to now, which an agreement made now covers. */
+    suspend fun pendingUntilNow(friendId: Long): Int = withContext(Dispatchers.IO) {
+        db.transactionDao().countPendingForFriendUntil(friendId, System.currentTimeMillis())
+    }
 
     /** The figures to show before answering [id]. */
     suspend fun preview(id: String): ProposalPreview = withContext(Dispatchers.IO) {
