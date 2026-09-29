@@ -99,6 +99,16 @@ interface DeclarationDao {
     @Query("SELECT * FROM declaration_parts WHERE declarationId = :declarationId AND shareId = :shareId")
     suspend fun partForShare(declarationId: String, shareId: String): DeclarationPart?
 
+    /**
+     * A listed chapter's copy has just arrived (D6): the parts naming it by share id now count. Returns
+     * nothing; ask [friendIdsAwaitingShare] first for who to replay.
+     */
+    @Query("UPDATE declaration_parts SET chapterId = :chapterId WHERE shareId = :shareId AND chapterId IS NULL")
+    suspend fun attachShare(shareId: String, chapterId: Long)
+
+    @Query("SELECT DISTINCT d.friendId FROM declaration_parts p INNER JOIN iou_declarations d ON d.id = p.declarationId WHERE p.shareId = :shareId AND p.chapterId IS NULL")
+    suspend fun friendIdsAwaitingShare(shareId: String): List<Long>
+
     /** Every declaration that counted this chapter, so the friends whose opening depends on it can be replayed. */
     @Query("SELECT DISTINCT d.friendId FROM declaration_parts p INNER JOIN iou_declarations d ON d.id = p.declarationId WHERE p.chapterId = :chapterId")
     suspend fun friendIdsCountingChapter(chapterId: Long): List<Long>

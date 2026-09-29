@@ -311,6 +311,8 @@ class LinkRepository(context: Context, private val db: AppDatabase) {
         // D12: whatever the two agreed still stands -- unlinking changes no balance -- but nothing
         // can be proposed or answered between them any more.
         declarations.archive(friendId)
+        // S7: their chapters stop updating here, and keep counting as they last stood.
+        db.chapterDao().freezeCopiesOf(friendId)
     }
 
     // --- called while collecting the inbox ----------------------------------------------------
@@ -406,6 +408,7 @@ class LinkRepository(context: Context, private val db: AppDatabase) {
             .onFailure { Log.w(TAG, "Could not withdraw a contact after being unlinked", it) }
         db.mailboxDao().deleteLink(link.friendId)
         declarations.archive(link.friendId)
+        db.chapterDao().freezeCopiesOf(link.friendId)
     }
 
     internal suspend fun sendControl(

@@ -8,6 +8,8 @@ import androidx.room.Update
 import com.varun.upitracker.database.entity.Chapter
 import com.varun.upitracker.database.entity.ChapterBalance
 import com.varun.upitracker.database.entity.ChapterMember
+import com.varun.upitracker.database.entity.ChapterPerson
+import com.varun.upitracker.database.entity.ChapterShare
 import com.varun.upitracker.database.entity.ChapterState
 import com.varun.upitracker.database.entity.Transaction
 
@@ -50,6 +52,66 @@ interface ChapterDao {
 
     @Query("SELECT * FROM chapters WHERE isActive = 1 LIMIT 1")
     suspend fun getActive(): Chapter?
+
+    // --- sharing ------------------------------------------------------------------------------
+
+    @Query("SELECT * FROM chapters WHERE shareId = :shareId LIMIT 1")
+    suspend fun getByShareId(shareId: String): Chapter?
+
+    /** This phone's own chapters that go to their members after each change. */
+    @Query("SELECT * FROM chapters WHERE ownerFriendId IS NULL AND shareMode = 'SHARED'")
+    suspend fun sharedByMe(): List<Chapter>
+
+    /** Copies of [friendId]'s chapters held here, live or not. */
+    @Query("SELECT * FROM chapters WHERE ownerFriendId = :friendId")
+    suspend fun copiesOf(friendId: Long): List<Chapter>
+
+    /**
+     * Every change a member's copy would show is counted here, so the phone knows who is behind.
+     * Only a shared chapter of this phone's own has a version to bump; the rest ignore it.
+     */
+    @Query("UPDATE chapters SET shareVersion = shareVersion + 1 WHERE id = :chapterId AND ownerFriendId IS NULL AND shareMode = 'SHARED'")
+    suspend fun bumpShareVersion(chapterId: Long)
+
+    /** An agreement with [friendId] changed, and with it the hint every chapter shared with them carries (S8). */
+    @Query(
+        """
+        UPDATE chapters SET shareVersion = shareVersion + 1
+        WHERE ownerFriendId IS NULL AND shareMode = 'SHARED'
+          AND id IN (SELECT chapterId FROM chapter_members WHERE friendId = :friendId)
+        """
+    )
+    suspend fun bumpSharedChaptersWith(friendId: Long)
+
+    /** S7: the two unlinked, so [friendId]'s copies stop updating -- and keep counting. */
+    @Query("UPDATE chapters SET shareMode = 'FROZEN' WHERE ownerFriendId = :friendId AND shareMode = 'REPLICA'")
+    suspend fun freezeCopiesOf(friendId: Long)
+
+    /** S7 for every friend at once: this phone's links are gone. */
+    @Query("UPDATE chapters SET shareMode = 'FROZEN' WHERE shareMode = 'REPLICA'")
+    suspend fun freezeAllCopies()
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertShare(share: ChapterShare)
+
+    @Query("SELECT * FROM chapter_shares WHERE chapterId = :chapterId")
+    suspend fun sharesFor(chapterId: Long): List<ChapterShare>
+
+    @Query("DELETE FROM chapter_shares WHERE chapterId = :chapterId")
+    suspend fun deleteShares(chapterId: Long)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun upsertPerson(person: ChapterPerson)
+
+    @Query("SELECT * FROM chapter_people WHERE chapterId = :chapterId")
+    suspend fun peopleFor(chapterId: Long): List<ChapterPerson>
+
+    @Query("DELETE FROM chapter_people WHERE chapterId = :chapterId AND personKey = :personKey")
+    suspend fun deletePerson(chapterId: Long, personKey: String)
+
+    /** A copy's members are whoever its snapshot names that this phone can place; rebuilt with it. */
+    @Query("DELETE FROM chapter_members WHERE chapterId = :chapterId")
+    suspend fun deleteMembers(chapterId: Long)
 
     @Query("DELETE FROM chapters WHERE id = :chapterId")
     suspend fun deleteById(chapterId: Long)
@@ -98,6 +160,25 @@ interface ChapterDao {
 
     @Query("UPDATE chapter_members SET friendId = :targetId WHERE friendId = :sourceId")
     suspend fun reassignMemberships(sourceId: Long, targetId: Long)
+
+    @Query("UPDATE chapters SET ownerFriendId = :targetId WHERE ownerFriendId = :sourceId")
+    suspend fun reassignOwner(sourceId: Long, targetId: Long)
+
+    /** As [dropDuplicateMemberships], for the owner's record of who a chapter went to. */
+    @Query(
+        """
+        DELETE FROM chapter_shares
+        WHERE friendId = :sourceId
+          AND chapterId IN (SELECT chapterId FROM chapter_shares WHERE friendId = :targetId)
+        """
+    )
+    suspend fun dropDuplicateShares(sourceId: Long, targetId: Long)
+
+    @Query("UPDATE chapter_shares SET friendId = :targetId WHERE friendId = :sourceId")
+    suspend fun reassignShares(sourceId: Long, targetId: Long)
+
+    @Query("UPDATE chapter_people SET friendId = :targetId WHERE friendId = :sourceId")
+    suspend fun reassignPeople(sourceId: Long, targetId: Long)
 
     // --- balances -----------------------------------------------------------------------------
 

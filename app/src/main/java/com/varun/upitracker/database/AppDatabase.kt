@@ -30,6 +30,8 @@ import com.varun.upitracker.database.entity.Category
 import com.varun.upitracker.database.entity.Chapter
 import com.varun.upitracker.database.entity.ChapterBalance
 import com.varun.upitracker.database.entity.ChapterMember
+import com.varun.upitracker.database.entity.ChapterPerson
+import com.varun.upitracker.database.entity.ChapterShare
 import com.varun.upitracker.database.entity.CategoryKind
 import com.varun.upitracker.database.entity.DeclarationPart
 import com.varun.upitracker.database.entity.FixedDepositDetail
@@ -80,9 +82,11 @@ import kotlinx.coroutines.launch
         ChapterMember::class,
         ChapterBalance::class,
         IouDeclaration::class,
-        DeclarationPart::class
+        DeclarationPart::class,
+        ChapterShare::class,
+        ChapterPerson::class
     ],
-    version = 21,
+    version = 22,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -634,6 +638,56 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Shared chapters. Five columns on `chapters` and two tables beside it. Every new column is
+         * nullable, or carries its default, so ADD COLUMN is legal outright and every existing chapter
+         * reads as it did: private, owned by this phone, never sent anywhere. See
+         * docs/declarations-design.md S1-S10.
+         */
+        private val MIGRATION_21_22 = object : Migration(21, 22) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                if (!hasColumn(db, "chapters", "shareId")) {
+                    db.execSQL("ALTER TABLE `chapters` ADD COLUMN `shareId` TEXT")
+                }
+                if (!hasColumn(db, "chapters", "ownerFriendId")) {
+                    db.execSQL("ALTER TABLE `chapters` ADD COLUMN `ownerFriendId` INTEGER")
+                }
+                if (!hasColumn(db, "chapters", "shareVersion")) {
+                    db.execSQL("ALTER TABLE `chapters` ADD COLUMN `shareVersion` INTEGER NOT NULL DEFAULT 0")
+                }
+                if (!hasColumn(db, "chapters", "snapshot")) {
+                    db.execSQL("ALTER TABLE `chapters` ADD COLUMN `snapshot` TEXT")
+                }
+                if (!hasColumn(db, "chapters", "shareMode")) {
+                    db.execSQL("ALTER TABLE `chapters` ADD COLUMN `shareMode` TEXT")
+                }
+                // NULLs never collide in a SQLite unique index, so every existing chapter is fine.
+                db.execSQL("CREATE UNIQUE INDEX IF NOT EXISTS `index_chapters_shareId` ON `chapters` (`shareId`)")
+
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `chapter_shares` (`chapterId` INTEGER NOT NULL, " +
+                        "`friendId` INTEGER NOT NULL, `sentVersion` INTEGER NOT NULL, " +
+                        "PRIMARY KEY(`chapterId`, `friendId`), " +
+                        "FOREIGN KEY(`chapterId`) REFERENCES `chapters`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE , " +
+                        "FOREIGN KEY(`friendId`) REFERENCES `friends`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_chapter_shares_friendId` ON `chapter_shares` (`friendId`)"
+                )
+
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `chapter_people` (`chapterId` INTEGER NOT NULL, " +
+                        "`personKey` TEXT NOT NULL, `friendId` INTEGER NOT NULL, " +
+                        "PRIMARY KEY(`chapterId`, `personKey`), " +
+                        "FOREIGN KEY(`chapterId`) REFERENCES `chapters`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE , " +
+                        "FOREIGN KEY(`friendId`) REFERENCES `friends`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_chapter_people_friendId` ON `chapter_people` (`friendId`)"
+                )
+            }
+        }
+
         private fun hasColumn(db: SupportSQLiteDatabase, table: String, column: String): Boolean {
             db.query("PRAGMA table_info(`$table`)").use { cursor ->
                 val nameColumnIndex = cursor.getColumnIndex("name")
@@ -666,7 +720,7 @@ abstract class AppDatabase : RoomDatabase() {
                         MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12,
                         MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16,
                         MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19,
-                        MIGRATION_19_20, MIGRATION_20_21
+                        MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22
                     )
                     .addCallback(object : Callback() {
                         override fun onCreate(db: SupportSQLiteDatabase) {

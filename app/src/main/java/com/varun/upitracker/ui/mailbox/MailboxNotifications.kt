@@ -49,6 +49,9 @@ object MailboxNotifications {
             report.deniedBy.forEach { friendId ->
                 add("${friendNames[friendId] ?: "A friend"} did not agree to your balance")
             }
+            report.chaptersFrom.forEach { friendId ->
+                add("${friendNames[friendId] ?: "A friend"} shared a chapter with you")
+            }
         }
         if (lines.isEmpty()) return
 

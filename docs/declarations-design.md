@@ -133,8 +133,8 @@ Alice shares "Goa" with Bob and Dan, both linked to her. She paid the hotel (₹
 ways). Bob paid dinner (₹3,000, split three ways) and sent it to her. Dan paid a cab (₹600, split with
 Bob).
 
-- Alice's plan: Bob pays Alice ₹3,300; Dan pays Alice ₹1,700.
-- Bob's phone gets a snapshot: *you owe Alice ₹3,300.* His own dinner row is claimed into the replica
+- Nets: Alice +₹5,000, Bob −₹1,300, Dan −₹3,700. Alice's plan: Dan pays Alice ₹3,700; Bob pays Alice ₹1,300.
+- Bob's phone gets a snapshot: *you owe Alice ₹1,300.* His own dinner row is claimed into the replica
   (matched by its `shareRef`), so it stops posting to his direct ledger. Both books show the same
   Goa figure.
 - Bob and Dan never transacted directly. If the plan had routed a payment between them, both of their

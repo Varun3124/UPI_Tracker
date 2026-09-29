@@ -3,10 +3,11 @@ package com.varun.upitracker.data.declaration
 import android.content.Context
 import android.util.Log
 import androidx.room.withTransaction
+import com.varun.upitracker.data.mailbox.Delivery
 import com.varun.upitracker.data.mailbox.MailboxException
 import com.varun.upitracker.data.mailbox.MailboxIdentityRepository
 import com.varun.upitracker.data.mailbox.MailboxServices
-import com.varun.upitracker.data.mailbox.publishedKeys
+import com.varun.upitracker.data.mailbox.deliver
 import com.varun.upitracker.data.repository.ChapterRepository
 import com.varun.upitracker.data.repository.LedgerRepository
 import com.varun.upitracker.database.AppDatabase
@@ -16,11 +17,13 @@ import com.varun.upitracker.database.entity.DeclarationState
 import com.varun.upitracker.database.entity.FriendLink
 import com.varun.upitracker.database.entity.FriendLinkState
 import com.varun.upitracker.database.entity.IouDeclaration
+import com.varun.upitracker.domain.declaration.ChapterShareOf
 import com.varun.upitracker.domain.declaration.Checkpoints
 import com.varun.upitracker.domain.declaration.DeclarationAnswer
 import com.varun.upitracker.domain.declaration.DeclarationEvent
 import com.varun.upitracker.domain.declaration.DeclarationFlow
 import com.varun.upitracker.domain.declaration.DeclarationMessages
+import com.varun.upitracker.domain.declaration.DeclarationParts
 import com.varun.upitracker.domain.declaration.DeclarationProposal
 import com.varun.upitracker.domain.declaration.DeclarationReceipt
 import com.varun.upitracker.domain.declaration.DeclarationSet
@@ -29,7 +32,6 @@ import com.varun.upitracker.domain.declaration.ProposalPart
 import com.varun.upitracker.domain.iou.IouLegs
 import com.varun.upitracker.domain.mailbox.MailboxIds
 import com.varun.upitracker.domain.mailbox.MailboxKind
-import com.varun.upitracker.domain.mailbox.PublicMailboxKeys
 import com.varun.upitracker.domain.transactionentry.persistence.LedgerPostingService
 import com.varun.upitracker.ledger.DeltaRecorder
 import com.varun.upitracker.ledger.RoomReplaySource
@@ -375,12 +377,14 @@ class DeclarationRepository(context: Context, private val db: AppDatabase) {
             auto = auto
         )
         db.declarationDao().insertIfNew(row)
-        val parts = summary.chapterBalances.filter { it.amountPaise != 0L }.map {
-            DeclarationPart(declarationId = row.id, chapterId = it.chapterId, shareId = shareIdOf(it.chapterId), amountPaise = it.amountPaise)
-        }
+        val parts = DeclarationParts.forProposal(row.id, chapterSharesWith(friendId))
         if (parts.isNotEmpty()) db.declarationDao().insertParts(parts)
         return row
     }
+
+    /** Every chapter's share of the balance with [friendId] on this phone, with the id each goes by if shared. */
+    private suspend fun chapterSharesWith(friendId: Long): List<ChapterShareOf> =
+        db.chapterDao().balancesForFriend(friendId).map { ChapterShareOf(it.chapterId, shareIdOf(it.chapterId), it.amountPaise) }
 
     private suspend fun storeProposal(friendId: Long, proposal: DeclarationProposal): Boolean {
         val existing = db.declarationDao().get(proposal.id)
@@ -393,14 +397,7 @@ class DeclarationRepository(context: Context, private val db: AppDatabase) {
         }
         db.declarationDao().insertIfNew(row)
         proposal.parts.forEach { part ->
-            db.declarationDao().insertPart(
-                DeclarationPart(
-                    declarationId = row.id,
-                    chapterId = chapterIdForShare(part.shareId),
-                    shareId = part.shareId,
-                    amountPaise = part.amountPaise
-                )
-            )
+            db.declarationDao().insertPart(DeclarationParts.listed(row.id, part, chapterIdForShare(part.shareId)))
         }
         return true
     }
@@ -432,6 +429,8 @@ class DeclarationRepository(context: Context, private val db: AppDatabase) {
         parts.filter { part -> have.none { it.chapterId == part.chapterId && it.shareId == part.shareId } }
             .forEach { db.declarationDao().insertPart(it.copy(id = 0L)) }
         ChapterRepository(db).replayInTransaction(setOf(accepted.friendId))
+        // Every chapter shared with them carries a hint from this agreement (S8); they are now behind.
+        db.chapterDao().bumpSharedChaptersWith(accepted.friendId)
     }
 
     /**
@@ -441,20 +440,12 @@ class DeclarationRepository(context: Context, private val db: AppDatabase) {
      */
     private suspend fun partsOnAcceptance(declaration: IouDeclaration): List<DeclarationPart> {
         val have = db.declarationDao().partsFor(declaration.id)
-        val added = when (declaration.kind) {
-            DeclarationKind.DECLARE -> if (declaration.proposedByMe) emptyList() else {
-                val summary = LedgerRepository(db).getSummaryForFriend(declaration.friendId)
-                summary?.chapterBalances.orEmpty()
-                    .filter { it.amountPaise != 0L && shareIdOf(it.chapterId) == null }
-                    .filter { share -> have.none { it.chapterId == share.chapterId } }
-                    .map { DeclarationPart(declarationId = declaration.id, chapterId = it.chapterId, shareId = null, amountPaise = it.amountPaise) }
-            }
-            DeclarationKind.AMEND -> declaration.targetId
-                ?.let { db.declarationDao().partsFor(it) }.orEmpty()
-                .filter { part -> have.none { it.chapterId == part.chapterId && it.shareId == part.shareId } }
-                .map { it.copy(id = 0L, declarationId = declaration.id) }
-            else -> emptyList()
-        }
+        val added = DeclarationParts.onAcceptance(
+            declaration = declaration,
+            have = have,
+            ownShares = chapterSharesWith(declaration.friendId),
+            targetParts = declaration.targetId?.let { db.declarationDao().partsFor(it) }.orEmpty()
+        )
         return have + added
     }
 
@@ -487,55 +478,39 @@ class DeclarationRepository(context: Context, private val db: AppDatabase) {
         val shared = db.declarationDao().partsFor(row.id)
             .mapNotNull { part -> part.shareId?.let { ProposalPart(it, part.amountPaise) } }
         val body = DeclarationMessages.encodeProposal(DeclarationMessages.outgoing(row, shared))
+        val identity = identities.identity() ?: return SendResult.QUEUED
         return try {
-            deliver(link, MailboxKind.DECLARATION_PROPOSAL, body)
-            db.declarationDao().markSent(row.id, System.currentTimeMillis())
-            SendResult.SENT
+            when (services.deliver(db, identity, link, MailboxKind.DECLARATION_PROPOSAL, body)) {
+                Delivery.SENT -> {
+                    db.declarationDao().markSent(row.id, System.currentTimeMillis())
+                    SendResult.SENT
+                }
+                Delivery.REFUSED -> {
+                    // They have unlinked this account; nothing will ever deliver it.
+                    db.declarationDao().closeOpen(row.friendId, System.currentTimeMillis())
+                    SendResult.REFUSED
+                }
+                // Kept: it goes once they turn the mailbox back on, or the two link again.
+                Delivery.MAILBOX_OFF, Delivery.KEY_CHANGED -> SendResult.QUEUED
+            }
         } catch (error: CancellationException) {
             throw error
         } catch (error: MailboxException) {
-            if (error.kind == MailboxException.Kind.PERMISSION_DENIED) {
-                // They have unlinked this account; nothing will ever deliver it.
-                db.declarationDao().closeOpen(row.friendId, System.currentTimeMillis())
-                SendResult.REFUSED
-            } else {
-                Log.w(TAG, "A proposal stays in the outbox", error)
-                SendResult.QUEUED
-            }
-        } catch (error: DeclarationException) {
-            Log.w(TAG, "A proposal stays in the outbox: ${error.message}")
+            Log.w(TAG, "A proposal stays in the outbox", error)
             SendResult.QUEUED
         }
     }
 
-    /**
-     * Seals [body] to [link]'s pinned keys, after checking they are still the ones the friend
-     * publishes -- the same check sending a parcel makes, so a changed key is caught before anything
-     * is sealed to a key nobody holds.
-     */
+    /** An answer, sent before anything here changes (D2). Throws with what to tell the user when it cannot go. */
     private suspend fun deliver(link: FriendLink, kind: MailboxKind, body: String) {
         val identity = identities.identity()
             ?: throw DeclarationException("Turn the friends mailbox on first, in Settings.")
         val name = friendName(link.friendId)
-        val pinned = PublicMailboxKeys.fromText(link.encKey, link.sigKey)
-            ?: throw DeclarationException("The keys this phone holds for $name are damaged. Link with them again.")
-        services.auth.authorized { idToken, _ ->
-            val published = services.firestore.publishedKeys(idToken, link.uid)
-            when {
-                published == null -> throw DeclarationException("$name has turned their friends mailbox off.")
-                published.fingerprint != link.fingerprint -> {
-                    db.mailboxDao().setLinkState(link.friendId, FriendLinkState.KEY_CHANGED)
-                    throw DeclarationException("$name's security key has changed. Link with them again first.")
-                }
-            }
-            try {
-                services.post(identity, idToken, link.uid, pinned, kind, body)
-            } catch (error: MailboxException) {
-                if (error.kind == MailboxException.Kind.PERMISSION_DENIED && kind != MailboxKind.DECLARATION_PROPOSAL) {
-                    throw DeclarationException("$name is not accepting messages from you any more. Link with them again.")
-                }
-                throw error
-            }
+        when (services.deliver(db, identity, link, kind, body)) {
+            Delivery.SENT -> Unit
+            Delivery.MAILBOX_OFF -> throw DeclarationException("$name has turned their friends mailbox off.")
+            Delivery.KEY_CHANGED -> throw DeclarationException("$name's security key has changed. Link with them again first.")
+            Delivery.REFUSED -> throw DeclarationException("$name is not accepting messages from you any more. Link with them again.")
         }
     }
 
@@ -604,11 +579,12 @@ class DeclarationRepository(context: Context, private val db: AppDatabase) {
     private suspend fun friendName(friendId: Long): String =
         db.friendDao().getFriendById(friendId)?.name ?: "your friend"
 
-    /** A chapter's share id once chapters can be shared. None yet: every chapter is private. */
-    @Suppress("UNUSED_PARAMETER", "RedundantSuspendModifier")
-    private suspend fun shareIdOf(chapterId: Long): String? = null
+    /**
+     * The id [chapterId] goes by on every phone that holds it, or null for a chapter that has never
+     * left this one. A chapter shared once keeps its id when sharing stops: frozen copies still count.
+     */
+    private suspend fun shareIdOf(chapterId: Long): String? = db.chapterDao().getById(chapterId)?.shareId
 
-    /** This phone's copy of a shared chapter. None yet: nothing can be shared. */
-    @Suppress("UNUSED_PARAMETER", "RedundantSuspendModifier")
-    private suspend fun chapterIdForShare(shareId: String): Long? = null
+    /** This phone's copy of a shared chapter, if it has reached here. */
+    private suspend fun chapterIdForShare(shareId: String): Long? = db.chapterDao().getByShareId(shareId)?.id
 }

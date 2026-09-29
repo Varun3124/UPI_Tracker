@@ -65,7 +65,9 @@ object ChapterPrompt {
         if (tx.chapterId != null) return emptyList()
         val friends = directPaymentFriends(tx, shares) ?: return emptyList()
         return options.filter { option ->
-            option.chapter.state == ChapterState.OPEN &&
+            // S10: a friend's chapter takes nothing tagged here, so it is never the answer.
+            option.chapter.isOwn &&
+                option.chapter.state == ChapterState.OPEN &&
                 !option.settled &&
                 friends.all { it in option.memberIds }
         }
@@ -84,7 +86,7 @@ object ChapterPrompt {
         originalOfRefund: Transaction?
     ): ChapterOption? {
         val active = options.firstOrNull {
-            it.chapter.isActive && it.chapter.state == ChapterState.OPEN
+            it.chapter.isOwn && it.chapter.isActive && it.chapter.state == ChapterState.OPEN
         } ?: return null
         if (ChapterEligibility.blockedReason(tx, shares, active.chapter, originalOfRefund) != null) return null
         if (ChapterEligibility.missingMembers(tx, shares, active.memberIds).isNotEmpty()) return null

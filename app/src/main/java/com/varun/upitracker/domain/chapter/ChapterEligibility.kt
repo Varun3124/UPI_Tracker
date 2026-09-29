@@ -36,6 +36,9 @@ object ChapterEligibility {
         chapter: Chapter,
         originalOfRefund: Transaction?
     ): String? = when {
+        // S6: only the owner's phone puts rows in a shared chapter. A member sends theirs to the owner.
+        !chapter.isOwn -> "Someone else's chapter"
+
         chapter.state == ChapterState.CLOSED -> "Chapter is closed"
 
         // Both ends being ME is an account transfer's shape: it moves no debt and belongs to nobody.

@@ -44,6 +44,17 @@ interface TransactionDao {
     @Query("SELECT DISTINCT transactionId FROM transaction_shares WHERE friendId = :friendId AND side IS NOT NULL")
     suspend fun getTransactionIdsWithSidedShareFor(friendId: Long): List<Long>
 
+    /** This phone's rows sent under any of [shareRefs]: what a friend's snapshot names a row of mine by. */
+    @Query("SELECT * FROM transactions WHERE shareRef IN (:shareRefs)")
+    suspend fun findByShareRefs(shareRefs: List<String>): List<Transaction>
+
+    /** Rows received under any of [sharedRefIds]. */
+    @Query("SELECT * FROM transactions WHERE sharedRefId IN (:sharedRefIds)")
+    suspend fun findBySharedRefIds(sharedRefIds: List<String>): List<Transaction>
+
+    @Query("SELECT * FROM transactions WHERE id IN (:ids)")
+    suspend fun findByIds(ids: List<Long>): List<Transaction>
+
     /**
      * Gives a row its mailbox reference, only if it has none yet -- so two sends racing can never
      * leave one transaction known to friends by two references.

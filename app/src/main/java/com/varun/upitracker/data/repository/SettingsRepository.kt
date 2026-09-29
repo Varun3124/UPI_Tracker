@@ -283,6 +283,12 @@ class SettingsRepository(private val context: Context) {
         // and only the rows with no counterpart are left to move.
         db.chapterDao().dropDuplicateMemberships(source.id, target.id)
         db.chapterDao().reassignMemberships(source.id, target.id)
+        // Shared chapters: whose copies this phone holds, who this phone's own went to, and who the
+        // user said a friend's person is. All before the source goes, since all three CASCADE with it.
+        db.chapterDao().reassignOwner(source.id, target.id)
+        db.chapterDao().dropDuplicateShares(source.id, target.id)
+        db.chapterDao().reassignShares(source.id, target.id)
+        db.chapterDao().reassignPeople(source.id, target.id)
         // Derived, and rebuilt by the recompute below. It also has to go before `deleteFriend`.
         db.chapterDao().deleteBalancesForFriend(source.id)
         db.friendDao().moveAllRawNames(source.id, target.id)

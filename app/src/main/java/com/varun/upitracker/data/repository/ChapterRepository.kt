@@ -2,6 +2,7 @@ package com.varun.upitracker.data.repository
 
 import android.util.Log
 import androidx.room.withTransaction
+import com.varun.upitracker.data.chapter.ReplicaBook
 import com.varun.upitracker.data.declaration.CheckpointStore
 import com.varun.upitracker.database.AppDatabase
 import com.varun.upitracker.database.entity.Chapter
@@ -64,10 +65,11 @@ class ChapterRepository(private val db: AppDatabase) {
         }
 
     suspend fun rename(chapterId: Long, name: String, notes: String? = null) = db.withTransaction {
-        val chapter = requireChapter(chapterId)
+        val chapter = requireOwn(chapterId)
         db.chapterDao().update(
             chapter.copy(name = name.trim(), notes = notes?.takeIf { it.isNotBlank() })
         )
+        db.chapterDao().bumpShareVersion(chapterId)
     }
 
     /**
@@ -78,7 +80,7 @@ class ChapterRepository(private val db: AppDatabase) {
      * this one's.
      */
     suspend fun close(chapterId: Long) = db.withTransaction {
-        val chapter = requireChapter(chapterId)
+        val chapter = requireOwn(chapterId)
         db.chapterDao().update(
             chapter.copy(
                 state = ChapterState.CLOSED,
@@ -86,15 +88,21 @@ class ChapterRepository(private val db: AppDatabase) {
                 isActive = false
             )
         )
+        db.chapterDao().bumpShareVersion(chapterId)
     }
 
     suspend fun reopen(chapterId: Long) = db.withTransaction {
-        val chapter = requireChapter(chapterId)
+        val chapter = requireOwn(chapterId)
         db.chapterDao().update(chapter.copy(state = ChapterState.OPEN, closedEpoch = null))
+        db.chapterDao().bumpShareVersion(chapterId)
     }
 
-    /** R10. Passing null, or a closed chapter, simply leaves nothing active. */
+    /**
+     * R10. Passing null, or a closed chapter, simply leaves nothing active. A copy of a friend's
+     * chapter cannot be active either (S10): nothing can be tagged into one by hand.
+     */
     suspend fun setActive(chapterId: Long?) {
+        if (chapterId != null) requireOwn(chapterId)
         db.chapterDao().setActive(chapterId ?: 0L)
     }
 
@@ -117,11 +125,14 @@ class ChapterRepository(private val db: AppDatabase) {
     // --- members --------------------------------------------------------------------------------
 
     suspend fun addMembers(chapterId: Long, friendIds: Set<Long>) = db.withTransaction {
+        requireOwn(chapterId)
         addMembersInTransaction(chapterId, friendIds, System.currentTimeMillis())
+        db.chapterDao().bumpShareVersion(chapterId)
     }
 
     /** R7: someone who appears in a tagged transaction cannot be taken out from under it. */
     suspend fun removeMember(chapterId: Long, friendId: Long) = db.withTransaction {
+        requireOwn(chapterId)
         val involved = db.chapterDao().countTaggedInvolving(chapterId, friendId)
         if (involved > 0) {
             val plural = if (involved == 1) "transaction" else "transactions"
@@ -147,6 +158,7 @@ class ChapterRepository(private val db: AppDatabase) {
             throw ChapterException("A refund follows its original purchase")
         }
         assertNotLockedByClosedChapter(tx.chapterId)
+        assertNotInCopy(tx.chapterId)
         if (chapterId != null) {
             val shares = db.transactionShareDao().getSharesForTransaction(tx.id)
             assertTaggable(tx, shares, chapterId)
@@ -203,6 +215,12 @@ class ChapterRepository(private val db: AppDatabase) {
      * there is nothing to be gained by working out which rows actually changed.
      */
     suspend fun recomputeInTransaction(chapterId: Long) {
+        val chapter = db.chapterDao().getById(chapterId)
+        // A copy of a friend's chapter never works its plan out here: it takes the owner's (S3).
+        if (chapter != null && !chapter.isOwn) return ReplicaBook(db).recomputeInTransaction(chapter)
+
+        // Whatever changed, a member's copy is now behind; a chapter that is not shared ignores this.
+        db.chapterDao().bumpShareVersion(chapterId)
         val result = ChapterMath.compute(taggedRows(chapterId))
         if (result.unidentifiedLegCount > 0) {
             // Eligibility should have made this impossible. If it happens the chapter is quietly
@@ -310,9 +328,8 @@ class ChapterRepository(private val db: AppDatabase) {
     /** Rebuilds these friends' base ledgers, inside the caller's transaction. */
     suspend fun replayInTransaction(friendIds: Set<Long>) = replayer.replay(friendIds)
 
-    /** The id a chapter is known by on other phones once it is shared; none yet, as nothing is shared. */
-    @Suppress("UNUSED_PARAMETER", "RedundantSuspendModifier")
-    private suspend fun shareIdOf(chapterId: Long): String? = null
+    /** The id a chapter goes by on every phone that holds it, or null when it never left this one. */
+    private suspend fun shareIdOf(chapterId: Long): String? = db.chapterDao().getById(chapterId)?.shareId
 
     /** R4 and R8, enforced here and not only in the UI. Throws with the reason to show. */
     suspend fun assertTaggable(
@@ -325,11 +342,27 @@ class ChapterRepository(private val db: AppDatabase) {
         ChapterEligibility.blockedReason(tx, shares, chapter, original)?.let { throw ChapterException(it) }
     }
 
-    /** R8: a transaction already inside a closed chapter cannot be edited or moved out of it. */
+    /**
+     * R8: a transaction already inside a closed chapter cannot be edited or moved out of it. Only a
+     * chapter of this phone's own locks its rows; a friend's closing theirs does not stop this phone
+     * editing its own copy of a row in it (S6).
+     */
     suspend fun assertNotLockedByClosedChapter(chapterId: Long?) {
         val chapter = chapterId?.let { db.chapterDao().getById(it) } ?: return
-        if (chapter.state == ChapterState.CLOSED) {
+        if (chapter.isOwn && chapter.state == ChapterState.CLOSED) {
             throw ChapterException("In ${chapter.name} (closed). Reopen to edit.")
+        }
+    }
+
+    /**
+     * S5 and S6: a row claimed into a friend's chapter is there because the owner has it, and leaves
+     * only when they take it out. Moving it by hand here would change nothing in their plan.
+     */
+    suspend fun assertNotInCopy(chapterId: Long?) {
+        val chapter = chapterId?.let { db.chapterDao().getById(it) } ?: return
+        if (!chapter.isOwn) {
+            val owner = chapter.ownerFriendId?.let { db.friendDao().getFriendById(it)?.name } ?: "its owner"
+            throw ChapterException("In $owner's ${chapter.name}. It leaves when $owner takes it out.")
         }
     }
 
@@ -375,6 +408,13 @@ class ChapterRepository(private val db: AppDatabase) {
 
     private suspend fun requireChapter(chapterId: Long): Chapter =
         db.chapterDao().getById(chapterId) ?: throw ChapterException("That chapter is gone")
+
+    /** S1: only the owner's phone changes a chapter; a copy is read-only. */
+    private suspend fun requireOwn(chapterId: Long): Chapter {
+        val chapter = requireChapter(chapterId)
+        if (!chapter.isOwn) throw ChapterException("${chapter.name} is kept by whoever shared it. Only they can change it.")
+        return chapter
+    }
 }
 
 /**
@@ -395,9 +435,13 @@ object RepositoryChapterSync : ChapterSync {
         val repository = ChapterRepository(db)
         // R8: a row already sitting in a closed chapter is frozen, whatever the save wants.
         repository.assertNotLockedByClosedChapter(existing?.chapterId)
+        // S6: a row claimed into a friend's chapter stays there however it is edited.
+        if (chapterId != existing?.chapterId) repository.assertNotInCopy(existing?.chapterId)
         if (chapterId != null) {
             val subject = existing ?: return emptySet()
-            repository.assertTaggable(subject, shares, chapterId)
+            // Staying in a friend's copy is not tagging anything: the owner's plan decides what it does.
+            val stayingInCopy = chapterId == subject.chapterId && db.chapterDao().getById(chapterId)?.isOwn == false
+            if (!stayingInCopy) repository.assertTaggable(subject, shares, chapterId)
         }
         return existing?.let { repository.affectedFriends(listOf(it)) } ?: emptySet()
     }

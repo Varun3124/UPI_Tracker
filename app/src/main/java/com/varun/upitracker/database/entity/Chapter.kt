@@ -1,5 +1,6 @@
 package com.varun.upitracker.database.entity
 
+import androidx.room.ColumnInfo
 import androidx.room.Entity
 import androidx.room.ForeignKey
 import androidx.room.Index
@@ -15,6 +16,28 @@ import androidx.room.PrimaryKey
 enum class ChapterState { OPEN, CLOSED }
 
 /**
+ * Whose a chapter is, and whether it is shared. Stored as text in `chapters.shareMode`, where null
+ * means [PRIVATE] -- every chapter from before sharing existed. See docs/declarations-design.md S1-S10.
+ */
+object ChapterShareMode {
+
+    /** This phone's own, and nobody else has it. */
+    const val PRIVATE = "PRIVATE"
+
+    /** This phone's own, sent to every linked member after each change. */
+    const val SHARED = "SHARED"
+
+    /** A linked friend's chapter, kept up to date by them. Read-only here. */
+    const val REPLICA = "REPLICA"
+
+    /** A friend's chapter that stopped updating: the two unlinked, or they stopped sharing it. */
+    const val FROZEN = "FROZEN"
+
+    /** A friend's chapter pasted in by hand. It never updates. */
+    const val STATIC = "STATIC"
+}
+
+/**
  * A private, named container for tracking who owes whom among a group of friends: a trip, a flat, a
  * party.
  *
@@ -24,7 +47,7 @@ enum class ChapterState { OPEN, CLOSED }
  *
  * See docs/chapters-design.md.
  */
-@Entity(tableName = "chapters")
+@Entity(tableName = "chapters", indices = [Index(value = ["shareId"], unique = true)])
 data class Chapter(
     @PrimaryKey(autoGenerate = true)
     val id: Long = 0,
@@ -41,7 +64,98 @@ data class Chapter(
      */
     val isActive: Boolean = false,
 
-    val notes: String? = null
+    val notes: String? = null,
+
+    /**
+     * The id this chapter goes by on every phone that holds it: random, minted by its owner the first
+     * time it is shared. Null for a chapter that has never left this phone.
+     */
+    val shareId: String? = null,
+
+    /** Null when this phone owns the chapter; otherwise the friend it is a copy of. */
+    val ownerFriendId: Long? = null,
+
+    /**
+     * Owner: bumped on every change a member's copy would show, so the phone knows who is behind.
+     * Copy: the owner's version it last took, so an older snapshot arriving late is ignored.
+     */
+    @ColumnInfo(defaultValue = "0")
+    val shareVersion: Long = 0,
+
+    /**
+     * A copy only: the owner's last snapshot, as sent to this phone. Its plan is what the copy's
+     * balances come from -- a copy never works a plan out for itself.
+     */
+    val snapshot: String? = null,
+
+    /** One of [ChapterShareMode]; null reads as [ChapterShareMode.PRIVATE]. */
+    val shareMode: String? = null
+) {
+    /** Whether this phone owns it, and so may change it. */
+    val isOwn: Boolean get() = ownerFriendId == null
+
+    val mode: String get() = shareMode ?: ChapterShareMode.PRIVATE
+}
+
+/**
+ * Owner side: a linked member a shared chapter goes to, and the last version they were sent.
+ * A member whose [sentVersion] is behind the chapter's `shareVersion` gets a new snapshot at the next
+ * chance -- which is also how a member who relinks catches up.
+ */
+@Entity(
+    tableName = "chapter_shares",
+    primaryKeys = ["chapterId", "friendId"],
+    foreignKeys = [
+        ForeignKey(
+            entity = Chapter::class,
+            parentColumns = ["id"],
+            childColumns = ["chapterId"],
+            onDelete = ForeignKey.CASCADE
+        ),
+        ForeignKey(
+            entity = Friend::class,
+            parentColumns = ["id"],
+            childColumns = ["friendId"],
+            onDelete = ForeignKey.CASCADE
+        )
+    ],
+    indices = [Index("friendId")]
+)
+data class ChapterShare(
+    val chapterId: Long,
+    val friendId: Long,
+    val sentVersion: Long
+)
+
+/**
+ * Copy side: who one of the owner's people is on this phone, when nothing else says. Someone the owner
+ * names by an account this phone is linked to needs no row; anyone else is matched here by hand, and
+ * until they are, a payment between them and ME is shown but not counted (S4).
+ */
+@Entity(
+    tableName = "chapter_people",
+    primaryKeys = ["chapterId", "personKey"],
+    foreignKeys = [
+        ForeignKey(
+            entity = Chapter::class,
+            parentColumns = ["id"],
+            childColumns = ["chapterId"],
+            onDelete = ForeignKey.CASCADE
+        ),
+        ForeignKey(
+            entity = Friend::class,
+            parentColumns = ["id"],
+            childColumns = ["friendId"],
+            onDelete = ForeignKey.CASCADE
+        )
+    ],
+    indices = [Index("friendId")]
+)
+data class ChapterPerson(
+    val chapterId: Long,
+    /** `uid:<uid>` for someone named by account, `name:<name>` for anyone else. */
+    val personKey: String,
+    val friendId: Long
 )
 
 /**

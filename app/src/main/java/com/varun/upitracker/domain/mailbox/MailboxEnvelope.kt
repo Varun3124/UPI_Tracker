@@ -18,6 +18,12 @@ enum class MailboxKind {
     /** An answer to one: accepted, denied, or withdrawn by its proposer. */
     DECLARATION_ANSWER,
 
+    /** A shared chapter, whole, as its owner sends it to one member. See docs/declarations-design.md S3. */
+    CHAPTER_SNAPSHOT,
+
+    /** The owner stopped sharing a chapter, or deleted it. */
+    CHAPTER_ENDED,
+
     /**
      * Never sent. What a kind from a newer version of the app reads as here, so the inbox can say
      * "update the app to read this" rather than calling a perfectly good message damaged.

@@ -120,6 +120,7 @@ class MailboxIdentityRepository(context: Context, private val db: AppDatabase) {
                 // made by another account and nothing can change them from this one (D12).
                 db.declarationDao().closeAllOpen(System.currentTimeMillis())
                 db.declarationDao().archiveAllAccepted()
+                db.chapterDao().freezeAllCopies()
             }
         }
         prefs.edit().putString(LINKS_OWNER_UID, uid).apply()
@@ -218,6 +219,7 @@ class MailboxIdentityRepository(context: Context, private val db: AppDatabase) {
             // The account is gone, but what was agreed through it still anchors every balance (D12).
             db.declarationDao().closeAllOpen(System.currentTimeMillis())
             db.declarationDao().archiveAllAccepted()
+            db.chapterDao().freezeAllCopies()
         }
         prefs.edit().remove(LINKS_OWNER_UID).apply()
     }

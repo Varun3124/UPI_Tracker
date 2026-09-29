@@ -2,6 +2,8 @@ package com.varun.upitracker.data.mailbox
 
 import android.content.Context
 import android.util.Log
+import com.varun.upitracker.data.chapter.SharedChapterRepository
+import com.varun.upitracker.data.chapter.SnapshotNews
 import com.varun.upitracker.data.declaration.AnswerNews
 import com.varun.upitracker.data.declaration.DeclarationRepository
 import com.varun.upitracker.database.AppDatabase
@@ -9,6 +11,7 @@ import com.varun.upitracker.database.entity.FriendLink
 import com.varun.upitracker.database.entity.FriendLinkState
 import com.varun.upitracker.database.entity.MailboxMessage
 import com.varun.upitracker.database.entity.MailboxMessageState
+import com.varun.upitracker.domain.chapter.ChapterSnapshotFormat
 import com.varun.upitracker.domain.declaration.DeclarationMessages
 import com.varun.upitracker.domain.mailbox.MailboxCrypto
 import com.varun.upitracker.domain.mailbox.MailboxIds
@@ -41,7 +44,9 @@ data class SyncReport(
     /** Friends who accepted one of this phone's proposals. */
     val acceptedBy: List<Long> = emptyList(),
     /** Friends who turned one down. */
-    val deniedBy: List<Long> = emptyList()
+    val deniedBy: List<Long> = emptyList(),
+    /** Friends who shared a chapter with this phone for the first time. */
+    val chaptersFrom: List<Long> = emptyList()
 )
 
 /** What one collection learnt along the way, gathered while it runs and reported at the end. */
@@ -50,6 +55,7 @@ private class Gathered {
     val proposals = mutableListOf<Long>()
     val accepted = mutableListOf<Long>()
     val denied = mutableListOf<Long>()
+    val chapters = mutableListOf<Long>()
 }
 
 /**
@@ -84,6 +90,7 @@ class MailboxSync(context: Context, private val db: AppDatabase) {
     private val identities = MailboxIdentityRepository(context, db)
     private val links = LinkRepository(context, db)
     private val declarations = DeclarationRepository(context, db)
+    private val sharedChapters = SharedChapterRepository(context, db)
 
     /** Null when the mailbox is off, or [force] is false and the last collection was recent. */
     suspend fun run(force: Boolean = false): SyncReport? = mutex.withLock {
@@ -128,6 +135,9 @@ class MailboxSync(context: Context, private val db: AppDatabase) {
             } catch (error: Exception) {
                 Log.w(TAG, "Could not send waiting proposals", error)
             }
+            // Members of shared chapters who are behind -- including anyone who has just relinked --
+            // get the chapter as it stands now. Never throws.
+            sharedChapters.publishPending()
 
             SyncReport(
                 parcelsByFriend = collected
@@ -143,7 +153,8 @@ class MailboxSync(context: Context, private val db: AppDatabase) {
                 unreadable = collected.count { it.state == MailboxMessageState.UNREADABLE },
                 proposalsFrom = gathered.proposals.distinct(),
                 acceptedBy = gathered.accepted.distinct(),
-                deniedBy = gathered.denied.distinct()
+                deniedBy = gathered.denied.distinct(),
+                chaptersFrom = gathered.chapters.distinct()
             )
         }
     }
@@ -286,6 +297,21 @@ class MailboxSync(context: Context, private val db: AppDatabase) {
                     AnswerNews.WITHDRAWN, null -> Unit
                 }
                 record(MailboxKind.DECLARATION_ANSWER, MailboxMessageState.IMPORTED, envelope.body)
+            }
+            // Applied straight away, no consent asked: a linked friend's chapter updates by itself (S2).
+            // The body is kept in the chapter, which reads its plan and rows from it; not here too.
+            MailboxKind.CHAPTER_SNAPSHOT -> {
+                val snapshot = ChapterSnapshotFormat.decode(envelope.body, senderUid = from, readerUid = identity.uid)
+                    ?: return record(MailboxKind.CHAPTER_SNAPSHOT, MailboxMessageState.UNREADABLE)
+                val news = sharedChapters.receiveSnapshot(link.friendId, from, identity.uid, snapshot, envelope.body)
+                if (news == SnapshotNews.NEW) gathered.chapters += link.friendId
+                record(MailboxKind.CHAPTER_SNAPSHOT, MailboxMessageState.IMPORTED)
+            }
+            MailboxKind.CHAPTER_ENDED -> {
+                val (shareId, end) = ChapterSnapshotFormat.decodeEnded(envelope.body)
+                    ?: return record(MailboxKind.CHAPTER_ENDED, MailboxMessageState.UNREADABLE)
+                sharedChapters.receiveEnded(link.friendId, shareId, end)
+                record(MailboxKind.CHAPTER_ENDED, MailboxMessageState.IMPORTED, envelope.body)
             }
             // From a newer version of the app. Genuine and signed, but nothing here can read it.
             MailboxKind.UNSUPPORTED -> record(MailboxKind.UNSUPPORTED, MailboxMessageState.UNREADABLE)

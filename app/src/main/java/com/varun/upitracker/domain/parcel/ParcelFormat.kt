@@ -312,7 +312,8 @@ object ParcelFormat {
         else -> null
     }
 
-    private fun formatActor(actor: ParcelActor, mailbox: Boolean): String = when (actor) {
+    /** One actor in the grammar above. Shared with the chapter snapshot, which names people the same way. */
+    internal fun formatActor(actor: ParcelActor, mailbox: Boolean): String = when (actor) {
         ParcelActor.Me -> "M"
         ParcelActor.Sender -> "S"
         is ParcelActor.Person -> "F:" + escape(actor.name)
@@ -325,7 +326,8 @@ object ParcelFormat {
         }
     }
 
-    private fun parseActor(field: String, mailbox: Boolean): ParcelActor? = when {
+    /** The inverse of [formatActor], or null for anything that is not exactly one actor. */
+    internal fun parseActor(field: String, mailbox: Boolean): ParcelActor? = when {
         field == "M" -> ParcelActor.Me
         field == "S" -> ParcelActor.Sender
         field.startsWith("F:") -> unescape(field.substring(2)).ifBlank { null }?.let(ParcelActor::Person)
