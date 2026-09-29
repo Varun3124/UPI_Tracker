@@ -411,6 +411,11 @@ class ParcelImportRepository(private val db: AppDatabase) {
             add(friendId, debitAmountPaise)
         }
 
+        /** Never reached from a single row's preview, but an opening moves a balance like anything else. */
+        override suspend fun recordOpening(declarationId: String, friendId: Long, amountPaise: Long) {
+            add(friendId, amountPaise)
+        }
+
         private fun add(friendId: Long, deltaPaise: Long) {
             deltas[friendId] = (deltas[friendId] ?: 0L) + deltaPaise
         }

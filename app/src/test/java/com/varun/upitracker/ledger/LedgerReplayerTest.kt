@@ -5,6 +5,7 @@ import com.varun.upitracker.database.entity.LedgerEffect
 import com.varun.upitracker.database.entity.Transaction
 import com.varun.upitracker.database.entity.TransactionShare
 import com.varun.upitracker.domain.chapter.TaggedTx
+import com.varun.upitracker.domain.declaration.Opening
 import com.varun.upitracker.ui.ActorType
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertEquals
@@ -39,17 +40,34 @@ class LedgerReplayerTest {
         override suspend fun applyOutgoingSettlement(transactionId: Long, friendId: Long, debitAmountPaise: Long) {
             calls += "settlement:$transactionId:$friendId:$debitAmountPaise"
         }
+
+        override suspend fun recordOpening(declarationId: String, friendId: Long, amountPaise: Long) {
+            calls += "opening:$declarationId:$friendId:$amountPaise"
+        }
     }
 
-    /** Hands over a fixed list, and records that the delete happened -- and when. */
-    private class FakeSource(private val rows: List<TaggedTx>) : LedgerReplayer.Source {
+    /**
+     * Hands over a fixed list, and records that the delete happened -- and when. Rows at or before
+     * the floor it is asked for are left out, as the real query leaves them out.
+     */
+    private class FakeSource(
+        private val rows: List<TaggedTx>,
+        private val openings: Map<Long, Opening> = emptyMap()
+    ) : LedgerReplayer.Source {
         val events = mutableListOf<String>()
         var askedFor: Set<Long>? = null
+        var askedAfter: Long? = null
 
-        override suspend fun rowsFor(friendIds: Set<Long>): List<TaggedTx> {
+        override suspend fun openingsFor(friendIds: Set<Long>): Map<Long, Opening> {
+            events += "openings"
+            return openings.filterKeys { it in friendIds }
+        }
+
+        override suspend fun rowsFor(friendIds: Set<Long>, afterEpoch: Long?): List<TaggedTx> {
             askedFor = friendIds
+            askedAfter = afterEpoch
             events += "read"
-            return rows
+            return rows.filter { afterEpoch == null || it.transaction.dateEpoch > afterEpoch }
         }
 
         override suspend fun clearEntriesFor(friendIds: Set<Long>) {
@@ -108,8 +126,12 @@ class LedgerReplayerTest {
         )
     )
 
-    private fun replay(rows: List<TaggedTx>, friendIds: Set<Long>): Pair<FakeSource, RecordingLedger> {
-        val source = FakeSource(rows)
+    private fun replay(
+        rows: List<TaggedTx>,
+        friendIds: Set<Long>,
+        openings: Map<Long, Opening> = emptyMap()
+    ): Pair<FakeSource, RecordingLedger> {
+        val source = FakeSource(rows, openings)
         val ledger = RecordingLedger()
         runBlocking { LedgerReplayer(source, ledger).replay(friendIds) }
         return source to ledger
@@ -198,7 +220,7 @@ class LedgerReplayerTest {
     fun `entries are read before they are cleared`() {
         // The selection asks which transactions still own entries, which the delete then destroys.
         val (source, _) = replay(listOf(purchaseSplitWith(1L, 100L, rahul, 5_000L)), setOf(rahul))
-        assertEquals(listOf("read", "clear"), source.events)
+        assertEquals(listOf("openings", "read", "clear"), source.events)
     }
 
     // --- the worked example ------------------------------------------------------------------------
@@ -242,5 +264,74 @@ class LedgerReplayerTest {
             listOf("balance:1:$rahul:50000", "repayment:2:$rahul:20000"),
             ledger.calls
         )
+    }
+
+    // --- checkpoints (docs/declarations-design.md D7, D8) ---------------------------------------------
+
+    private fun opening(friendId: Long, asOfEpoch: Long, amountPaise: Long) =
+        Opening(declarationId = "d$friendId", friendId = friendId, asOfEpoch = asOfEpoch, amountPaise = amountPaise)
+
+    @Test
+    fun `an opening is posted before every row`() {
+        val purchase = purchaseSplitWith(id = 1L, dateEpoch = 300L, friendId = rahul, eachPaise = 1_000L)
+        val (_, ledger) = replay(listOf(purchase), setOf(rahul), mapOf(rahul to opening(rahul, 200L, 80_000L)))
+        assertEquals(listOf("opening:d$rahul:$rahul:80000", "balance:1:$rahul:1000"), ledger.calls)
+    }
+
+    @Test
+    fun `rows at or before a checkpoint post nothing for its friend`() {
+        val rows = listOf(
+            purchaseSplitWith(id = 1L, dateEpoch = 100L, friendId = rahul, eachPaise = 1_000L),
+            purchaseSplitWith(id = 2L, dateEpoch = 200L, friendId = rahul, eachPaise = 2_000L),
+            purchaseSplitWith(id = 3L, dateEpoch = 201L, friendId = rahul, eachPaise = 4_000L)
+        )
+        val (_, ledger) = replay(rows, setOf(rahul), mapOf(rahul to opening(rahul, 200L, 0L)))
+        // The checkpoint speaks for the instant it names, so a row at exactly that instant is covered.
+        assertEquals(listOf("opening:d$rahul:$rahul:0", "balance:3:$rahul:4000"), ledger.calls)
+    }
+
+    @Test
+    fun `a checkpoint seals a row only for its own friend`() {
+        val id = 11L
+        val split = tx(
+            id = id,
+            dateEpoch = 100L,
+            payerType = ActorType.ME,
+            payeeType = ActorType.MERCHANT,
+            amountPaise = 90_000L,
+            shares = listOf(
+                TransactionShare(transactionId = id, side = "PAYER", participantType = ActorType.ME, amountPaise = 30_000L),
+                TransactionShare(transactionId = id, side = "PAYER", participantType = ActorType.FRIEND, friendId = rahul, amountPaise = 30_000L, rawLabel = "Rahul"),
+                TransactionShare(transactionId = id, side = "PAYER", participantType = ActorType.FRIEND, friendId = priya, amountPaise = 30_000L, rawLabel = "Priya")
+            )
+        )
+        val (_, ledger) = replay(listOf(split), setOf(rahul, priya), mapOf(rahul to opening(rahul, 150L, 30_000L)))
+        assertEquals(listOf("opening:d$rahul:$rahul:30000", "balance:11:$priya:30000"), ledger.calls)
+    }
+
+    @Test
+    fun `rows are read from the earliest checkpoint on when every friend has one`() {
+        val (source, _) = replay(
+            emptyList(),
+            setOf(rahul, priya),
+            mapOf(rahul to opening(rahul, 500L, 0L), priya to opening(priya, 300L, 0L))
+        )
+        assertEquals(300L, source.askedAfter)
+    }
+
+    @Test
+    fun `every row is read when any friend has no checkpoint`() {
+        val (source, _) = replay(emptyList(), setOf(rahul, priya), mapOf(rahul to opening(rahul, 500L, 0L)))
+        assertEquals(null, source.askedAfter)
+    }
+
+    @Test
+    fun `openings are posted in friend order`() {
+        val (_, ledger) = replay(
+            emptyList(),
+            setOf(priya, rahul),
+            mapOf(priya to opening(priya, 1L, 200L), rahul to opening(rahul, 1L, 100L))
+        )
+        assertEquals(listOf("opening:d$rahul:$rahul:100", "opening:d$priya:$priya:200"), ledger.calls)
     }
 }

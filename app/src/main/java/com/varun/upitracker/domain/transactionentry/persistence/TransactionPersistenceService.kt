@@ -1,13 +1,16 @@
 package com.varun.upitracker.domain.transactionentry.persistence
 
+import com.varun.upitracker.data.declaration.CheckpointStore
 import com.varun.upitracker.database.AppDatabase
 import com.varun.upitracker.database.entity.IouRecovery
 import com.varun.upitracker.database.entity.LedgerEffect
 import com.varun.upitracker.database.entity.Transaction
 import com.varun.upitracker.database.entity.TransactionShare
 import com.varun.upitracker.data.repository.RepositoryChapterSync
+import com.varun.upitracker.domain.chapter.ChapterMath
 import com.varun.upitracker.domain.iou.IouLegs
 import com.varun.upitracker.ledger.LedgerManager
+import com.varun.upitracker.ledger.SealingLedgerPort
 import com.varun.upitracker.ui.ActorRef
 import kotlinx.coroutines.runBlocking
 
@@ -79,7 +82,6 @@ class TransactionPersistenceService(
                     tx.id
                 }
 
-                db.iouDao().deleteForTransaction(transactionId)
                 db.categorySplitDao().deleteForTransaction(transactionId)
                 db.transactionShareDao().deleteForTransaction(transactionId)
 
@@ -88,19 +90,28 @@ class TransactionPersistenceService(
 
                 persistCategories(transactionId, toCategorisePaise, payer, payee)
 
-                // A tagged transaction posts nothing here: its effect reaches a friend's balance
-                // through `chapter_balances` instead (R15). When it has just crossed between the two
-                // books, the replay inside `afterPersist` reposts it along with everything else the
-                // base ledger holds for those friends, so posting it again here would double it.
-                if (chapterId == null && previousChapterId == null) {
+                // Only a brand-new row outside every chapter is posted here. It can only settle
+                // against what is already there, which is exactly what posting it live does --
+                // except for friends whose checkpoint already covers its date, who get nothing (D8).
+                //
+                // Everything else is left to afterPersist. A tagged row posts nothing to the base
+                // ledger (R15). An edited one is rebuilt rather than reposted: deleting its entries
+                // and posting it again cannot undo what it settled against older ones, which is how a
+                // re-saved repayment used to count twice.
+                if (tx == null && chapterId == null) {
+                    val sealed = CheckpointStore(db).sealedFriends(
+                        ChapterMath.friendsIn(base.copy(id = transactionId), persistedShares),
+                        request.dateEpoch
+                    )
                     ledgerPostingService.postLedger(
-                        LedgerManager(db), transactionId, payer, payee, persistedShares,
+                        SealingLedgerPort(LedgerManager(db), sealed), transactionId, payer, payee, persistedShares,
                         request.amountPaise, ledgerEffect, iouRecovery
                     )
                 }
                 chapterSync.afterPersist(
                     db, transactionId, previousChapterId, chapterId, friendsBefore,
-                    wasExisting = tx != null
+                    wasExisting = tx != null,
+                    previousDateEpoch = tx?.dateEpoch
                 )
                 persistedTransactionId = transactionId
             }

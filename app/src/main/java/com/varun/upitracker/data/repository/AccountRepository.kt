@@ -379,14 +379,10 @@ class AccountRepository private constructor(
             )
         }
         database.withTransaction {
-            // A transfer is never in a chapter, but the transaction being converted may have been.
-            val chapterId = database.transactionDao().getTransactionById(transactionId)?.chapterId
-            database.iouDao().deleteForTransaction(transactionId)
-            database.categorySplitDao().deleteForTransaction(transactionId)
-            database.transactionShareDao().deleteForTransaction(transactionId)
-            database.transactionDao().deleteById(transactionId)
+            // The transaction goes the way a deleted one does: its friends' base ledgers are rebuilt
+            // and its chapter, if it was in one, works its plan out again. A transfer is never in one.
+            TransactionRemoval(database).removeInTransaction(transactionId)
             database.accountTransferDao().insert(stamped)
-            chapterId?.let { ChapterRepository(database).recomputeInTransaction(it) }
         }
     }
 

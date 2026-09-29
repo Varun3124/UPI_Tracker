@@ -23,6 +23,9 @@ class LedgerManager(private val db: AppDatabase) : LedgerPort {
     override suspend fun applyOutgoingSettlement(transactionId: Long, friendId: Long, debitAmountPaise: Long) =
         repository.applyOutgoingSettlement(transactionId, friendId, debitAmountPaise)
 
+    override suspend fun recordOpening(declarationId: String, friendId: Long, amountPaise: Long) =
+        repository.recordOpening(declarationId, friendId, amountPaise)
+
     suspend fun getSummaryForFriend(friendId: Long): FriendLedgerSummary? =
         repository.getSummaryForFriend(friendId)
 

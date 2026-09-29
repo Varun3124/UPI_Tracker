@@ -38,7 +38,11 @@ interface ChapterSync {
      *
      * [wasExisting] is false for a row being created. A brand-new transaction has never been in the
      * base ledger, so tagging it cannot have taken anything out of one -- there is nothing to
-     * rebuild, and rebuilding anyway would re-settle unrelated entries for no reason.
+     * rebuild, and rebuilding anyway would re-settle unrelated entries for no reason. An existing row
+     * that stays outside every chapter is rebuilt here too: the save no longer reposts it itself.
+     *
+     * [previousDateEpoch] is the row's date before this save, so a change caused by rows a checkpoint
+     * covers can be told apart from one that moved past it.
      */
     suspend fun afterPersist(
         db: AppDatabase,
@@ -46,7 +50,8 @@ interface ChapterSync {
         previous: Long?,
         current: Long?,
         friendsBefore: Set<Long>,
-        wasExisting: Boolean
+        wasExisting: Boolean,
+        previousDateEpoch: Long?
     )
 
     /** For tests and for any caller that has no business with chapters. */
@@ -64,7 +69,8 @@ interface ChapterSync {
             previous: Long?,
             current: Long?,
             friendsBefore: Set<Long>,
-            wasExisting: Boolean
+            wasExisting: Boolean,
+            previousDateEpoch: Long?
         ) = Unit
     }
 }

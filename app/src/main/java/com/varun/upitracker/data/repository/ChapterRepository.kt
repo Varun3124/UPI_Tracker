@@ -2,6 +2,7 @@ package com.varun.upitracker.data.repository
 
 import android.util.Log
 import androidx.room.withTransaction
+import com.varun.upitracker.data.declaration.CheckpointStore
 import com.varun.upitracker.database.AppDatabase
 import com.varun.upitracker.database.entity.Chapter
 import com.varun.upitracker.database.entity.ChapterBalance
@@ -12,6 +13,7 @@ import com.varun.upitracker.domain.chapter.ChapterEligibility
 import com.varun.upitracker.domain.chapter.ChapterMath
 import com.varun.upitracker.domain.chapter.ChapterResult
 import com.varun.upitracker.domain.chapter.TaggedTx
+import com.varun.upitracker.domain.declaration.Absorption
 import com.varun.upitracker.domain.transactionentry.persistence.ChapterSync
 import com.varun.upitracker.ledger.LedgerManager
 import com.varun.upitracker.ledger.LedgerReplayer
@@ -100,14 +102,16 @@ class ChapterRepository(private val db: AppDatabase) {
      * R11. Every transaction in the chapter returns to the base ledger; none of them is deleted.
      *
      * The untag has to land before the replay, because what the replay selects is precisely the
-     * rows the base ledger should hold -- and that is decided by `chapterId`.
+     * rows the base ledger should hold -- and that is decided by `chapterId`. So does the delete: a
+     * checkpoint that counted this chapter's share loses that part with it, and the replay is what
+     * works the opening out again without it (docs/declarations-design.md section 8).
      */
     suspend fun delete(chapterId: Long) = db.withTransaction {
         val tagged = db.chapterDao().taggedTransactions(chapterId)
-        val friends = affectedFriends(tagged)
+        val friends = affectedFriends(tagged) + db.declarationDao().friendIdsCountingChapter(chapterId)
         db.transactionDao().untagChapter(chapterId)
-        replayer.replay(friends)
         db.chapterDao().deleteById(chapterId)
+        replayer.replay(friends)
     }
 
     // --- members --------------------------------------------------------------------------------
@@ -213,19 +217,26 @@ class ChapterRepository(private val db: AppDatabase) {
     }
 
     /**
-     * The whole of what moving a transaction between books involves, in the order it has to happen.
+     * The whole of what moving or saving a transaction involves for the books, in the order it has to
+     * happen.
      *
-     * Refunds go first because the replay reads their `chapterId` too (R6); members before the
-     * replay for the same reason (R5). The replay itself only runs when the transaction actually
-     * crossed between the base ledger and a chapter -- moving from one chapter to another never
-     * touched `iou_entries`, and neither did a row being created for the first time.
+     * Refunds go first because the replay reads their `chapterId` too (R6). The chapters it leaves
+     * and joins are read before anything moves, so a change caused only by rows a checkpoint already
+     * covers can be absorbed into it (D9) -- and those friends' base ledgers replayed after, so the
+     * opening follows. The rest of the replay runs when [replay] says the base ledger changed: a row
+     * crossed between it and a chapter, or an edit rewrote one it holds. Moving between two
+     * chapters, or creating a row straight into one, never touched `iou_entries`.
+     *
+     * [previousDateEpoch] is the row's date before a save changed it, if it did: both versions have to
+     * be covered by a checkpoint for the change to be absorbed.
      */
     suspend fun applyChapterChangeInTransaction(
         transactionId: Long,
         previous: Long?,
         current: Long?,
         alsoReplay: Set<Long> = emptySet(),
-        crossedBooks: Boolean = (previous == null) != (current == null)
+        replay: Boolean = (previous == null) != (current == null),
+        previousDateEpoch: Long? = null
     ) {
         val refundIds = db.transactionDao().getRefundIdsForOriginal(transactionId)
         val rows = rowsFor(listOf(transactionId) + refundIds)
@@ -233,6 +244,9 @@ class ChapterRepository(private val db: AppDatabase) {
         // read off the transaction, and their entries for it are already gone, so the caller has to
         // have captured them first.
         val friends = affectedFriends(rows.map { it.transaction }) + alsoReplay
+
+        val touched = setOfNotNull(previous, current)
+        val before = contributionsOf(touched)
 
         db.transactionDao().setChapter(transactionId, current)
         db.transactionDao().setChapterForRefundsOf(transactionId, current)
@@ -243,11 +257,62 @@ class ChapterRepository(private val db: AppDatabase) {
             addMembersInTransaction(current, missing.toSet(), System.currentTimeMillis())
         }
 
-        if (crossedBooks) replayer.replay(friends)
+        val versionDates = rows.map { it.transaction.dateEpoch } + listOfNotNull(previousDateEpoch)
+        val absorbed = recomputeAbsorbingInTransaction(touched, before, versionDates)
 
-        previous?.let { recomputeInTransaction(it) }
-        current?.let { recomputeInTransaction(it) }
+        replayer.replay((if (replay) friends else emptySet()) + absorbed)
     }
+
+    /**
+     * What each of [chapterIds] contributes to each friend right now, straight from
+     * `chapter_balances`. Taken before a change, so [recomputeAbsorbingInTransaction] can tell what
+     * the change did.
+     */
+    suspend fun contributionsOf(chapterIds: Set<Long>): Map<Long, Map<Long, Long>> =
+        chapterIds.associateWith { chapterId ->
+            db.chapterDao().balancesForChapter(chapterId).associate { it.friendId to it.amountPaise }
+        }
+
+    /**
+     * Recomputes [chapterIds], then applies D9: for every friend whose checkpoint covers all of
+     * [versionDates], what the change did to their contribution is counted into that chapter's part
+     * of the checkpoint instead of moving their balance.
+     *
+     * Returns the friends whose parts moved. Their base ledger has to be replayed so the opening
+     * follows -- the caller does that, once, along with whoever else it is rebuilding.
+     */
+    suspend fun recomputeAbsorbingInTransaction(
+        chapterIds: Set<Long>,
+        before: Map<Long, Map<Long, Long>>,
+        versionDates: Collection<Long>
+    ): Set<Long> {
+        chapterIds.forEach { recomputeInTransaction(it) }
+        if (chapterIds.isEmpty() || versionDates.isEmpty()) return emptySet()
+
+        val after = contributionsOf(chapterIds)
+        val friends = (before.values.flatMap { it.keys } + after.values.flatMap { it.keys }).toSet()
+        if (friends.isEmpty()) return emptySet()
+
+        val checkpoints = CheckpointStore(db)
+        val absorbing = Absorption.absorbingFriends(versionDates, checkpoints.asOfByFriend(friends))
+        if (absorbing.isEmpty()) return emptySet()
+
+        val changed = linkedSetOf<Long>()
+        chapterIds.forEach { chapterId ->
+            Absorption.deltas(before[chapterId].orEmpty(), after[chapterId].orEmpty(), absorbing)
+                .forEach { (friendId, delta) ->
+                    if (checkpoints.absorb(friendId, chapterId, shareIdOf(chapterId), delta)) changed += friendId
+                }
+        }
+        return changed
+    }
+
+    /** Rebuilds these friends' base ledgers, inside the caller's transaction. */
+    suspend fun replayInTransaction(friendIds: Set<Long>) = replayer.replay(friendIds)
+
+    /** The id a chapter is known by on other phones once it is shared; none yet, as nothing is shared. */
+    @Suppress("UNUSED_PARAMETER", "RedundantSuspendModifier")
+    private suspend fun shareIdOf(chapterId: Long): String? = null
 
     /** R4 and R8, enforced here and not only in the UI. Throws with the reason to show. */
     suspend fun assertTaggable(
@@ -343,16 +408,21 @@ object RepositoryChapterSync : ChapterSync {
         previous: Long?,
         current: Long?,
         friendsBefore: Set<Long>,
-        wasExisting: Boolean
+        wasExisting: Boolean,
+        previousDateEpoch: Long?
     ) {
-        if (previous == null && current == null) return
+        // A brand-new row outside every chapter was posted as it was saved: nothing to rebuild.
+        if (!wasExisting && previous == null && current == null) return
         ChapterRepository(db).applyChapterChangeInTransaction(
             transactionId = transactionId,
             previous = previous,
             current = current,
             alsoReplay = friendsBefore,
-            // A row created straight into a chapter was never in the base ledger to begin with.
-            crossedBooks = wasExisting && (previous == null) != (current == null)
+            // An edit of a row the base ledger holds, before or after, rebuilds it: deleting one
+            // row's entries and posting it again cannot undo what it settled against older ones. A
+            // row created straight into a chapter, or moved between two, was never in it.
+            replay = wasExisting && (previous == null || current == null),
+            previousDateEpoch = previousDateEpoch
         )
     }
 }

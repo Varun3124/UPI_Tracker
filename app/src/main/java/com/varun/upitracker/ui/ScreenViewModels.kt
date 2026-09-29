@@ -13,6 +13,7 @@ import com.varun.upitracker.data.repository.ChapterRepository
 import com.varun.upitracker.data.repository.LedgerRepository
 import com.varun.upitracker.data.repository.ParcelExportRepository
 import com.varun.upitracker.data.repository.SettingsRepository
+import com.varun.upitracker.data.repository.TransactionRemoval
 import com.varun.upitracker.database.AppDatabase
 import com.varun.upitracker.database.entity.Account
 import com.varun.upitracker.database.entity.AccountTransfer
@@ -533,14 +534,7 @@ class AllTransactionsViewModel(context: Context) : ViewModel() {
                 "$refundCount refunds are linked to this transaction. Delete or unlink them first."
             }
         }
-        db.withTransaction {
-            // Read before the row goes. A tagged transaction owns no iou_entries, so there is
-            // nothing to replay -- but its chapter's plan has to be worked out again.
-            val chapterId = db.transactionDao().getTransactionById(transactionId)?.chapterId
-            db.transactionShareDao().deleteForTransaction(transactionId)
-            db.transactionDao().deleteById(transactionId)
-            chapterId?.let { ChapterRepository(db).recomputeInTransaction(it) }
-        }
+        db.withTransaction { TransactionRemoval(db).removeInTransaction(transactionId) }
         return null
     }
 
@@ -903,14 +897,7 @@ class FriendDetailViewModel(context: Context) : ViewModel() {
                 "$refundCount refunds are linked to this transaction. Delete or unlink them first."
             }
         }
-        db.withTransaction {
-            // Read before the row goes. A tagged transaction owns no iou_entries, so there is
-            // nothing to replay -- but its chapter's plan has to be worked out again.
-            val chapterId = db.transactionDao().getTransactionById(transactionId)?.chapterId
-            db.transactionShareDao().deleteForTransaction(transactionId)
-            db.transactionDao().deleteById(transactionId)
-            chapterId?.let { ChapterRepository(db).recomputeInTransaction(it) }
-        }
+        db.withTransaction { TransactionRemoval(db).removeInTransaction(transactionId) }
         return null
     }
 }

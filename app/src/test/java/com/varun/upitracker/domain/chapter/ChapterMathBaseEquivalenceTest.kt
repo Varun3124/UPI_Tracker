@@ -48,6 +48,9 @@ class ChapterMathBaseEquivalenceTest {
         override suspend fun applyOutgoingSettlement(transactionId: Long, friendId: Long, debitAmountPaise: Long) =
             add(friendId, debitAmountPaise)
 
+        override suspend fun recordOpening(declarationId: String, friendId: Long, amountPaise: Long) =
+            add(friendId, amountPaise)
+
         private fun add(friendId: Long, deltaPaise: Long) {
             deltas[friendId] = (deltas[friendId] ?: 0L) + deltaPaise
         }

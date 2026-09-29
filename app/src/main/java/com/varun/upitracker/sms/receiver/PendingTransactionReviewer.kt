@@ -1,14 +1,17 @@
 package com.varun.upitracker.sms.receiver
 
 import android.content.Context
+import com.varun.upitracker.data.declaration.CheckpointStore
 import com.varun.upitracker.database.AppDatabase
 import com.varun.upitracker.data.repository.ChapterRepository
+import com.varun.upitracker.domain.chapter.ChapterMath
 import com.varun.upitracker.domain.chapter.ChapterOption
 import com.varun.upitracker.domain.chapter.ChapterPrompt
 import com.varun.upitracker.domain.iou.IouLegs
 import com.varun.upitracker.domain.transactionentry.persistence.LedgerPostingService
 import com.varun.upitracker.domain.transactionentry.validation.PendingReviewRules
 import com.varun.upitracker.ledger.LedgerManager
+import com.varun.upitracker.ledger.SealingLedgerPort
 import com.varun.upitracker.ui.payerActorRef
 import com.varun.upitracker.ui.payeeActorRef
 import kotlinx.coroutines.Dispatchers
@@ -51,11 +54,20 @@ object PendingTransactionReviewer {
                     val iouRecovery = IouLegs.resolve(tx, shares)
                     val updated = tx.copy(isPending = false, iouRecovery = iouRecovery)
                     db.transactionDao().update(updated)
-                    db.iouDao().deleteForTransaction(tx.id)
-                    ledgerPostingService.postLedger(
-                        LedgerManager(db), tx.id, tx.payerActorRef(), tx.payeeActorRef(),
-                        shares, tx.amountPaise, tx.ledgerEffect, iouRecovery
-                    )
+                    val chapters = ChapterRepository(db)
+                    if (db.iouDao().friendIdsWithEntriesFor(listOf(tx.id)).isNotEmpty()) {
+                        // A backfill flipped this row back to pending without clearing what it posted
+                        // the first time. Posting over that would count it twice, and deleting only
+                        // its own entries would leave whatever it settled flagged as settled.
+                        chapters.replayInTransaction(chapters.affectedFriends(listOf(updated)))
+                    } else {
+                        // Friends whose checkpoint already covers its date get nothing (D8).
+                        val sealed = CheckpointStore(db).sealedFriends(ChapterMath.friendsIn(updated, shares), tx.dateEpoch)
+                        ledgerPostingService.postLedger(
+                            SealingLedgerPort(LedgerManager(db), sealed), tx.id, tx.payerActorRef(), tx.payeeActorRef(),
+                            shares, tx.amountPaise, tx.ledgerEffect, iouRecovery
+                        )
+                    }
                     true
                 }
             }

@@ -367,11 +367,15 @@ interface TransactionDao {
      * MerchantCreditReviewBackfill both flip already-reviewed rows back to pending *without*
      * clearing their entries, and a restore re-arms both -- so a plain `isPending = 0` would delete
      * those entries here and never post them again.
+     *
+     * [afterEpoch] skips rows every one of these friends has a checkpoint covering: they post nothing
+     * for any of them, so there is no point reading them. `Long.MIN_VALUE` reads everything.
      */
     @Query(
         """
         SELECT t.* FROM transactions t
         WHERE t.chapterId IS NULL
+          AND t.dateEpoch > :afterEpoch
           AND (
             t.isPending = 0
             OR EXISTS (SELECT 1 FROM iou_entries e
@@ -389,7 +393,10 @@ interface TransactionDao {
         ORDER BY t.dateEpoch ASC, t.id ASC
         """
     )
-    suspend fun getUntaggedPostedForFriends(friendIds: List<Long>): List<com.varun.upitracker.database.entity.Transaction>
+    suspend fun getUntaggedPostedForFriends(
+        friendIds: List<Long>,
+        afterEpoch: Long
+    ): List<com.varun.upitracker.database.entity.Transaction>
 
     /** The friend page lists only what the base ledger still holds; the rest lives in its chapter. */
     @Query(

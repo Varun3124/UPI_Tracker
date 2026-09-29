@@ -29,6 +29,9 @@ class LedgerPostingServiceTest {
         override suspend fun applyOutgoingSettlement(transactionId: Long, friendId: Long, debitAmountPaise: Long) {
             calls += "settlement:$friendId:$debitAmountPaise"
         }
+        override suspend fun recordOpening(declarationId: String, friendId: Long, amountPaise: Long) {
+            calls += "opening:$friendId:$amountPaise"
+        }
     }
 
     private val service = LedgerPostingService()

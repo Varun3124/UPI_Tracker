@@ -1,7 +1,10 @@
 package com.varun.upitracker.ledger
 
+import com.varun.upitracker.data.declaration.CheckpointStore
 import com.varun.upitracker.database.AppDatabase
 import com.varun.upitracker.domain.chapter.TaggedTx
+import com.varun.upitracker.domain.declaration.Checkpoints
+import com.varun.upitracker.domain.declaration.Opening
 import com.varun.upitracker.domain.iou.IouLegs
 import com.varun.upitracker.domain.transactionentry.persistence.LedgerPostingService
 import com.varun.upitracker.ui.payeeActorRef
@@ -29,6 +32,36 @@ class ScopedLedgerPort(
     override suspend fun applyOutgoingSettlement(transactionId: Long, friendId: Long, debitAmountPaise: Long) {
         if (friendId in friendIds) delegate.applyOutgoingSettlement(transactionId, friendId, debitAmountPaise)
     }
+
+    override suspend fun recordOpening(declarationId: String, friendId: Long, amountPaise: Long) {
+        if (friendId in friendIds) delegate.recordOpening(declarationId, friendId, amountPaise)
+    }
+}
+
+/**
+ * The live counterpart of the per-row scoping [LedgerReplayer] does: drops whatever a brand-new row
+ * would post for friends whose checkpoint already covers its date. See docs/declarations-design.md D8.
+ */
+class SealingLedgerPort(
+    private val delegate: LedgerPort,
+    private val sealedFriendIds: Set<Long>
+) : LedgerPort {
+
+    override suspend fun recordBalanceChange(transactionId: Long, friendId: Long, deltaPaise: Long) {
+        if (friendId !in sealedFriendIds) delegate.recordBalanceChange(transactionId, friendId, deltaPaise)
+    }
+
+    override suspend fun applyRepayment(transactionId: Long, friendId: Long, creditAmountPaise: Long) {
+        if (friendId !in sealedFriendIds) delegate.applyRepayment(transactionId, friendId, creditAmountPaise)
+    }
+
+    override suspend fun applyOutgoingSettlement(transactionId: Long, friendId: Long, debitAmountPaise: Long) {
+        if (friendId !in sealedFriendIds) delegate.applyOutgoingSettlement(transactionId, friendId, debitAmountPaise)
+    }
+
+    override suspend fun recordOpening(declarationId: String, friendId: Long, amountPaise: Long) {
+        if (friendId !in sealedFriendIds) delegate.recordOpening(declarationId, friendId, amountPaise)
+    }
 }
 
 /**
@@ -48,7 +81,11 @@ class ScopedLedgerPort(
  * fixed amount whatever it finds -- `applyRepayment(A)` settles what it can and records the rest,
  * moving the net by exactly -A either way -- so the net is a function of the multiset of calls and
  * not of their order. Reproducing the same calls reproduces the same balances. Which *entries* end
- * up flagged settled can differ, and that is the only thing that does.
+ * up flagged settled can differ, and that is the only thing that does. The same reasoning is why an
+ * edit or a delete replays too: deleting one row's entries cannot undo what it settled elsewhere.
+ *
+ * A friend with a checkpoint gets its opening first, and then only the rows dated after it: the
+ * checkpoint stands for everything before (docs/declarations-design.md D7, D8).
  *
  * Two orderings are not optional. The rows must be read before the delete, because the selection
  * asks about entries the delete destroys; and `transactions.chapterId` must already be written,
@@ -65,7 +102,12 @@ class LedgerReplayer(
      * which is the only way any of this is reachable from a plain JVM test.
      */
     interface Source {
-        suspend fun rowsFor(friendIds: Set<Long>): List<TaggedTx>
+        /** Each friend's checkpoint, for those that have one. */
+        suspend fun openingsFor(friendIds: Set<Long>): Map<Long, Opening>
+
+        /** Untagged, reviewed rows naming any of them, dated after [afterEpoch] when it is set. */
+        suspend fun rowsFor(friendIds: Set<Long>, afterEpoch: Long?): List<TaggedTx>
+
         suspend fun clearEntriesFor(friendIds: Set<Long>)
     }
 
@@ -73,13 +115,21 @@ class LedgerReplayer(
         // Not just an optimisation: Room renders an empty list as `IN ()`, which SQLite rejects.
         if (friendIds.isEmpty()) return
 
-        val rows = order(source.rowsFor(friendIds))
+        val openings = source.openingsFor(friendIds)
+        val asOf = openings.mapValues { it.value.asOfEpoch }
+        val rows = order(source.rowsFor(friendIds, Checkpoints.replayFloor(friendIds, asOf)))
         source.clearEntriesFor(friendIds)
 
-        val scoped = ScopedLedgerPort(ledger, friendIds)
+        // Before any row, so a repayment finds the agreed balance ahead of everything posted after it.
+        openings.values.sortedBy { it.friendId }.forEach {
+            ledger.recordOpening(it.declarationId, it.friendId, it.amountPaise)
+        }
+
         rows.forEach { (tx, shares) ->
+            val postFor = Checkpoints.unsealed(friendIds, tx.dateEpoch, asOf)
+            if (postFor.isEmpty()) return@forEach
             postingService.postLedger(
-                scoped,
+                ScopedLedgerPort(ledger, postFor),
                 tx.id,
                 tx.payerActorRef(),
                 tx.payeeActorRef(),
@@ -108,9 +158,12 @@ class LedgerReplayer(
 /** The real [LedgerReplayer.Source]. Plain suspend calls: it runs inside the caller's transaction. */
 class RoomReplaySource(private val db: AppDatabase) : LedgerReplayer.Source {
 
-    override suspend fun rowsFor(friendIds: Set<Long>): List<TaggedTx> {
+    override suspend fun openingsFor(friendIds: Set<Long>): Map<Long, Opening> =
+        CheckpointStore(db).openings(friendIds)
+
+    override suspend fun rowsFor(friendIds: Set<Long>, afterEpoch: Long?): List<TaggedTx> {
         val ids = friendIds.toList()
-        val transactions = db.transactionDao().getUntaggedPostedForFriends(ids)
+        val transactions = db.transactionDao().getUntaggedPostedForFriends(ids, afterEpoch ?: Long.MIN_VALUE)
         if (transactions.isEmpty()) return emptyList()
         val sharesByTransaction = db.transactionShareDao()
             .getSharesForTransactions(transactions.map { it.id })

@@ -2,11 +2,13 @@ package com.varun.upitracker.maintenance
 
 import android.content.Context
 import android.util.Log
+import com.varun.upitracker.data.declaration.CheckpointStore
 import com.varun.upitracker.database.AppDatabase
 import com.varun.upitracker.database.entity.IouRecovery
 import com.varun.upitracker.database.entity.LedgerEffect
 import com.varun.upitracker.database.entity.Transaction
 import com.varun.upitracker.database.entity.TransactionShare
+import com.varun.upitracker.domain.declaration.Checkpoints
 import com.varun.upitracker.domain.iou.IouLegs
 import com.varun.upitracker.domain.iou.IouParty
 import com.varun.upitracker.ledger.LedgerManager
@@ -42,12 +44,16 @@ class IouRecoveryBackfill(private val context: Context) {
         db.runInTransaction {
             runBlocking {
                 val ledger = LedgerManager(db)
+                // A checkpoint already stands for every row dated before it, correction included (D8).
+                val asOf = CheckpointStore(db).asOfByFriend(db.declarationDao().friendIdsWithAccepted())
                 db.transactionDao().getMissingIouRecovery().forEach { tx ->
                     val shares = db.transactionShareDao().getSharesForTransaction(tx.id)
                     val upgrade = IouRecoveryUpgrade.of(tx, shares)
                     db.transactionDao().setIouRecovery(tx.id, upgrade.recovery)
                     upgrade.corrections.forEach { (friendId, deltaPaise) ->
-                        ledger.recordBalanceChange(tx.id, friendId, deltaPaise)
+                        if (!Checkpoints.isSealed(tx.dateEpoch, asOf[friendId])) {
+                            ledger.recordBalanceChange(tx.id, friendId, deltaPaise)
+                        }
                     }
                     assigned++
                     if (upgrade.corrections.isNotEmpty()) corrected++

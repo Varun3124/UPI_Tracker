@@ -13,6 +13,7 @@ import com.varun.upitracker.database.dao.BalanceSnapshotDao
 import com.varun.upitracker.database.dao.BudgetDao
 import com.varun.upitracker.database.dao.CategoryDao
 import com.varun.upitracker.database.dao.ChapterDao
+import com.varun.upitracker.database.dao.DeclarationDao
 import com.varun.upitracker.database.dao.FixedDepositDao
 import com.varun.upitracker.database.dao.FriendDao
 import com.varun.upitracker.database.dao.IouDao
@@ -30,11 +31,13 @@ import com.varun.upitracker.database.entity.Chapter
 import com.varun.upitracker.database.entity.ChapterBalance
 import com.varun.upitracker.database.entity.ChapterMember
 import com.varun.upitracker.database.entity.CategoryKind
+import com.varun.upitracker.database.entity.DeclarationPart
 import com.varun.upitracker.database.entity.FixedDepositDetail
 import com.varun.upitracker.database.entity.Friend
 import com.varun.upitracker.database.entity.FriendLink
 import com.varun.upitracker.database.entity.FriendRawName
 import com.varun.upitracker.database.entity.FriendUpiId
+import com.varun.upitracker.database.entity.IouDeclaration
 import com.varun.upitracker.database.entity.IouEntry
 import com.varun.upitracker.database.entity.LinkInvite
 import com.varun.upitracker.database.entity.MailboxMessage
@@ -75,9 +78,11 @@ import kotlinx.coroutines.launch
         TransactionDelivery::class,
         Chapter::class,
         ChapterMember::class,
-        ChapterBalance::class
+        ChapterBalance::class,
+        IouDeclaration::class,
+        DeclarationPart::class
     ],
-    version = 20,
+    version = 21,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -89,6 +94,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun budgetDao(): BudgetDao
     abstract fun categoryDao(): CategoryDao
     abstract fun chapterDao(): ChapterDao
+    abstract fun declarationDao(): DeclarationDao
     abstract fun fixedDepositDao(): FixedDepositDao
     abstract fun friendDao(): FriendDao
     abstract fun iouDao(): IouDao
@@ -563,6 +569,71 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Declarations: checkpoints two linked friends agree on. Two new tables, and `iou_entries`
+         * rebuilt so an entry can belong to a declaration instead of a transaction -- a checkpoint's
+         * opening balance is the oldest debt in a friend's base ledger, and repayments have to be able
+         * to settle it like any other. See docs/declarations-design.md.
+         *
+         * SQLite can neither relax a NOT NULL nor add a foreign key in place, hence the copy, drop and
+         * rename MIGRATION_8_9 uses for `transactions`. Every entry is copied as it is, so every
+         * balance reads exactly as it did: with no declaration there is no opening, and nothing else
+         * changes. Foreign keys are only switched on once Room opens the database, after this has run.
+         */
+        private val MIGRATION_20_21 = object : Migration(20, 21) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `iou_declarations` (`id` TEXT NOT NULL, `friendId` INTEGER NOT NULL, " +
+                        "`kind` TEXT, `targetId` TEXT, `asOfEpoch` INTEGER, `amountPaise` INTEGER, `deltaPaise` INTEGER, " +
+                        "`note` TEXT, `proposedByMe` INTEGER NOT NULL, `proposedEpoch` INTEGER NOT NULL, " +
+                        "`state` TEXT NOT NULL, `decidedEpoch` INTEGER, `archived` INTEGER NOT NULL, `sentEpoch` INTEGER, " +
+                        "`auto` INTEGER NOT NULL, `replyNote` TEXT, PRIMARY KEY(`id`), " +
+                        "FOREIGN KEY(`friendId`) REFERENCES `friends`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_iou_declarations_friendId` ON `iou_declarations` (`friendId`)"
+                )
+
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `declaration_parts` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                        "`declarationId` TEXT NOT NULL, `chapterId` INTEGER, `shareId` TEXT, `amountPaise` INTEGER NOT NULL, " +
+                        "FOREIGN KEY(`declarationId`) REFERENCES `iou_declarations`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE , " +
+                        "FOREIGN KEY(`chapterId`) REFERENCES `chapters`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )"
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS `index_declaration_parts_declarationId_chapterId` " +
+                        "ON `declaration_parts` (`declarationId`, `chapterId`)"
+                )
+                db.execSQL(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS `index_declaration_parts_declarationId_shareId` " +
+                        "ON `declaration_parts` (`declarationId`, `shareId`)"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_declaration_parts_chapterId` ON `declaration_parts` (`chapterId`)"
+                )
+
+                if (!hasColumn(db, "iou_entries", "declarationId")) {
+                    db.execSQL(
+                        "CREATE TABLE IF NOT EXISTS `iou_entries_new` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, " +
+                            "`transactionId` INTEGER, `friendId` INTEGER NOT NULL, `amountPaise` INTEGER NOT NULL, " +
+                            "`isSettled` INTEGER NOT NULL, `settledEpoch` INTEGER, `declarationId` TEXT, " +
+                            "FOREIGN KEY(`transactionId`) REFERENCES `transactions`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE , " +
+                            "FOREIGN KEY(`friendId`) REFERENCES `friends`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE , " +
+                            "FOREIGN KEY(`declarationId`) REFERENCES `iou_declarations`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )"
+                    )
+                    db.execSQL(
+                        "INSERT INTO `iou_entries_new` (`id`, `transactionId`, `friendId`, `amountPaise`, `isSettled`, `settledEpoch`) " +
+                            "SELECT `id`, `transactionId`, `friendId`, `amountPaise`, `isSettled`, `settledEpoch` FROM `iou_entries`"
+                    )
+                    db.execSQL("DROP TABLE `iou_entries`")
+                    db.execSQL("ALTER TABLE `iou_entries_new` RENAME TO `iou_entries`")
+                }
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_iou_entries_transactionId` ON `iou_entries` (`transactionId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_iou_entries_friendId` ON `iou_entries` (`friendId`)")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_iou_entries_declarationId` ON `iou_entries` (`declarationId`)")
+            }
+        }
+
         private fun hasColumn(db: SupportSQLiteDatabase, table: String, column: String): Boolean {
             db.query("PRAGMA table_info(`$table`)").use { cursor ->
                 val nameColumnIndex = cursor.getColumnIndex("name")
@@ -595,7 +666,7 @@ abstract class AppDatabase : RoomDatabase() {
                         MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12,
                         MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16,
                         MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19,
-                        MIGRATION_19_20
+                        MIGRATION_19_20, MIGRATION_20_21
                     )
                     .addCallback(object : Callback() {
                         override fun onCreate(db: SupportSQLiteDatabase) {

@@ -271,6 +271,9 @@ class SettingsRepository(private val context: Context) {
 
         db.mailboxDao().reassignInvites(source.id, target.id)
         db.mailboxDao().reassignDeliveries(source.id, target.id)
+        // Before the source goes: its declarations CASCADE with it. They were agreed with the account
+        // the link belongs to, and the link has just moved to the target too (D14).
+        db.declarationDao().reassignFriend(source.id, target.id)
         db.transactionDao().reassignPayerFriend(source.id, target.id)
         db.transactionDao().reassignPayeeFriend(source.id, target.id)
         db.transactionShareDao().reassignFriend(source.id, target.id)
@@ -291,6 +294,11 @@ class SettingsRepository(private val context: Context) {
         // friend that survived.
         val chapters = ChapterRepository(db)
         affectedChapters.forEach { chapters.recomputeInTransaction(it) }
+
+        // The two aliases' entries were simply added together above. If either brought a checkpoint,
+        // the other's rows from before it are now covered by it and must stop counting; rebuilding
+        // is the only way to find out which, and it is harmless when neither did.
+        chapters.replayInTransaction(setOf(target.id))
     }
 
     private suspend fun mergeMerchantInto(source: Merchant, target: Merchant, targetName: String) {
@@ -315,7 +323,9 @@ class SettingsRepository(private val context: Context) {
             db.transactionShareDao().countForFriend(friendId) > 0 ||
             // Belonging to a chapter is history too: it is something the user stated, and the
             // RESTRICT on chapter_members would refuse the delete anyway -- with a far worse message.
-            db.chapterDao().countMembershipsForFriend(friendId) > 0
+            db.chapterDao().countMembershipsForFriend(friendId) > 0 ||
+            // So is an agreed balance: deleting the friend would take it, and with it what they owe.
+            db.declarationDao().countForFriend(friendId) > 0
     }
 
     private suspend fun merchantHasHistory(merchantId: Long): Boolean {

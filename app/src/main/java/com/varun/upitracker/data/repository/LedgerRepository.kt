@@ -4,6 +4,9 @@ import android.util.Log
 import com.varun.upitracker.database.AppDatabase
 import com.varun.upitracker.database.entity.ChapterState
 import com.varun.upitracker.database.entity.IouEntry
+import com.varun.upitracker.domain.declaration.DeclarationSet
+import com.varun.upitracker.ledger.SettleMath
+import com.varun.upitracker.ledger.SettleOutcome
 
 private const val LEDGER_TAG = "LedgerRepository"
 
@@ -16,6 +19,18 @@ data class FriendChapterBalance(
     val name: String,
     val state: ChapterState,
     val amountPaise: Long
+)
+
+/**
+ * The checkpoint agreed with a friend: the whole balance as of [asOfEpoch], chapters included. Rows
+ * outside chapters dated at or before it move nothing. See docs/declarations-design.md.
+ */
+data class FriendCheckpoint(
+    val declarationId: String,
+    val asOfEpoch: Long,
+    val amountPaise: Long,
+    /** The two have unlinked since. It still anchors the balance, but nothing can change it any more. */
+    val archived: Boolean
 )
 
 data class FriendLedgerSummary(
@@ -36,7 +51,10 @@ data class FriendLedgerSummary(
 
     val totalTheyOwedYou: Long,
     val totalYouOwedThem: Long,
-    val lastActivityEpoch: Long?
+    val lastActivityEpoch: Long?,
+
+    /** The checkpoint in force with this friend, if they ever agreed one. */
+    val checkpoint: FriendCheckpoint? = null
 )
 
 class LedgerRepository(private val db: AppDatabase) {
@@ -76,10 +94,26 @@ class LedgerRepository(private val db: AppDatabase) {
         applyAgainstNegativeBalance(transactionId, friendId, debitAmountPaise)
     }
 
+    /** A checkpoint's opening entry. Zero writes nothing, as a zero balance change does. */
+    suspend fun recordOpening(declarationId: String, friendId: Long, amountPaise: Long) {
+        if (amountPaise == 0L) return
+        db.iouDao().insert(
+            IouEntry(
+                transactionId = null,
+                friendId = friendId,
+                amountPaise = amountPaise,
+                isSettled = false,
+                declarationId = declarationId
+            )
+        )
+        Log.d(LEDGER_TAG, "Recorded opening friend=$friendId amount=$amountPaise from declaration=$declarationId")
+    }
+
     suspend fun getSummaryForFriend(friendId: Long): FriendLedgerSummary? {
         val friend = db.friendDao().getFriendById(friendId) ?: return null
         val personal = db.iouDao().getNetBalanceForFriend(friendId) ?: 0L
-        val allFriendEntries = db.iouDao().getAllEntriesForFriend(friendId)
+        // An opening is a sum of earlier history, not a debt of its own; the lifetime totals leave it out.
+        val allFriendEntries = db.iouDao().getAllEntriesForFriend(friendId).filter { it.declarationId == null }
 
         // Memberships carry every chapter the friend is in, including the ones they come out even
         // in; balances are the authority on the money. Merging the two means a contribution can
@@ -114,7 +148,15 @@ class LedgerRepository(private val db: AppDatabase) {
                 chapterBalances.filter { it.amountPaise > 0 }.sumOf { it.amountPaise },
             totalYouOwedThem = allFriendEntries.filter { it.amountPaise < 0 }.sumOf { -it.amountPaise } +
                 chapterBalances.filter { it.amountPaise < 0 }.sumOf { -it.amountPaise },
-            lastActivityEpoch = lastActivity
+            lastActivityEpoch = lastActivity,
+            checkpoint = DeclarationSet.effective(db.declarationDao().forFriend(friendId))?.let {
+                FriendCheckpoint(
+                    declarationId = it.id,
+                    asOfEpoch = requireNotNull(it.asOfEpoch),
+                    amountPaise = requireNotNull(it.amountPaise),
+                    archived = it.archived
+                )
+            }
         )
     }
 
@@ -141,13 +183,13 @@ class LedgerRepository(private val db: AppDatabase) {
     private suspend fun applyAgainstPositiveBalance(transactionId: Long, friendId: Long, amountPaise: Long) {
         db.runInTransaction {
             kotlinx.coroutines.runBlocking {
-                val unsettled = db.iouDao().getPositiveUnsettledOldestFirst(friendId)
-                var remaining = amountPaise
-                unsettled.forEach { entry ->
-                    if (remaining <= 0) return@forEach
-                    remaining = settleEntry(entry, remaining)
-                }
-                if (remaining > 0) recordBalanceChange(transactionId, friendId, -remaining)
+                val outcome = SettleMath.settle(
+                    db.iouDao().getPositiveUnsettledOldestFirst(friendId),
+                    amountPaise,
+                    System.currentTimeMillis()
+                )
+                write(outcome)
+                if (outcome.remainderPaise > 0) recordBalanceChange(transactionId, friendId, -outcome.remainderPaise)
             }
         }
     }
@@ -155,36 +197,19 @@ class LedgerRepository(private val db: AppDatabase) {
     private suspend fun applyAgainstNegativeBalance(transactionId: Long, friendId: Long, amountPaise: Long) {
         db.runInTransaction {
             kotlinx.coroutines.runBlocking {
-                val unsettled = db.iouDao().getNegativeUnsettledOldestFirst(friendId)
-                var remaining = amountPaise
-                unsettled.forEach { entry ->
-                    if (remaining <= 0) return@forEach
-                    remaining = settleEntry(entry, remaining)
-                }
-                if (remaining > 0) recordBalanceChange(transactionId, friendId, remaining)
+                val outcome = SettleMath.settle(
+                    db.iouDao().getNegativeUnsettledOldestFirst(friendId),
+                    amountPaise,
+                    System.currentTimeMillis()
+                )
+                write(outcome)
+                if (outcome.remainderPaise > 0) recordBalanceChange(transactionId, friendId, outcome.remainderPaise)
             }
         }
     }
 
-    private suspend fun settleEntry(entry: IouEntry, settlementAmount: Long): Long {
-        val magnitude = kotlin.math.abs(entry.amountPaise)
-        val now = System.currentTimeMillis()
-        return if (settlementAmount >= magnitude) {
-            db.iouDao().update(entry.copy(isSettled = true, settledEpoch = now))
-            settlementAmount - magnitude
-        } else {
-            val residualMagnitude = magnitude - settlementAmount
-            val residualSigned = if (entry.amountPaise >= 0) residualMagnitude else -residualMagnitude
-            db.iouDao().update(entry.copy(isSettled = true, settledEpoch = now))
-            db.iouDao().insert(
-                IouEntry(
-                    transactionId = entry.transactionId,
-                    friendId = entry.friendId,
-                    amountPaise = residualSigned,
-                    isSettled = false
-                )
-            )
-            0L
-        }
+    private suspend fun write(outcome: SettleOutcome) {
+        outcome.settled.forEach { db.iouDao().update(it) }
+        outcome.residual?.let { db.iouDao().insert(it) }
     }
 }

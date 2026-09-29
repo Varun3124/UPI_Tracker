@@ -34,32 +34,40 @@ interface IouDao {
     @Query("SELECT SUM(amountPaise) FROM iou_entries WHERE isSettled = 0")
     suspend fun getTotalUnsettledBalance(): Long?
 
-    // For auto-offset — oldest unsettled entries first
+    /**
+     * Oldest unsettled entries first, for settling a repayment against.
+     *
+     * A checkpoint's opening entry has no transaction, so the join is a LEFT one, and it sorts ahead of
+     * everything: it stands for the whole history before its checkpoint, and every entry still posted
+     * against this friend is from after it. See docs/declarations-design.md D7.
+     */
     @Query("""
     SELECT iou_entries.* FROM iou_entries
-    INNER JOIN transactions ON iou_entries.transactionId = transactions.id
+    LEFT JOIN transactions ON iou_entries.transactionId = transactions.id
     WHERE iou_entries.friendId = :friendId AND iou_entries.isSettled = 0
-    ORDER BY transactions.dateEpoch ASC, iou_entries.id ASC
+    ORDER BY iou_entries.transactionId IS NOT NULL, transactions.dateEpoch ASC, iou_entries.id ASC
 """)
     suspend fun getUnsettledOldestFirst(friendId: Long): List<com.varun.upitracker.database.entity.IouEntry>
 
+    /** See [getUnsettledOldestFirst] for why openings come first. */
     @Query("""
     SELECT iou_entries.* FROM iou_entries
-    INNER JOIN transactions ON iou_entries.transactionId = transactions.id
+    LEFT JOIN transactions ON iou_entries.transactionId = transactions.id
     WHERE iou_entries.friendId = :friendId
       AND iou_entries.isSettled = 0
       AND iou_entries.amountPaise > 0
-    ORDER BY transactions.dateEpoch ASC, iou_entries.id ASC
+    ORDER BY iou_entries.transactionId IS NOT NULL, transactions.dateEpoch ASC, iou_entries.id ASC
 """)
     suspend fun getPositiveUnsettledOldestFirst(friendId: Long): List<com.varun.upitracker.database.entity.IouEntry>
 
+    /** See [getUnsettledOldestFirst] for why openings come first. */
     @Query("""
     SELECT iou_entries.* FROM iou_entries
-    INNER JOIN transactions ON iou_entries.transactionId = transactions.id
+    LEFT JOIN transactions ON iou_entries.transactionId = transactions.id
     WHERE iou_entries.friendId = :friendId
       AND iou_entries.isSettled = 0
       AND iou_entries.amountPaise < 0
-    ORDER BY transactions.dateEpoch ASC, iou_entries.id ASC
+    ORDER BY iou_entries.transactionId IS NOT NULL, transactions.dateEpoch ASC, iou_entries.id ASC
 """)
     suspend fun getNegativeUnsettledOldestFirst(friendId: Long): List<com.varun.upitracker.database.entity.IouEntry>
 
