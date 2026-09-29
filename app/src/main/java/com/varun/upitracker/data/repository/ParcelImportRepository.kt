@@ -17,7 +17,7 @@ import com.varun.upitracker.domain.parcel.ParcelPerspective
 import com.varun.upitracker.domain.parcel.ParcelTransaction
 import com.varun.upitracker.domain.transactionentry.persistence.LedgerPostingService
 import com.varun.upitracker.domain.transactionentry.validation.PendingReviewRules
-import com.varun.upitracker.ledger.LedgerPort
+import com.varun.upitracker.ledger.DeltaRecorder
 import com.varun.upitracker.ui.payeeActorRef
 import com.varun.upitracker.ui.payerActorRef
 import kotlinx.coroutines.runBlocking
@@ -393,33 +393,6 @@ class ParcelImportRepository(private val db: AppDatabase) {
         return recorder.deltas
     }
 
-    /** Adds up what would be posted against each friend, without a database behind it. */
-    private class DeltaRecorder : LedgerPort {
-        val deltas = linkedMapOf<Long, Long>()
-
-        override suspend fun recordBalanceChange(transactionId: Long, friendId: Long, deltaPaise: Long) {
-            add(friendId, deltaPaise)
-        }
-
-        /** They paid me, so what they owe me falls. */
-        override suspend fun applyRepayment(transactionId: Long, friendId: Long, creditAmountPaise: Long) {
-            add(friendId, -creditAmountPaise)
-        }
-
-        /** I paid them, so what they owe me rises. */
-        override suspend fun applyOutgoingSettlement(transactionId: Long, friendId: Long, debitAmountPaise: Long) {
-            add(friendId, debitAmountPaise)
-        }
-
-        /** Never reached from a single row's preview, but an opening moves a balance like anything else. */
-        override suspend fun recordOpening(declarationId: String, friendId: Long, amountPaise: Long) {
-            add(friendId, amountPaise)
-        }
-
-        private fun add(friendId: Long, deltaPaise: Long) {
-            deltas[friendId] = (deltas[friendId] ?: 0L) + deltaPaise
-        }
-    }
 
     /**
      * Writes the rows the user did not tick as duplicates.

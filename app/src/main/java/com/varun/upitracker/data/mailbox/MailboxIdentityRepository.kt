@@ -116,6 +116,10 @@ class MailboxIdentityRepository(context: Context, private val db: AppDatabase) {
             db.withTransaction {
                 db.mailboxDao().deleteAllLinks()
                 db.mailboxDao().deleteAllInvites()
+                // Those links' agreements stay, and keep every balance where it was, but they were
+                // made by another account and nothing can change them from this one (D12).
+                db.declarationDao().closeAllOpen(System.currentTimeMillis())
+                db.declarationDao().archiveAllAccepted()
             }
         }
         prefs.edit().putString(LINKS_OWNER_UID, uid).apply()
@@ -211,6 +215,9 @@ class MailboxIdentityRepository(context: Context, private val db: AppDatabase) {
             db.mailboxDao().deleteAllInvites()
             db.mailboxDao().deleteAllMessages()
             db.mailboxDao().deleteAllDeliveries()
+            // The account is gone, but what was agreed through it still anchors every balance (D12).
+            db.declarationDao().closeAllOpen(System.currentTimeMillis())
+            db.declarationDao().archiveAllAccepted()
         }
         prefs.edit().remove(LINKS_OWNER_UID).apply()
     }

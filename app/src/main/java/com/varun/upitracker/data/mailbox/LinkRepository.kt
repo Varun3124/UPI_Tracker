@@ -2,6 +2,7 @@ package com.varun.upitracker.data.mailbox
 
 import android.content.Context
 import android.util.Log
+import com.varun.upitracker.data.declaration.DeclarationRepository
 import com.varun.upitracker.database.AppDatabase
 import com.varun.upitracker.database.entity.FriendLink
 import com.varun.upitracker.database.entity.FriendLinkState
@@ -56,6 +57,9 @@ class LinkRepository(context: Context, private val db: AppDatabase) {
 
     private val services = MailboxServices.get(context)
     private val identities = MailboxIdentityRepository(context, db)
+
+    /** Lazy so that a repository built only to read a link never builds this one too. */
+    private val declarations by lazy { DeclarationRepository(context, db) }
 
     // --- the inviter's side -------------------------------------------------------------------
 
@@ -130,6 +134,9 @@ class LinkRepository(context: Context, private val db: AppDatabase) {
             throw error
         }
         db.mailboxDao().setMessageState(messageId, MailboxMessageState.IMPORTED)
+        // The balance the link proposed by itself goes out now, rather than at the next collection.
+        runCatching { declarations.flushOutbox() }
+            .onFailure { Log.w(TAG, "Could not send the proposal the link made", it) }
     }
 
     /**
@@ -184,6 +191,9 @@ class LinkRepository(context: Context, private val db: AppDatabase) {
             runCatching { services.firestore.delete(idToken, "invites/${accept.inviteId}") }
         }
         db.mailboxDao().deleteInvite(accept.inviteId)
+        // D11: linking is when the two books first meet, so the phone that completes the link offers
+        // the balance it holds. Queued only: whoever called this sends it once the link is recorded.
+        declarations.queueAutomatic(friendId)
     }
 
     /**
@@ -298,6 +308,9 @@ class LinkRepository(context: Context, private val db: AppDatabase) {
         }
         db.mailboxDao().deleteLink(friendId)
         withdrawInvites(friendId)
+        // D12: whatever the two agreed still stands -- unlinking changes no balance -- but nothing
+        // can be proposed or answered between them any more.
+        declarations.archive(friendId)
     }
 
     // --- called while collecting the inbox ----------------------------------------------------
@@ -392,6 +405,7 @@ class LinkRepository(context: Context, private val db: AppDatabase) {
         runCatching { services.firestore.delete(idToken, "users/$ownUid/contacts/${link.uid}") }
             .onFailure { Log.w(TAG, "Could not withdraw a contact after being unlinked", it) }
         db.mailboxDao().deleteLink(link.friendId)
+        declarations.archive(link.friendId)
     }
 
     internal suspend fun sendControl(
@@ -402,17 +416,7 @@ class LinkRepository(context: Context, private val db: AppDatabase) {
         kind: MailboxKind,
         body: String
     ) {
-        val messageId = MailboxIds.newRandomId()
-        val envelope = MailboxEnvelope(kind, messageId, identity.uid, recipientUid, System.currentTimeMillis(), body)
-        services.firestore.create(
-            idToken,
-            "inbox/$recipientUid/messages",
-            messageId,
-            mapOf(
-                "from" to FirestoreValue.Text(identity.uid),
-                "ciphertext" to FirestoreValue.Bytes(MailboxCrypto.seal(envelope, identity.keys, recipientKeys))
-            )
-        )
+        services.post(identity, idToken, recipientUid, recipientKeys, kind, body)
     }
 
     // --- helpers ------------------------------------------------------------------------------

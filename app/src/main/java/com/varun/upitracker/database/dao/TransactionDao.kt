@@ -398,6 +398,24 @@ interface TransactionDao {
         afterEpoch: Long
     ): List<com.varun.upitracker.database.entity.Transaction>
 
+    /**
+     * Rows naming [friendId], outside every chapter and still awaiting review, dated at or before
+     * [atOrBeforeEpoch]. Once a checkpoint covers them, reviewing them moves nothing -- which is worth
+     * warning about before the checkpoint is agreed (docs/declarations-design.md D13).
+     */
+    @Query(
+        """
+        SELECT COUNT(DISTINCT t.id) FROM transactions t
+        LEFT JOIN transaction_shares s
+            ON s.transactionId = t.id AND s.friendId = :friendId AND s.side IS NOT NULL
+        WHERE t.isPending = 1
+          AND t.chapterId IS NULL
+          AND t.dateEpoch <= :atOrBeforeEpoch
+          AND (t.payerFriendId = :friendId OR t.payeeFriendId = :friendId OR s.friendId = :friendId)
+        """
+    )
+    suspend fun countPendingForFriendUntil(friendId: Long, atOrBeforeEpoch: Long): Int
+
     /** The friend page lists only what the base ledger still holds; the rest lives in its chapter. */
     @Query(
         """

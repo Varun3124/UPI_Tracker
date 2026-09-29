@@ -115,7 +115,12 @@ class MailboxInboxViewModel(context: Context) : ViewModel() {
                             val who = message.friendId?.let(names::get) ?: "Someone you have not linked with"
                             InboxNotice(
                                 message.id,
-                                "$who sent something this phone could not open. Ask them to send it again."
+                                if (message.kind == MailboxKind.UNSUPPORTED.name) {
+                                    "$who sent something this version of DhanMoney cannot read yet. Update the app, " +
+                                        "then ask them to send it again."
+                                } else {
+                                    "$who sent something this phone could not open. Ask them to send it again."
+                                }
                             )
                         },
                     heldCount = messages.count { it.state == MailboxMessageState.HELD }

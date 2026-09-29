@@ -2,11 +2,14 @@ package com.varun.upitracker.data.mailbox
 
 import android.content.Context
 import android.util.Log
+import com.varun.upitracker.data.declaration.AnswerNews
+import com.varun.upitracker.data.declaration.DeclarationRepository
 import com.varun.upitracker.database.AppDatabase
 import com.varun.upitracker.database.entity.FriendLink
 import com.varun.upitracker.database.entity.FriendLinkState
 import com.varun.upitracker.database.entity.MailboxMessage
 import com.varun.upitracker.database.entity.MailboxMessageState
+import com.varun.upitracker.domain.declaration.DeclarationMessages
 import com.varun.upitracker.domain.mailbox.MailboxCrypto
 import com.varun.upitracker.domain.mailbox.MailboxIds
 import com.varun.upitracker.domain.mailbox.MailboxKind
@@ -18,6 +21,7 @@ import com.varun.upitracker.domain.parcel.ParcelFormat
 import com.varun.upitracker.domain.parcel.ParcelPerspective
 import java.util.Base64
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -31,8 +35,22 @@ data class SyncReport(
     val newLinkReplies: Int,
     /** Friends linked during this collection, from either side of the invite. */
     val confirmedFriendIds: List<Long>,
-    val unreadable: Int
+    val unreadable: Int,
+    /** Friends who asked for an agreed balance, waiting for an answer. */
+    val proposalsFrom: List<Long> = emptyList(),
+    /** Friends who accepted one of this phone's proposals. */
+    val acceptedBy: List<Long> = emptyList(),
+    /** Friends who turned one down. */
+    val deniedBy: List<Long> = emptyList()
 )
+
+/** What one collection learnt along the way, gathered while it runs and reported at the end. */
+private class Gathered {
+    val confirmed = mutableListOf<Long>()
+    val proposals = mutableListOf<Long>()
+    val accepted = mutableListOf<Long>()
+    val denied = mutableListOf<Long>()
+}
 
 /**
  * Collects the inbox: takes every message out of Firestore, opens and checks it, and keeps the
@@ -65,6 +83,7 @@ class MailboxSync(context: Context, private val db: AppDatabase) {
     private val services = MailboxServices.get(context)
     private val identities = MailboxIdentityRepository(context, db)
     private val links = LinkRepository(context, db)
+    private val declarations = DeclarationRepository(context, db)
 
     /** Null when the mailbox is off, or [force] is false and the last collection was recent. */
     suspend fun run(force: Boolean = false): SyncReport? = mutex.withLock {
@@ -77,7 +96,7 @@ class MailboxSync(context: Context, private val db: AppDatabase) {
             val identity = identities.identity() ?: return@withContext null
 
             val collected = mutableListOf<MailboxMessage>()
-            val confirmed = mutableListOf<Long>()
+            val gathered = Gathered()
 
             var pageToken: String? = null
             var pages = 0
@@ -85,7 +104,7 @@ class MailboxSync(context: Context, private val db: AppDatabase) {
                 val idToken = services.auth.idToken()
                 val page = services.firestore.list(idToken, "inbox/${identity.uid}/messages", PAGE_SIZE, pageToken)
                 page.documents.forEach { document ->
-                    val message = collect(document, identity, idToken, now, confirmed)
+                    val message = collect(document, identity, idToken, now, gathered)
                     if (message != null && db.mailboxDao().insertMessageIfNew(message) != -1L) collected += message
                     // Stored, already here, or worthless: either way the server copy can go. If this
                     // fails, the copy comes back next time and is recognised by its id.
@@ -96,9 +115,19 @@ class MailboxSync(context: Context, private val db: AppDatabase) {
                 pages++
             } while (pageToken != null && pages < MAX_PAGES)
 
-            collected += reopenHeld(identity, now, confirmed)
+            collected += reopenHeld(identity, now, gathered)
             db.mailboxDao().deleteMessagesInStateBefore(MailboxMessageState.HELD, now - HELD_FOR_MS)
             services.auth.recordSync(now)
+
+            // Proposals made while offline, and the one a link made by itself while being collected
+            // above, go out now. A failure keeps them for next time.
+            try {
+                declarations.flushOutbox()
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Exception) {
+                Log.w(TAG, "Could not send waiting proposals", error)
+            }
 
             SyncReport(
                 parcelsByFriend = collected
@@ -110,8 +139,11 @@ class MailboxSync(context: Context, private val db: AppDatabase) {
                     it.kind == MailboxKind.LINK_ACCEPT.name && it.state == MailboxMessageState.NEW
                 },
                 // Distinct: one friend can appear from both sides of a link in the same collection.
-                confirmedFriendIds = confirmed.distinct(),
-                unreadable = collected.count { it.state == MailboxMessageState.UNREADABLE }
+                confirmedFriendIds = gathered.confirmed.distinct(),
+                unreadable = collected.count { it.state == MailboxMessageState.UNREADABLE },
+                proposalsFrom = gathered.proposals.distinct(),
+                acceptedBy = gathered.accepted.distinct(),
+                deniedBy = gathered.denied.distinct()
             )
         }
     }
@@ -122,7 +154,7 @@ class MailboxSync(context: Context, private val db: AppDatabase) {
         identity: MailboxIdentity,
         idToken: String,
         now: Long,
-        confirmed: MutableList<Long>
+        gathered: Gathered
     ): MailboxMessage? {
         if (!MailboxIds.isRandomId(document.id)) return null
         // Already collected once, and already applied: an UNLINK must never be applied twice.
@@ -150,7 +182,7 @@ class MailboxSync(context: Context, private val db: AppDatabase) {
                 document.id, document.text("inviteId"), document.createTimeEpoch, from, unsealed, idToken, now
             )
             // Linked as it was collected: the row is a notice about it rather than a reply to answer.
-            if (reply.kind == MailboxKind.LINK_CONFIRMED.name) reply.friendId?.let { confirmed += it }
+            if (reply.kind == MailboxKind.LINK_CONFIRMED.name) reply.friendId?.let { gathered.confirmed += it }
             return reply
         }
 
@@ -166,7 +198,7 @@ class MailboxSync(context: Context, private val db: AppDatabase) {
                 state = MailboxMessageState.HELD,
                 ciphertext = Base64.getUrlEncoder().withoutPadding().encodeToString(ciphertext)
             )
-        return fromLink(document.id, document.createTimeEpoch, from, link, unsealed, identity, idToken, now, confirmed)
+        return fromLink(document.id, document.createTimeEpoch, from, link, unsealed, identity, idToken, now, gathered)
     }
 
     /**
@@ -182,7 +214,7 @@ class MailboxSync(context: Context, private val db: AppDatabase) {
         identity: MailboxIdentity,
         idToken: String,
         now: Long,
-        confirmed: MutableList<Long>
+        gathered: Gathered
     ): MailboxMessage {
         fun record(kind: MailboxKind, state: String, body: String? = null) = MailboxMessage(
             id = messageId,
@@ -222,7 +254,7 @@ class MailboxSync(context: Context, private val db: AppDatabase) {
             }
             MailboxKind.LINK_CONFIRMED -> {
                 val completed = link.state == FriendLinkState.AWAITING_CONFIRMATION
-                if (completed) confirmed += link.friendId
+                if (completed) gathered.confirmed += link.friendId
                 links.receiveConfirmed(link)
                 // NEW while it says something the user has not been told: the link they started is
                 // now whole. A repeat of one already recorded is filed away silently.
@@ -237,18 +269,38 @@ class MailboxSync(context: Context, private val db: AppDatabase) {
             }
             // Replies to invites are handled before a link is looked for; one arriving here is not a reply.
             MailboxKind.LINK_ACCEPT -> record(MailboxKind.LINK_ACCEPT, MailboxMessageState.UNREADABLE)
+            // What it asks is kept in iou_declarations, which is where the inbox and the friend page read
+            // it from; this row only records that the message was applied.
+            MailboxKind.DECLARATION_PROPOSAL -> {
+                val proposal = DeclarationMessages.decodeProposal(envelope.body)
+                    ?: return record(MailboxKind.DECLARATION_PROPOSAL, MailboxMessageState.UNREADABLE)
+                if (declarations.receiveProposal(link.friendId, proposal)) gathered.proposals += link.friendId
+                record(MailboxKind.DECLARATION_PROPOSAL, MailboxMessageState.IMPORTED, envelope.body)
+            }
+            MailboxKind.DECLARATION_ANSWER -> {
+                val answer = DeclarationMessages.decodeAnswer(envelope.body)
+                    ?: return record(MailboxKind.DECLARATION_ANSWER, MailboxMessageState.UNREADABLE)
+                when (declarations.receiveAnswer(link.friendId, answer)) {
+                    AnswerNews.ACCEPTED -> gathered.accepted += link.friendId
+                    AnswerNews.DENIED -> gathered.denied += link.friendId
+                    AnswerNews.WITHDRAWN, null -> Unit
+                }
+                record(MailboxKind.DECLARATION_ANSWER, MailboxMessageState.IMPORTED, envelope.body)
+            }
+            // From a newer version of the app. Genuine and signed, but nothing here can read it.
+            MailboxKind.UNSUPPORTED -> record(MailboxKind.UNSUPPORTED, MailboxMessageState.UNREADABLE)
         }
     }
 
     /** Messages held for want of a link, opened now that one exists. */
-    private suspend fun reopenHeld(identity: MailboxIdentity, now: Long, confirmed: MutableList<Long>): List<MailboxMessage> {
+    private suspend fun reopenHeld(identity: MailboxIdentity, now: Long, gathered: Gathered): List<MailboxMessage> {
         val reopened = mutableListOf<MailboxMessage>()
         db.mailboxDao().getMessagesInStates(listOf(MailboxMessageState.HELD)).forEach { held ->
             val link = db.mailboxDao().getLinkByUid(held.senderUid) ?: return@forEach
             val sealed = held.ciphertext?.let { runCatching { Base64.getUrlDecoder().decode(it) }.getOrNull() } ?: return@forEach
             val result = MailboxCrypto.unseal(sealed, identity.keys, held.senderUid, identity.uid, held.id)
             val unsealed = (result as? UnsealResult.Ok)?.unsealed ?: return@forEach
-            val resolved = fromLink(held.id, held.sentEpoch, held.senderUid, link, unsealed, identity, services.auth.idToken(), now, confirmed)
+            val resolved = fromLink(held.id, held.sentEpoch, held.senderUid, link, unsealed, identity, services.auth.idToken(), now, gathered)
             db.mailboxDao().resolveHeldMessage(held.id, resolved.body, resolved.friendId, resolved.state)
             reopened += resolved
         }

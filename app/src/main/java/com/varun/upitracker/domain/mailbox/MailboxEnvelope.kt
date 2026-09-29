@@ -6,7 +6,24 @@ import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.io.IOException
 
-enum class MailboxKind { PARCEL, LINK_ACCEPT, LINK_CONFIRMED, UNLINK }
+enum class MailboxKind {
+    PARCEL,
+    LINK_ACCEPT,
+    LINK_CONFIRMED,
+    UNLINK,
+
+    /** A proposal about the agreed balance between two linked friends. See docs/declarations-design.md. */
+    DECLARATION_PROPOSAL,
+
+    /** An answer to one: accepted, denied, or withdrawn by its proposer. */
+    DECLARATION_ANSWER,
+
+    /**
+     * Never sent. What a kind from a newer version of the app reads as here, so the inbox can say
+     * "update the app to read this" rather than calling a perfectly good message damaged.
+     */
+    UNSUPPORTED
+}
 
 /**
  * One message in someone's mailbox, as its sender wrote it and before anything protects it.
@@ -36,10 +53,14 @@ object MailboxEnvelopeFormat {
     /** A hundred-transaction parcel is tens of kilobytes. This only bounds what a hostile sender can make us allocate. */
     const val MAX_BODY_BYTES = 200 * 1024
 
+    /** What a kind's name can look like, including one this version has never heard of. */
+    private val KIND_NAME = Regex("[A-Z][A-Z_]{0,39}")
+
     private const val MAX_SIGNATURE_BYTES = 1024
 
     /** The exact bytes the sender signs. */
     fun fields(envelope: MailboxEnvelope): ByteArray {
+        require(envelope.kind != MailboxKind.UNSUPPORTED) { "UNSUPPORTED only ever describes a message received." }
         val body = envelope.body.toByteArray(Charsets.UTF_8)
         require(body.size <= MAX_BODY_BYTES) { "A mailbox message is capped at $MAX_BODY_BYTES bytes." }
         val out = ByteArrayOutputStream(body.size + 256)
@@ -61,7 +82,11 @@ object MailboxEnvelopeFormat {
         DataInputStream(ByteArrayInputStream(bytes)).use { data ->
             if (data.readUTF() != MAGIC) return null
             val kindName = data.readUTF()
-            val kind = MailboxKind.entries.firstOrNull { it.name == kindName } ?: return null
+            if (!KIND_NAME.matches(kindName)) return null
+            // A newer app may send a kind this one does not know. It is still a signed, sealed message
+            // from its sender, so it is read as UNSUPPORTED rather than refused as malformed.
+            val kind = MailboxKind.entries.firstOrNull { it.name == kindName && it != MailboxKind.UNSUPPORTED }
+                ?: MailboxKind.UNSUPPORTED
             val messageId = data.readUTF()
             val senderUid = data.readUTF()
             val recipientUid = data.readUTF()

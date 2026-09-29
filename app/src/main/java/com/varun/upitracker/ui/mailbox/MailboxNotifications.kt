@@ -40,6 +40,15 @@ object MailboxNotifications {
             report.confirmedFriendIds.forEach { friendId ->
                 add("You are now linked with ${friendNames[friendId] ?: "a friend"}")
             }
+            report.proposalsFrom.forEach { friendId ->
+                add("${friendNames[friendId] ?: "A friend"} asked you to agree on your balance")
+            }
+            report.acceptedBy.forEach { friendId ->
+                add("${friendNames[friendId] ?: "A friend"} agreed to your balance")
+            }
+            report.deniedBy.forEach { friendId ->
+                add("${friendNames[friendId] ?: "A friend"} did not agree to your balance")
+            }
         }
         if (lines.isEmpty()) return
 

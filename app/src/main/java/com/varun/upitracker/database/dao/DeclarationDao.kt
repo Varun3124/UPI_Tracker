@@ -62,6 +62,16 @@ interface DeclarationDao {
     @Query("DELETE FROM iou_declarations WHERE id = :id")
     suspend fun delete(id: String)
 
+    @Query("UPDATE iou_declarations SET sentEpoch = :sentEpoch WHERE id = :id")
+    suspend fun markSent(id: String, sentEpoch: Long)
+
+    /** D12 for every friend at once: this phone's links are gone, for another account or for good. */
+    @Query("UPDATE iou_declarations SET state = 'CLOSED', decidedEpoch = :now WHERE state = 'OPEN'")
+    suspend fun closeAllOpen(now: Long)
+
+    @Query("UPDATE iou_declarations SET archived = 1 WHERE state = 'ACCEPTED'")
+    suspend fun archiveAllAccepted()
+
     /** For a friend merge. Parts follow by their declaration id. */
     @Query("UPDATE iou_declarations SET friendId = :targetId WHERE friendId = :sourceId")
     suspend fun reassignFriend(sourceId: Long, targetId: Long)
