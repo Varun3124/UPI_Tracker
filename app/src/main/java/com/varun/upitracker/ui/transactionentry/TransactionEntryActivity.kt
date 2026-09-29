@@ -53,6 +53,7 @@ import com.varun.upitracker.database.entity.MerchantRawName
 import com.varun.upitracker.database.entity.MerchantUpiId
 import com.varun.upitracker.data.repository.ChapterRepository
 import com.varun.upitracker.database.entity.ChapterState
+import com.varun.upitracker.maintenance.ChapterPublishing
 import com.varun.upitracker.database.entity.Transaction
 import com.varun.upitracker.database.entity.FriendLinkState
 import com.varun.upitracker.database.entity.IouDeclaration
@@ -165,8 +166,13 @@ class TransactionEntryActivity : AppCompatActivity() {
     private lateinit var viewModel: TransactionEntryViewModel
 
     private var currentTransaction: Transaction? = null
-    /** Every chapter, open or not: a transaction may already sit in a closed one. */
+    /**
+     * Every chapter, open or not, a friend's included: a transaction may already sit in a closed one,
+     * or be claimed into a friend's. Only the user's own open ones are ever offered (S10).
+     */
     private var chapterOptions: List<ChapterOption> = emptyList()
+    /** Who each friend's chapter here belongs to, by chapter id, for saying so on the field. */
+    private var chapterOwnerNames: Map<Long, String> = emptyMap()
     private var selectedChapterId: Long? = null
     /** R8: the row is inside a closed chapter, so nothing here may be saved at all. */
     private var chapterLocked = false
@@ -1795,7 +1801,9 @@ class TransactionEntryActivity : AppCompatActivity() {
         // A row first counted now: typed in, or reviewed from pending. Nothing about it was known
         // when any agreement it falls under was made.
         val firstCounted = currentTransaction?.isPending ?: true
+        val chaptersTouched = setOfNotNull(currentTransaction?.chapterId, selectedChapterId)
         val savedId = withContext(Dispatchers.IO) { persistTransaction(db, amountPaise, payerLabel, payeeLabel, myShare) }
+        publishIfShared(db, chaptersTouched)
         reportAddedMembers(db, membersBefore)
         currentTransaction?.let { TransactionNotificationHelper.cancel(applicationContext, it.id.toInt()) }
         if (firstCounted && offerToAddLateRow(db, savedId)) return
@@ -1952,13 +1960,21 @@ class TransactionEntryActivity : AppCompatActivity() {
                 ChapterOption(
                     chapter = chapter,
                     memberIds = db.chapterDao().memberIds(chapter.id).toSet(),
-                    settled = repository.resultFor(chapter.id).settled
+                    // A friend's chapter is never offered, so whether it is settled is never asked.
+                    settled = !chapter.isOwn || repository.resultFor(chapter.id).settled
                 )
             }
         }
+        chapterOwnerNames = withContext(Dispatchers.IO) {
+            chapterOptions.mapNotNull { option ->
+                val ownerId = option.chapter.ownerFriendId ?: return@mapNotNull null
+                db.friendDao().getFriendById(ownerId)?.let { option.chapter.id to it.name }
+            }.toMap()
+        }
         val tx = currentTransaction
         val current = tx?.chapterId?.let { id -> chapterOptions.firstOrNull { it.chapter.id == id } }
-        chapterLocked = current?.chapter?.state == ChapterState.CLOSED
+        // R8 is about the user's own chapters: a friend closing theirs locks nothing here (S6).
+        chapterLocked = current?.chapter?.isOwn == true && current.chapter.state == ChapterState.CLOSED
 
         selectedChapterId = when {
             tx?.chapterId != null -> tx.chapterId
@@ -1983,14 +1999,27 @@ class TransactionEntryActivity : AppCompatActivity() {
         }
         chapterCard.visibility = View.VISIBLE
         val selected = chapterOptions.firstOrNull { it.chapter.id == selectedChapterId }
-        tvChapterValue.text = selected?.chapter?.name ?: "Not in a chapter"
+        val owner = selected?.let { chapterOwnerNames[it.chapter.id] }
+        tvChapterValue.text = when {
+            selected == null -> "Not in a chapter"
+            owner != null -> "$owner's ${selected.chapter.name}"
+            else -> selected.chapter.name
+        }
 
-        if (chapterLocked && selected != null) {
-            tvChapterHint.text = "In ${selected.chapter.name} (closed). Reopen it to edit this."
-            tvChapterHint.setTextColor(themeColor(ThemeAttr.warning))
-            tvChapterHint.visibility = View.VISIBLE
-        } else {
-            tvChapterHint.visibility = View.GONE
+        when {
+            chapterLocked && selected != null -> {
+                tvChapterHint.text = "In ${selected.chapter.name} (closed). Reopen it to edit this."
+                tvChapterHint.setTextColor(themeColor(ThemeAttr.warning))
+                tvChapterHint.visibility = View.VISIBLE
+            }
+            // S6: it can still be edited, but it stays where the owner's plan counts it.
+            selected != null && !selected.chapter.isOwn -> {
+                val who = owner ?: "Its owner"
+                tvChapterHint.text = "$who keeps this chapter. This stays in it until $who takes it out."
+                tvChapterHint.setTextColor(themeColor(ThemeAttr.textMuted))
+                tvChapterHint.visibility = View.VISIBLE
+            }
+            else -> tvChapterHint.visibility = View.GONE
         }
     }
 
@@ -1999,7 +2028,13 @@ class TransactionEntryActivity : AppCompatActivity() {
             toast("This is in a closed chapter. Reopen it to make changes.")
             return
         }
-        val open = chapterOptions.filter { it.chapter.state == ChapterState.OPEN }
+        chapterOptions.firstOrNull { it.chapter.id == selectedChapterId && !it.chapter.isOwn }?.let { copy ->
+            val who = chapterOwnerNames[copy.chapter.id] ?: "its owner"
+            toast("In $who's ${copy.chapter.name}. It stays there until $who takes it out.")
+            return
+        }
+        // S10: only the user's own chapters take anything tagged here.
+        val open = chapterOptions.filter { it.chapter.isOwn && it.chapter.state == ChapterState.OPEN }
         if (open.isEmpty()) {
             toast("No open chapters")
             return
@@ -2084,6 +2119,15 @@ class TransactionEntryActivity : AppCompatActivity() {
             source = currentTransaction?.source ?: "MANUAL",
             chapterId = null
         )
+    }
+
+    /**
+     * A save into, out of or inside a shared chapter of the user's own leaves its members' copies
+     * behind. They are sent in the background, since this screen is about to close.
+     */
+    private suspend fun publishIfShared(db: AppDatabase, chapterIds: Set<Long>) {
+        if (chapterIds.isEmpty()) return
+        withContext(Dispatchers.IO) { ChapterPublishing.soonIfShared(applicationContext, db, chapterIds) }
     }
 
     private suspend fun chapterMemberIds(db: AppDatabase, chapterId: Long?): Set<Long> {

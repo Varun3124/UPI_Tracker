@@ -151,7 +151,9 @@ class ChaptersActivity : AppCompatActivity() {
 
             fun bind(row: ChapterRowUiState, onOpen: (Long) -> Unit) {
                 name.text = row.chapter.name
-                active.visibility = if (row.chapter.isActive) View.VISIBLE else View.GONE
+                // "Active", "Shared", or whose it is when it is a friend's: "Alice's · live".
+                active.visibility = if (row.badge != null) View.VISIBLE else View.GONE
+                active.text = row.badge.orEmpty()
 
                 val state = when {
                     row.chapter.state == ChapterState.CLOSED -> "Closed"

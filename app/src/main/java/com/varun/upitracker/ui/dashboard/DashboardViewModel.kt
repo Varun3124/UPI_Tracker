@@ -6,6 +6,7 @@ import androidx.lifecycle.MutableLiveData
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewModelScope
+import com.varun.upitracker.data.chapter.ReplicaBook
 import com.varun.upitracker.data.mailbox.MailboxIdentityRepository
 import com.varun.upitracker.data.repository.AccountRepository
 import com.varun.upitracker.data.repository.LedgerRepository
@@ -105,18 +106,24 @@ class DashboardViewModel(private val context: Context) : ViewModel() {
      *
      * A closed chapter is left out. It still counts towards every balance, but there is nothing left
      * to do about it, so it stays on the chapters screen.
+     *
+     * A friend's chapter shows their plan as they last sent it: working one out here from the rows
+     * this phone happens to hold would show a different one (docs/declarations-design.md S3).
      */
     private suspend fun loadOpenChapters(db: AppDatabase): List<DashboardChapter> {
         val open = db.chapterDao().getOpen()
         if (open.isEmpty()) return emptyList()
         val names = db.friendDao().getAllFriendsSync().associate { it.id to it.name }
         val chapters = ChapterRepository(db)
+        val copies = ReplicaBook(db)
         return open.map { chapter ->
-            DashboardChapter(
-                chapterId = chapter.id,
-                name = chapter.name,
-                plan = chapters.resultFor(chapter.id).plan.map { ChapterPlanLabels.rowFor(it, names) }
-            )
+            val plan = if (chapter.isOwn) {
+                chapters.resultFor(chapter.id).plan.map { ChapterPlanLabels.rowFor(it, names) }
+            } else {
+                val nameOf = copies.namer(chapter, names)
+                copies.snapshotOf(chapter)?.plan.orEmpty().map { ChapterPlanLabels.rowFor(it, nameOf) }
+            }
+            DashboardChapter(chapterId = chapter.id, name = chapter.name, plan = plan)
         }
     }
 

@@ -27,6 +27,7 @@ import com.varun.upitracker.domain.statistics.AccountScope
 import com.varun.upitracker.domain.statistics.ListWindow
 import com.varun.upitracker.domain.statistics.PayeeRef
 import com.varun.upitracker.domain.statistics.resolve
+import com.varun.upitracker.maintenance.ChapterPublishing
 import com.varun.upitracker.ui.theme.ThemeAttr
 import com.varun.upitracker.util.AmountFormat
 import com.varun.upitracker.database.entity.Category
@@ -184,6 +185,7 @@ data class ChapterTagOutcome(
 )
 
 class AllTransactionsViewModel(context: Context) : ViewModel() {
+    private val appContext = context.applicationContext
     private val db = AppDatabase.getInstance(context.applicationContext)
     private val accountRepository = AccountRepository(db)
 
@@ -347,10 +349,13 @@ class AllTransactionsViewModel(context: Context) : ViewModel() {
 
     // --- chapters -------------------------------------------------------------------------------
 
-    /** The chapters a selection can go into: open ones only, the active one first. */
+    /**
+     * The chapters a selection can go into: open ones of the user's own, the active one first. A
+     * friend's chapter takes nothing tagged here (S10): what is in it is theirs to say.
+     */
     suspend fun openChapters(): List<Chapter> = withContext(Dispatchers.IO) {
         db.chapterDao().getAll()
-            .filter { it.state == ChapterState.OPEN }
+            .filter { it.isOwn && it.state == ChapterState.OPEN }
             .sortedByDescending { it.isActive }
     }
 
@@ -373,6 +378,8 @@ class AllTransactionsViewModel(context: Context) : ViewModel() {
             val outcome = withContext(Dispatchers.IO) {
                 val target = chapterId()
                 val result = ChapterRepository(db).tagAll(target, ids)
+                // Moved into a shared chapter, or out of one: its members' copies are behind now.
+                if (db.chapterDao().sharedByMe().isNotEmpty()) ChapterPublishing.soon(appContext)
                 ChapterTagOutcome(
                     chapterName = db.chapterDao().getById(target)?.name.orEmpty(),
                     taggedCount = result.taggedCount,
@@ -534,7 +541,9 @@ class AllTransactionsViewModel(context: Context) : ViewModel() {
                 "$refundCount refunds are linked to this transaction. Delete or unlink them first."
             }
         }
+        val chapterId = db.transactionDao().getTransactionById(transactionId)?.chapterId
         db.withTransaction { TransactionRemoval(db).removeInTransaction(transactionId) }
+        ChapterPublishing.soonIfShared(appContext, db, listOf(chapterId))
         return null
     }
 
@@ -919,7 +928,9 @@ class FriendDetailViewModel(context: Context) : ViewModel() {
                 "$refundCount refunds are linked to this transaction. Delete or unlink them first."
             }
         }
+        val chapterId = db.transactionDao().getTransactionById(transactionId)?.chapterId
         db.withTransaction { TransactionRemoval(db).removeInTransaction(transactionId) }
+        ChapterPublishing.soonIfShared(appContext, db, listOf(chapterId))
         return null
     }
 }

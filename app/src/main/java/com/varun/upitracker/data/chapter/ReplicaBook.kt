@@ -52,6 +52,31 @@ class ReplicaBook(private val db: AppDatabase) {
     }
 
     /**
+     * What to call each of the owner's people here: "You", the friend they are placed as, or -- for
+     * someone nobody has placed yet -- the name the owner gave them.
+     */
+    suspend fun namer(chapter: Chapter, friendNames: Map<Long, String>): (ParcelActor) -> String {
+        val ownerFriendId = chapter.ownerFriendId ?: return { actor -> fallbackName(actor) }
+        val resolve = resolver(chapter.id, ownerFriendId)
+        return { actor ->
+            when (val party = resolve(actor)) {
+                ReplicaParty.Me -> "You"
+                is ReplicaParty.Friend -> friendNames[party.friendId] ?: "Friend ${party.friendId}"
+                is ReplicaParty.Unresolved -> party.name
+            }
+        }
+    }
+
+    private fun fallbackName(actor: ParcelActor): String = when (actor) {
+        ParcelActor.Me -> "You"
+        ParcelActor.Sender -> "Whoever shared it"
+        is ParcelActor.Person -> actor.name
+        is ParcelActor.Linked -> actor.name
+        is ParcelActor.Shop -> actor.name
+        is ParcelActor.Unnamed -> actor.label
+    }
+
+    /**
      * Who each of the owner's people is here: the owner themselves, a friend linked with the account
      * the owner named, or the user's own mapping -- and otherwise nobody yet.
      */

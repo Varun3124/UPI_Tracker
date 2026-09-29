@@ -68,9 +68,10 @@ interface ChapterDao {
 
     /**
      * Every change a member's copy would show is counted here, so the phone knows who is behind.
-     * Only a shared chapter of this phone's own has a version to bump; the rest ignore it.
+     * Counted on a chapter that is not shared too: a copy pasted to someone later has to read as newer
+     * than the one they were pasted before. A copy of a friend's chapter holds their count, not ours.
      */
-    @Query("UPDATE chapters SET shareVersion = shareVersion + 1 WHERE id = :chapterId AND ownerFriendId IS NULL AND shareMode = 'SHARED'")
+    @Query("UPDATE chapters SET shareVersion = shareVersion + 1 WHERE id = :chapterId AND ownerFriendId IS NULL")
     suspend fun bumpShareVersion(chapterId: Long)
 
     /** An agreement with [friendId] changed, and with it the hint every chapter shared with them carries (S8). */

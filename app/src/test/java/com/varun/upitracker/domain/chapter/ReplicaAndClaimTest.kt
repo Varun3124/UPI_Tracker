@@ -104,4 +104,27 @@ class ReplicaAndClaimTest {
         val twice = listOf(rows[1], rows[1].copy(shareRef = "hotel"))
         assertEquals(setOf(2L), ClaimMatcher.match(twice, mine, "uidAlice", "uidBob", null))
     }
+
+    // --- locating rows for the copy's screen -------------------------------------------------------
+
+    @Test
+    fun `every row is located without knowing either account`() {
+        // What a frozen copy is left with once the link, and the owner's account with it, is gone.
+        assertEquals(listOf(1L, 2L, 3L, 4L, 5L), ClaimMatcher.locate(rows, mine, "tokBob"))
+    }
+
+    @Test
+    fun `a row still pending on the owner's phone is located all the same`() {
+        assertEquals(listOf(1L, 2L, 3L, 4L, 5L), ClaimMatcher.locate(rows.map { it.copy(pending = true) }, mine, "tokBob"))
+    }
+
+    @Test
+    fun `a row nobody here holds is located nowhere, and nothing twice`() {
+        val strangers = listOf(
+            ClaimRow(shareRef = "unknown", legacyRef = null, sourceRef = "mbx:uidEve:elsewhere", pending = false),
+            rows[1],
+            rows[1]
+        )
+        assertEquals(listOf(null, 2L, null), ClaimMatcher.locate(strangers, mine, "tokBob"))
+    }
 }

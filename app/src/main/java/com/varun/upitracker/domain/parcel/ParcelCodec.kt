@@ -1,9 +1,5 @@
 package com.varun.upitracker.domain.parcel
 
-import java.util.zip.DataFormatException
-import java.util.zip.Deflater
-import java.util.zip.Inflater
-
 /**
  * What travels between two phones by paste: `UPIX1.<crc32>.<payload>`, framed by [PasteFraming].
  *
@@ -13,9 +9,8 @@ import java.util.zip.Inflater
  * nothing that verified who wrote it, so version 2 travels by mailbox and is refused here in both
  * directions.
  *
- * The payload is DEFLATE-compressed [ParcelFormat] text. [Inflater] usually throws on corruption but
- * is not guaranteed to, and a silently corrupted amount is the worst thing this feature could do,
- * which is why the framing's checksum runs before anything is inflated.
+ * The payload is [ParcelFormat] text compressed by [PasteCompression], which says why the framing's
+ * checksum runs before anything is inflated.
  */
 object ParcelCodec {
 
@@ -34,7 +29,7 @@ object ParcelCodec {
             "Only a version ${ParcelFormat.VERSION} parcel can be pasted, not version ${parcel.version}."
         }
         val plaintext = ParcelFormat.format(parcel).toByteArray(Charsets.UTF_8)
-        return PasteFraming.frame(PREFIX, deflate(plaintext))
+        return PasteFraming.frame(PREFIX, PasteCompression.deflate(plaintext))
     }
 
     fun decode(text: String): ParcelDecodeResult {
@@ -57,48 +52,8 @@ object ParcelCodec {
                 )
         }
 
-        val plaintext = inflate(compressed)
+        val plaintext = PasteCompression.inflate(compressed, MAX_INFLATED_BYTES)?.toString(Charsets.UTF_8)
             ?: return ParcelDecodeResult.Failed("This parcel is damaged. Ask for it to be sent again.")
         return ParcelFormat.parse(plaintext, ParcelFormat.VERSION)
-    }
-
-    private fun deflate(input: ByteArray): ByteArray {
-        val deflater = Deflater(Deflater.BEST_COMPRESSION)
-        try {
-            deflater.setInput(input)
-            deflater.finish()
-            val out = java.io.ByteArrayOutputStream(input.size / 2 + 32)
-            val buffer = ByteArray(4096)
-            while (!deflater.finished()) {
-                out.write(buffer, 0, deflater.deflate(buffer))
-            }
-            return out.toByteArray()
-        } finally {
-            deflater.end()
-        }
-    }
-
-    private fun inflate(input: ByteArray): String? {
-        val inflater = Inflater()
-        try {
-            inflater.setInput(input)
-            val out = java.io.ByteArrayOutputStream(input.size * 3)
-            val buffer = ByteArray(4096)
-            while (!inflater.finished()) {
-                val written = try {
-                    inflater.inflate(buffer)
-                } catch (error: DataFormatException) {
-                    return null
-                }
-                // A stream that stops needing input without finishing is truncated, and looping on
-                // it would spin forever writing nothing.
-                if (written == 0 && (inflater.needsInput() || inflater.needsDictionary())) return null
-                out.write(buffer, 0, written)
-                if (out.size() > MAX_INFLATED_BYTES) return null
-            }
-            return out.toString(Charsets.UTF_8.name())
-        } finally {
-            inflater.end()
-        }
     }
 }

@@ -59,6 +59,43 @@ object ClaimMatcher {
     }
 
     /**
+     * For showing a copy, not for claiming: which of [mine] each of [rows] is, in order, or null.
+     *
+     * A frozen copy's link -- and with it the owner's account -- may be gone, so a mailbox reference is
+     * matched on its random part alone. That is plenty to label a row; what actually moves is decided
+     * by [match], against the verified accounts. A row still pending on the owner's phone is located
+     * too: this phone may well hold it, even though nothing claims it yet.
+     */
+    fun locate(rows: List<ClaimRow>, mine: List<LocalRow>, myPasteTokenForOwner: String?): List<Long?> {
+        val byShareRef = mine.filter { it.shareRef != null }.associateBy { it.shareRef!! }
+        val bySharedRefId = mine.filter { it.sharedRefId != null }.associateBy { it.sharedRefId!! }
+        // What the owner sent this phone by mailbox sits under `mbx:<owner>:<their reference>`.
+        val byMailboxRef = mine.mapNotNull { row ->
+            row.sharedRefId?.takeIf { it.startsWith(MAILBOX_PREFIX) }
+                ?.substringAfterLast(':', "")
+                ?.takeIf { it.isNotEmpty() }
+                ?.let { it to row }
+        }.toMap()
+        val byId = mine.associateBy { it.id }
+
+        val taken = mutableSetOf<Long>()
+        return rows.map { row ->
+            val hit = row.sourceRef?.let { source ->
+                when {
+                    source.startsWith(MAILBOX_PREFIX) ->
+                        byShareRef[source.substringAfterLast(':', "")] ?: bySharedRefId[source]
+                    myPasteTokenForOwner != null && source.startsWith("$myPasteTokenForOwner.") ->
+                        source.removePrefix("$myPasteTokenForOwner.").toLongOrNull()?.let(byId::get)
+                    else -> bySharedRefId[source]
+                }
+            }
+                ?: row.shareRef?.let(byMailboxRef::get)
+                ?: row.legacyRef?.let(bySharedRefId::get)
+            hit?.id?.takeIf(taken::add)
+        }
+    }
+
+    /**
      * Every reference [match] could look a row of [rows] up by, so only those rows are read -- a phone
      * holds far more rows than any one chapter names.
      */

@@ -108,7 +108,7 @@
                         android:layout_height="120dp"
                         android:layout_marginTop="4dp"
                         android:gravity="top|start"
-                        android:hint="Paste the parcel or link invite they sent you"
+                        android:hint="Paste the parcel, chapter copy or link invite they sent you"
                         android:inputType="textMultiLine|textNoSuggestions"
                         android:textSize="12sp"
                         android:importantForAutofill="no"
@@ -128,7 +128,7 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="12dp"
-                android:text="Nothing is saved until you have looked through it. Everything lands as pending, for you to confirm."
+                android:text="Nothing is saved until you have looked through it. Transactions land as pending, for you to confirm; a chapter copy is shown to you before it is kept."
                 android:textSize="12sp"
                 android:textColor="?attr/appTextMuted" />
         </LinearLayout>

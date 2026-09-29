@@ -1,5 +1,6 @@
 package com.varun.upitracker.domain.chapter
 
+import com.varun.upitracker.domain.parcel.ParcelActor
 import com.varun.upitracker.ui.AmountPerspective
 import org.junit.Assert.assertEquals
 import org.junit.Test
@@ -58,5 +59,26 @@ class ChapterPlanLabelsTest {
         )
 
         assertEquals("Friend 99", row.subjectName)
+    }
+
+    /** A friend's chapter: the owner's plan from the user's seat, named the way this phone knows them. */
+    @Test
+    fun aFriendsPlanReadsTheSameWay() {
+        val nameOf = { actor: ParcelActor ->
+            when (actor) {
+                ParcelActor.Sender -> "Alice"
+                is ParcelActor.Person -> actor.name
+                else -> "You"
+            }
+        }
+        val mine = ChapterPlanLabels.rowFor(SnapshotPayment(ParcelActor.Me, ParcelActor.Sender, 130_000L), nameOf)
+        assertEquals("Alice", mine.subjectName)
+        assertEquals("you owe", mine.label)
+        assertEquals(AmountPerspective.OUTGOING, mine.direction)
+
+        val theirs = ChapterPlanLabels.rowFor(SnapshotPayment(ParcelActor.Person("Dan"), ParcelActor.Sender, 370_000L), nameOf)
+        assertEquals("Dan", theirs.subjectName)
+        assertEquals("pays Alice", theirs.label)
+        assertEquals(AmountPerspective.NEUTRAL, theirs.direction)
     }
 }

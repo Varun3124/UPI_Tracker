@@ -80,7 +80,8 @@ object PendingTransactionReviewer {
             ChapterOption(
                 chapter = chapter,
                 memberIds = db.chapterDao().memberIds(chapter.id).toSet(),
-                settled = repository.resultFor(chapter.id).settled
+                // A friend's chapter is never offered (S10), so whether it is settled is never asked.
+                settled = !chapter.isOwn || repository.resultFor(chapter.id).settled
             )
         }
     }

@@ -1,5 +1,6 @@
 package com.varun.upitracker.domain.chapter
 
+import com.varun.upitracker.domain.parcel.ParcelActor
 import com.varun.upitracker.ui.AmountPerspective
 
 /**
@@ -53,6 +54,31 @@ object ChapterPlanLabels {
                 direction = AmountPerspective.NEUTRAL
             )
         }
+    }
+
+    /**
+     * [rowFor] for a copy of a friend's chapter, whose plan names people as the owner wrote them from
+     * this phone's seat (docs/declarations-design.md S3). [nameOf] says what to call each of them here.
+     */
+    fun rowFor(payment: SnapshotPayment, nameOf: (ParcelActor) -> String): ChapterPlanRow = when {
+        payment.debtor == ParcelActor.Me -> ChapterPlanRow(
+            subjectName = nameOf(payment.creditor),
+            label = "you owe",
+            amountPaise = payment.amountPaise,
+            direction = AmountPerspective.OUTGOING
+        )
+        payment.creditor == ParcelActor.Me -> ChapterPlanRow(
+            subjectName = nameOf(payment.debtor),
+            label = "owes you",
+            amountPaise = payment.amountPaise,
+            direction = AmountPerspective.INCOMING
+        )
+        else -> ChapterPlanRow(
+            subjectName = nameOf(payment.debtor),
+            label = "pays ${nameOf(payment.creditor)}",
+            amountPaise = payment.amountPaise,
+            direction = AmountPerspective.NEUTRAL
+        )
     }
 
     /** Matches ChapterDetailViewModel's fallback: a friend deleted from under a chapter still reads. */

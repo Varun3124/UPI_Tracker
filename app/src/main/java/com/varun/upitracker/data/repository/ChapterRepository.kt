@@ -219,7 +219,7 @@ class ChapterRepository(private val db: AppDatabase) {
         // A copy of a friend's chapter never works its plan out here: it takes the owner's (S3).
         if (chapter != null && !chapter.isOwn) return ReplicaBook(db).recomputeInTransaction(chapter)
 
-        // Whatever changed, a member's copy is now behind; a chapter that is not shared ignores this.
+        // Whatever changed, every copy of it is now behind -- the live ones and any pasted one.
         db.chapterDao().bumpShareVersion(chapterId)
         val result = ChapterMath.compute(taggedRows(chapterId))
         if (result.unidentifiedLegCount > 0) {

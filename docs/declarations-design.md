@@ -235,7 +235,13 @@ Bob).
     keeps receiving the owner's changes.
   - The owner's phone sends a snapshot to each linked member whose copy is behind: after any change,
     at the next mailbox check, when the chapter screen closes, and after a save into the chapter.
+    Everything but the mailbox check goes through one background job (`ChapterPublishing`), queued
+    after a save, delete or tag that touched a shared chapter and on leaving its screen, so a send
+    survives the screen that caused it closing.
   - Anyone, linked or not, can be pasted a **static** copy through a chat app. It never updates.
+  - The owner's `shareVersion` counts every change to every chapter the owner holds, shared or not.
+    A copy pasted later therefore always reads as newer than one pasted before, even from a chapter
+    that was never shared live.
 - **S3. Snapshots.** A snapshot is written per recipient, flipped like a parcel (the owner is Sender,
   the reader is Me). It carries:
   - name, notes, state and a version
@@ -264,6 +270,16 @@ Bob).
 
   A row the owner drops is untagged again. A matching row that sits in one of my own chapters is not
   moved; the replica flags it.
+
+  Claiming goes by the verified accounts; letting go does not. A row already claimed stays while the
+  owner's snapshot still carries it, found by its random reference alone. Otherwise a copy that has
+  lost its accounts (frozen by an unlink, then replaced by a pasted copy) would release rows the owner
+  still counts, and they would count twice.
+
+  The copy's screen marks each of its rows the same way (`ClaimMatcher.locate`): *in your book*;
+  *also in your <chapter>: take it out there, or it counts twice*; *awaiting review on the owner's
+  phone*; *in your book, outside this chapter*; or *only in the owner's book*. Tapping a row I hold
+  opens my own copy of it.
 - **S6. Read-only.** A replica cannot be edited, tagged into by hand, or used as the active chapter.
   My claimed rows stay mine to edit, but edits do not change the replica, whose plan is the owner's.
 - **S7. Lifecycle.**
@@ -274,6 +290,10 @@ Bob).
   | Relink, or the owner shares again | Live again (same `shareId`) |
   | Owner deletes the chapter | Replica removed, claims untagged, base ledger replayed |
   | Member removes a frozen or static copy | Same as above, after a warning that balances may change |
+
+  A snapshot never replaces a newer one, a pasted copy never replaces a live one, and a copy is
+  only ever updated by the friend it came from. Someone else naming its `shareId`, or the owner's
+  own chapter coming back pasted, changes nothing.
 
 - **S8. Hints.** Each snapshot carries the owner's part for this chapter in the owner's checkpoint with
   the recipient: its `declarationId` and amount, from the recipient's seat. If the recipient holds
@@ -343,10 +363,21 @@ Handling rules:
   An `AMEND` or `REVOKE` must name a declaration of that pair.
 - **Idempotency.** Every handler can safely run twice. The message id is recorded
   (`insertMessageIfNew`), and every state change is a no-op when already applied.
+- **One question at a time.** A phone has at most one open proposal of its own per friend. A second
+  waits until the first is answered or withdrawn. Answering the friend's proposal is always possible.
+- **Checked before sealing.** Nothing is sealed to a friend until the keys they publish have been
+  compared with the ones pinned at linking (`SealedDelivery`). If they differ, nothing is sent and the
+  link is marked `KEY_CHANGED`. An automatic proposal waits in the outbox; one the user made is
+  refused with the reason.
 - **Unknown kinds.** A kind this version does not know is recorded as unreadable with *"update
   DhanMoney to read this"*, rather than *"ask them to send it again"*.
-- **Static copies.** These travel through `PasteFraming` and `ParcelCodec`, like pasted parcels, as a
-  new payload type.
+- **Static copies.** `UPIC1.<crc32>.<payload>`, framed by `PasteFraming` like a parcel. The payload is
+  the `CHAPTER_SNAPSHOT` body, DEFLATE-compressed by `PasteCompression`, which `ParcelCodec` shares.
+  A paste verifies nobody, so a static copy names no one by account and carries no hint. One that does
+  is refused, both when it is written and when it is read. It is pasted into the same box as parcels
+  and invites, with the sender picked by the reader. Before anything is kept, a preview shows what the
+  copy would count and against whom, who in it is not placed yet, and how many of the reader's own rows
+  it would take in.
 
 ---
 
@@ -456,12 +487,26 @@ exactly the old behaviour.
   so it doesn't change what you owe each other."* Two actions follow:
   - **Ask Bob to add it** (D10).
   - A warning when a date edit crosses T.
-- **Chapter screen (owner).** **Share with members** and **Stop sharing**, with each member's status:
-  receiving, not linked (**send a copy**), or behind.
-- **Chapter screen (replica).** Read-only: the owner's plan, the balances, and the rows, with *in your
-  book* on the claimed ones. Person mapping for anyone unresolved. **Remove** only when frozen or
-  static.
-- **Chapters list.** Badges: *Alice's · live*, *frozen*, *copy*.
+- **Chapter screen (owner).** The overflow offers **Share with members**, which says what goes out
+  before anything does. Once the chapter is shared it offers **Members' copies** instead: each member
+  as *has it as it stands*, *gets it at the next mailbox check*, or *not linked · tap to send a copy*,
+  with **Stop sharing**. **Send a copy to paste…** is there for any member, shared or not. Deleting a
+  shared chapter warns that members' copies go too.
+- **Chapter screen (a friend's chapter).** Read-only. The header says whose it is, how it stands
+  (*kept up to date by them*, *stopped updating*, or *a copy from 12 Sep*), as of when, and how many
+  older rows were left out.
+  - Balances: the owner's nets, the owner's plan, *Not counted yet* for payments with someone not yet
+    placed, and *Who's who* to place people by hand.
+  - Rows: the owner's, each marked as in S5.
+  - **Remove copy** only when frozen or static. No Add, no active toggle, no selection.
+- **Chapters list.** Badges: *Alice's · live*, *Alice's · frozen*, *Alice's · copy*; the user's own
+  show *Active* and *Shared*. A friend's chapter shows the owner's nets, never ones worked out here.
+  So does the dashboard's chapter slider.
+- **Paste box (Settings).** Reads a static copy as well as parcels and invites. The reader picks the
+  sender and sees the preview (§7), then **Keep copy** opens it.
+- **Entry screen.** A row in a friend's chapter reads *"Alice's Goa trip"*, with *"Alice keeps this
+  chapter…"* under it, and the chapter field cannot move it (S6). The picker offers the user's own
+  chapters only (S10).
 
 ---
 
@@ -493,15 +538,19 @@ JVM, under `app/src/test/`:
   permutation of the same accepted proposals gives the same result.
 - **`DeclarationFlowTest`**: every transition, including accept-beats-withdraw, a withdraw stub, and
   closing on unlink.
+- **`DeclarationConvergenceTest`**: both phones end in the same set under shuffled, duplicated and
+  reordered delivery.
 - **`CheckpointsTest`**: opening = X − parts held; the sealing filter per friend.
+- **`DeclarationPartsTest`**: which chapter shares each phone counts (D6).
 - **`AbsorptionTest`**: which friends absorb for a given set of row versions.
-- **`LedgerReplayerTest`** (extended): opening first; sealed rows skipped per friend only; a repayment
-  settles the opening; the SQL floor.
+- **`LedgerReplayerTest`** (extended) and **`ReplayBookkeepingTest`**: opening first; sealed rows
+  skipped per friend only; a repayment settles the opening; the SQL floor.
 - **Regressions**: a re-saved repayment and a deleted one leave the correct balance.
-- **Codecs**: `DeclarationMessagesTest` and `ChapterSnapshotFormatTest` round-trips, and every
-  rejection.
-- **`ReplicaMathTest`, `ClaimMatcherTest`**.
-- **`TwoBookSimulationTest`**: in-memory books for Alice, Bob and Dan built only from the domain
+- **Codecs**: `DeclarationMessagesTest`, `ChapterSnapshotTest` and `ChapterPasteCodecTest`:
+  round-trips, and every rejection, including a paste that names someone by account or carries a hint.
+- **`ReplicaAndClaimTest`**: contributions from a plan (S4); claims by every kind of reference, and
+  locating rows without the accounts (S5).
+- **`ThreeBookSimulationTest`**: in-memory books for Alice, Bob and Dan built only from the domain
   objects. It asserts that each pair's balances are negatives of each other across declarations, late
   rows, amendments, absorptions, shared chapters, private → shared, a lagging replica, unlink and
   relink.

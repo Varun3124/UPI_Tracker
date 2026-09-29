@@ -33,11 +33,13 @@
                     android:maxLines="1"
                     android:textAppearance="@style/TextAppearance.UPI.Title" />
 
+                <!-- "Active", "Shared", or a friend's: "Alice's · live". -->
                 <TextView
                     android:id="@+id/tvChapterActive"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
                     android:layout_marginStart="@dimen/space_s"
+                    android:maxLines="1"
                     android:text="Active"
                     android:textAppearance="@style/TextAppearance.UPI.Label"
                     android:visibility="gone" />

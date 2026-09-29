@@ -21,17 +21,23 @@ import com.varun.upitracker.database.entity.FriendLinkState
 import com.varun.upitracker.database.entity.Transaction
 import com.varun.upitracker.domain.chapter.ChapterEnd
 import com.varun.upitracker.domain.chapter.ChapterMath
+import com.varun.upitracker.domain.chapter.ChapterPasteCodec
 import com.varun.upitracker.domain.chapter.ChapterSnapshot
 import com.varun.upitracker.domain.chapter.ChapterSnapshotFormat
+import com.varun.upitracker.domain.chapter.ClaimLookups
 import com.varun.upitracker.domain.chapter.ClaimMatcher
 import com.varun.upitracker.domain.chapter.ClaimRow
 import com.varun.upitracker.domain.chapter.LocalRow
+import com.varun.upitracker.domain.chapter.ReplicaMath
+import com.varun.upitracker.domain.chapter.ReplicaParty
 import com.varun.upitracker.domain.chapter.SnapshotBuilder
 import com.varun.upitracker.domain.chapter.SnapshotHint
 import com.varun.upitracker.domain.chapter.SnapshotSource
 import com.varun.upitracker.domain.chapter.TaggedTx
+import com.varun.upitracker.domain.chapter.UnresolvedPayment
 import com.varun.upitracker.domain.mailbox.MailboxIds
 import com.varun.upitracker.domain.mailbox.MailboxKind
+import com.varun.upitracker.domain.parcel.ParcelActor
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
@@ -43,6 +49,44 @@ class SharedChapterException(message: String) : IllegalStateException(message)
 
 /** What a snapshot did here. */
 enum class SnapshotNews { NEW, UPDATED, IGNORED }
+
+/** What keeping a pasted copy would do to the copy of that chapter already here, if there is one. */
+enum class CopyOutcome {
+    /** Nothing of it here yet. */
+    NEW,
+
+    /** Replaces an older pasted copy, or one that stopped updating. */
+    REPLACES,
+
+    /** The copy here is this one already, or newer. */
+    ALREADY_HAVE,
+
+    /** Kept up to date here through the mailbox, which a paste never overrides. */
+    LIVE_HERE,
+
+    /** Held here as this phone's own chapter, or as someone else's: a chapter has one owner. */
+    NOT_THEIRS
+}
+
+/** A pasted copy of a friend's chapter, read but not kept: what keeping it would do. */
+data class CopyPreview(
+    val ownerFriendId: Long,
+    val ownerName: String,
+    val snapshot: ChapterSnapshot,
+    /** What the copy would keep, in `Chapter.snapshot`. */
+    val body: String,
+    val outcome: CopyOutcome,
+    /** True when the copy [outcome] names is this phone's own chapter. */
+    val existingIsOwn: Boolean,
+    /** What it would count here, by friend name: positive means they owe the user. */
+    val counted: List<Pair<String, Long>>,
+    /** Payments with the user naming someone nobody has placed yet: shown, not counted (S4). */
+    val unplaced: List<UnresolvedPayment>,
+    /** How many of the user's own transactions would move into it, so none is counted twice (S5). */
+    val claimable: Int
+) {
+    val canKeep: Boolean get() = outcome == CopyOutcome.NEW || outcome == CopyOutcome.REPLACES
+}
 
 /** A member of one of this phone's shared chapters, as its screen lists them. */
 data class ChapterRecipient(
@@ -181,7 +225,80 @@ class SharedChapterRepository(private val context: Context, private val db: AppD
         SnapshotBuilder.build(sourceFor(chapter, receivingUids = emptyMap()), recipientFriendId, hint = null, pasteTokenFor(recipientFriendId))
     }
 
+    /** [snapshotFor], ready to paste: what "Send a copy" hands to the share sheet. */
+    suspend fun pastedCopyFor(chapterId: Long, recipientFriendId: Long): String =
+        ChapterPasteCodec.encode(snapshotFor(chapterId, recipientFriendId))
+
     // --- the member's side ----------------------------------------------------------------------------
+
+    /**
+     * What keeping a pasted copy from [ownerFriendId] would do, without doing it. Who sent it is the
+     * user's word, not something the paste proves -- which is why a paste names nobody by account, and
+     * why its own rows are found by paste references only.
+     */
+    suspend fun previewCopy(ownerFriendId: Long, snapshot: ChapterSnapshot, body: String): CopyPreview =
+        withContext(Dispatchers.IO) {
+            val owner = db.friendDao().getFriendById(ownerFriendId)
+                ?: throw SharedChapterException("That person is no longer in your list.")
+            val existing = db.chapterDao().getByShareId(snapshot.shareId)
+            // The same tests applySnapshot makes, in the same order, so the preview cannot promise
+            // something keeping it would then refuse.
+            val outcome = when {
+                existing == null -> CopyOutcome.NEW
+                existing.ownerFriendId != ownerFriendId -> CopyOutcome.NOT_THEIRS
+                existing.mode == ChapterShareMode.REPLICA -> CopyOutcome.LIVE_HERE
+                snapshot.version < existing.shareVersion -> CopyOutcome.ALREADY_HAVE
+                snapshot.version == existing.shareVersion && existing.mode == ChapterShareMode.STATIC -> CopyOutcome.ALREADY_HAVE
+                else -> CopyOutcome.REPLACES
+            }
+            val mine = existing?.takeIf { it.ownerFriendId == ownerFriendId }
+            val resolve: (ParcelActor) -> ReplicaParty = if (mine != null) {
+                ReplicaBook(db).resolver(mine.id, ownerFriendId)
+            } else {
+                { actor -> ReplicaMath.resolve(actor, ownerFriendId, { null }, emptyMap()) }
+            }
+            val balances = ReplicaMath.balances(snapshot.plan, resolve)
+            val names = db.friendDao().getAllFriendsSync().associate { it.id to it.name }
+            val claimable = matchedRows(snapshot, ownerUid = null, myUid = null, pasteToken = pasteTokenFor(ownerFriendId))
+                .count { it.refundsTransactionId == null && (it.chapterId == null || it.chapterId == mine?.id) }
+            CopyPreview(
+                ownerFriendId = ownerFriendId,
+                ownerName = owner.name,
+                snapshot = snapshot,
+                body = body,
+                outcome = outcome,
+                existingIsOwn = existing?.isOwn == true,
+                counted = balances.contributions.map { (friendId, amount) -> (names[friendId] ?: "Friend $friendId") to amount },
+                unplaced = balances.unresolved,
+                claimable = claimable
+            )
+        }
+
+    /** Keeps a pasted copy (S2), returning the chapter it now is, or null when nothing changed. */
+    suspend fun keepCopy(preview: CopyPreview): Long? = withContext(Dispatchers.IO) {
+        val news = receiveSnapshot(
+            preview.ownerFriendId, ownerUid = null, myUid = null, preview.snapshot, preview.body, ChapterShareMode.STATIC
+        )
+        if (news == SnapshotNews.IGNORED) null else db.chapterDao().getByShareId(preview.snapshot.shareId)?.id
+    }
+
+    /**
+     * This phone's own copy of each of a friend's chapter's rows, where it holds one, in the
+     * snapshot's order: what the copy's screen marks as in the user's book. For showing only -- see
+     * [ClaimMatcher.locate].
+     */
+    suspend fun localCopies(chapter: Chapter, snapshot: ChapterSnapshot): List<Transaction?> = withContext(Dispatchers.IO) {
+        val ownerFriendId = chapter.ownerFriendId ?: return@withContext snapshot.rows.map { null }
+        val rows = claimRowsOf(snapshot)
+        val pasteToken = pasteTokenFor(ownerFriendId)
+        val ownerUid = db.mailboxDao().getLink(ownerFriendId)?.uid
+        // Rows still pending on the owner's phone are looked up too: this phone may well hold them.
+        val lookups = ClaimMatcher.lookups(rows.map { it.copy(pending = false) }, ownerUid, myUid(), pasteToken)
+        val candidates = (candidatesFor(lookups) + db.chapterDao().taggedTransactions(chapter.id)).distinctBy { it.id }
+        val byId = candidates.associateBy { it.id }
+        ClaimMatcher.locate(rows, candidates.map { LocalRow(it.id, it.shareRef, it.sharedRefId) }, pasteToken)
+            .map { id -> id?.let(byId::get) }
+    }
 
     /**
      * Takes a snapshot from [ownerFriendId]: a new copy, or an update to theirs. A share id already
@@ -314,6 +431,11 @@ class SharedChapterRepository(private val context: Context, private val db: AppD
      * Moves this phone's own copies of the snapshot's rows into the copy, and anything the owner no
      * longer has back out, returning every row that moved. A refund moves with its purchase (R6); a row
      * already in some other chapter is left where it is.
+     *
+     * Claiming goes by the verified accounts ([ClaimMatcher.match]). Letting go does not: a row already
+     * held stays while the owner still carries it, found by its random reference alone. Otherwise a
+     * copy that lost its accounts -- frozen by an unlink, then replaced by a pasted copy -- would drop
+     * rows the owner still counts, and they would count twice.
      */
     private suspend fun claim(
         chapter: Chapter,
@@ -322,28 +444,18 @@ class SharedChapterRepository(private val context: Context, private val db: AppD
         myUid: String?,
         pasteToken: String?
     ): List<Transaction> {
-        val claimRows = snapshot.rows.zip(snapshot.extras) { row, extra ->
-            ClaimRow(row.shareRef, row.legacyRef, extra.sourceRef, extra.pending)
-        }
-        val lookups = ClaimMatcher.lookups(claimRows, ownerUid, myUid, pasteToken)
-        val candidates = buildList {
-            lookups.shareRefs.chunked(LOOKUP_CHUNK).forEach { addAll(db.transactionDao().findByShareRefs(it)) }
-            lookups.sharedRefIds.chunked(LOOKUP_CHUNK).forEach { addAll(db.transactionDao().findBySharedRefIds(it)) }
-            lookups.ids.chunked(LOOKUP_CHUNK).forEach { addAll(db.transactionDao().findByIds(it)) }
-        }.distinctBy { it.id }
-        val matched = ClaimMatcher.match(
-            claimRows,
-            candidates.map { LocalRow(it.id, it.shareRef, it.sharedRefId) },
-            ownerUid,
-            myUid,
-            pasteToken
-        )
-
-        val byId = candidates.associateBy { it.id }
+        val matched = matchedRows(snapshot, ownerUid, myUid, pasteToken)
         val held = db.chapterDao().taggedTransactions(chapter.id).filter { it.refundsTransactionId == null }
-        val toClaim = matched.mapNotNull { byId[it] }
-            .filter { it.refundsTransactionId == null && it.chapterId == null }
-        val toRelease = held.filter { it.id !in matched }
+        val stillCarried = ClaimMatcher.locate(
+            claimRowsOf(snapshot).filter { !it.pending },
+            held.map { LocalRow(it.id, it.shareRef, it.sharedRefId) },
+            pasteToken
+        ).filterNotNull().toSet()
+
+        val matchedIds = matched.map { it.id }.toSet()
+
+        val toClaim = matched.filter { it.refundsTransactionId == null && it.chapterId == null }
+        val toRelease = held.filter { it.id !in stillCarried && it.id !in matchedIds }
 
         toClaim.forEach {
             db.transactionDao().setChapter(it.id, chapter.id)
@@ -376,6 +488,37 @@ class SharedChapterRepository(private val context: Context, private val db: AppD
     }
 
     // --- helpers ----------------------------------------------------------------------------------
+
+    private fun claimRowsOf(snapshot: ChapterSnapshot): List<ClaimRow> =
+        snapshot.rows.zip(snapshot.extras) { row, extra -> ClaimRow(row.shareRef, row.legacyRef, extra.sourceRef, extra.pending) }
+
+    /** This phone's rows that are rows of [snapshot], by [ClaimMatcher.match]. */
+    private suspend fun matchedRows(
+        snapshot: ChapterSnapshot,
+        ownerUid: String?,
+        myUid: String?,
+        pasteToken: String?
+    ): List<Transaction> {
+        val rows = claimRowsOf(snapshot)
+        val candidates = candidatesFor(ClaimMatcher.lookups(rows, ownerUid, myUid, pasteToken))
+        val matched = ClaimMatcher.match(
+            rows,
+            candidates.map { LocalRow(it.id, it.shareRef, it.sharedRefId) },
+            ownerUid,
+            myUid,
+            pasteToken
+        )
+        return candidates.filter { it.id in matched }
+    }
+
+    private suspend fun candidatesFor(lookups: ClaimLookups): List<Transaction> = buildList {
+        lookups.shareRefs.chunked(LOOKUP_CHUNK).forEach { addAll(db.transactionDao().findByShareRefs(it.toList())) }
+        lookups.sharedRefIds.chunked(LOOKUP_CHUNK).forEach { addAll(db.transactionDao().findBySharedRefIds(it.toList())) }
+        lookups.ids.chunked(LOOKUP_CHUNK).forEach { addAll(db.transactionDao().findByIds(it.toList())) }
+    }.distinctBy { it.id }
+
+    /** This phone's account, when the mailbox is on. Cheaper than the whole identity: no keys are read. */
+    private fun myUid(): String? = services.auth.session()?.uid
 
     /** Everything about [chapter] a snapshot is built from. Every row gets its reference first, so all copies agree. */
     private suspend fun sourceFor(chapter: Chapter, receivingUids: Map<Long, String>): SnapshotSource {

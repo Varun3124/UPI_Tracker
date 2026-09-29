@@ -24,12 +24,15 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.varun.upitracker.R
+import com.varun.upitracker.data.chapter.CopyOutcome
+import com.varun.upitracker.data.chapter.CopyPreview
 import com.varun.upitracker.data.repository.ParcelEntry
 import com.varun.upitracker.data.repository.ParcelImportPlan
 import com.varun.upitracker.database.entity.Friend
 import com.varun.upitracker.database.entity.IouRecovery
 import com.varun.upitracker.domain.mailbox.KeyFingerprint
 import com.varun.upitracker.domain.mailbox.LinkInviteCode
+import com.varun.upitracker.ui.chapter.ChapterDetailActivity
 import com.varun.upitracker.ui.mailbox.MailboxActivity
 import com.varun.upitracker.ui.settings.AppViewModelFactory
 import com.varun.upitracker.ui.theme.ThemeAttr
@@ -101,7 +104,7 @@ class ParcelImportActivity : AppCompatActivity() {
 
         findViewById<View>(R.id.btnPasteParcel).setOnClickListener { pasteFromClipboard() }
         findViewById<View>(R.id.btnRead).setOnClickListener {
-            viewModel.read(onInvite = ::confirmInvite, onError = ::toast)
+            viewModel.read(onInvite = ::confirmInvite, onChapterCopy = ::confirmChapterCopy, onError = ::toast)
         }
         findViewById<View>(R.id.btnCommitParcel).setOnClickListener { commit() }
         findViewById<View>(R.id.btnDismissParcel).setOnClickListener { confirmDismiss() }
@@ -283,6 +286,73 @@ class ParcelImportActivity : AppCompatActivity() {
             }
             .setNegativeButton("Cancel", null)
             .show()
+    }
+
+    /**
+     * A copy of a friend's chapter (docs/declarations-design.md S2): what it would count here, and
+     * against whom, before anything is kept. Who is in it is settled on the chapter's own page after,
+     * where it can be changed at any time.
+     */
+    private fun confirmChapterCopy(preview: CopyPreview) {
+        val snapshot = preview.snapshot
+        val owner = preview.ownerName
+        val asOf = SimpleDateFormat("d MMM yyyy", Locale.getDefault()).format(Date(snapshot.sentEpoch))
+        val message = buildString {
+            append(
+                when (preview.outcome) {
+                    CopyOutcome.NEW -> "$owner's chapter as it stood on $asOf. It never updates: $owner can send a newer copy."
+                    CopyOutcome.REPLACES -> "A newer copy of $owner's chapter, as it stood on $asOf. It replaces the one you have."
+                    CopyOutcome.ALREADY_HAVE -> "You already have this copy, or a newer one."
+                    CopyOutcome.LIVE_HERE ->
+                        "$owner already shares this chapter with you through the mailbox, which keeps it up to date. A pasted copy would only be older."
+                    CopyOutcome.NOT_THEIRS ->
+                        if (preview.existingIsOwn) "This is a copy of your own chapter."
+                        else "You already have this chapter from someone else. A chapter belongs to the one person who keeps it."
+                }
+            )
+            if (!preview.canKeep) return@buildString
+            append("\n\nWhat it counts here:")
+            if (preview.counted.isEmpty()) append("\n• Nothing between you and anyone in your list.")
+            preview.counted.forEach { (name, amount) ->
+                append(
+                    if (amount > 0L) "\n• $name owes you ${AmountFormat.rupees(amount)}"
+                    else "\n• You owe $name ${AmountFormat.rupees(-amount)}"
+                )
+            }
+            if (preview.unplaced.isNotEmpty()) {
+                append("\n\nNot counted until you say who they are: ")
+                append(preview.unplaced.map { it.person.name }.distinct().joinToString(", "))
+                append(". You can do that from the chapter's page.")
+            }
+            when (preview.claimable) {
+                0 -> Unit
+                1 -> append("\n\n1 of your own transactions is in it. It moves into the copy, so it is not counted twice.")
+                else -> append("\n\n${preview.claimable} of your own transactions are in it. They move into the copy, so none is counted twice.")
+            }
+            append("\n\nOnly $owner can change it. You can remove it from its page.")
+        }
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("${snapshot.name}, from $owner")
+            .setMessage(message)
+        if (preview.canKeep) {
+            dialog.setPositiveButton("Keep copy") { _, _ ->
+                viewModel.keepCopy(
+                    preview,
+                    onKept = { chapterId ->
+                        startActivity(
+                            Intent(this, ChapterDetailActivity::class.java)
+                                .putExtra(ChapterDetailActivity.EXTRA_CHAPTER_ID, chapterId)
+                        )
+                        finish()
+                    },
+                    onError = ::toast
+                )
+            }
+            dialog.setNegativeButton("Cancel", null)
+        } else {
+            dialog.setPositiveButton("OK", null)
+        }
+        dialog.show()
     }
 
     private fun offerMailboxSettings() {
