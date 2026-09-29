@@ -23,6 +23,7 @@ opt-in features that stay off until you sign in with Google (see [Privacy](#priv
 ## Features
 
 **Recording money**
+
 1. Track income and expenses, split across categories, with refunds linked to the purchase they reverse.
 2. Record UPI payments automatically from bank SMS: HDFC (credit and debit), ICICI (credit and debit) and
    Axis (debit). Axis alerts forwarded to Gmail are read from the notification as well. Anything the app is
@@ -32,6 +33,7 @@ opt-in features that stay off until you sign in with Google (see [Privacy](#priv
    Balances from before your first recorded balance are marked as estimates.
 
 **Friends and groups**
+
 5. IOUs with friends, exactly like Splitwise: split any transaction between any people, on either side.
 6. **Chapters** (group IOUs): put a trip or a flat's expenses in a chapter, see who owes whom, and the
    fewest payments that settle everyone up. A chapter's result feeds each friend's balance.
@@ -45,12 +47,14 @@ opt-in features that stay off until you sign in with Google (see [Privacy](#priv
    can change it.
 
 **Seeing where it goes**
+
 10. Dashboard with today's, this week's and this month's net cash flow, recent transactions, IOUs and open
     chapters.
 11. Statistics: spending by category (pie and stacked bars) with drill-down to who was paid, and trends of
     income against expense and your balance over time.
 
 **Keeping it safe**
+
 12. Back up to, and restore from, a private folder in your own Google Drive.
 
 How agreed balances and shared chapters work is written up in
