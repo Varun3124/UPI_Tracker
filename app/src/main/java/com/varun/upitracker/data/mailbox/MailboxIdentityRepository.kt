@@ -9,6 +9,8 @@ import com.varun.upitracker.domain.mailbox.IdentityDecision
 import com.varun.upitracker.domain.mailbox.IdentityPolicy
 import com.varun.upitracker.domain.mailbox.MailboxKeys
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withContext
 
 /** Where the friends mailbox stands on this install. */
@@ -126,12 +128,21 @@ class MailboxIdentityRepository(context: Context, private val db: AppDatabase) {
         prefs.edit().putString(LINKS_OWNER_UID, uid).apply()
 
         val idToken = services.auth.idToken()
+        // Drive and Firestore know nothing of each other, so both are asked at once: on a slow
+        // mobile connection every round trip here is a second or more of the user watching a spinner.
+        val (drivePart, published) = coroutineScope {
+            val drive = async {
+                val file = services.drive.list(driveToken).firstOrNull { it.name == identityFileName(uid) }
+                val keys = file
+                    ?.takeIf { it.appProperties[PROP_UID] == uid }
+                    ?.let { MailboxKeys.parsePrivate(services.drive.download(driveToken, it.id)) }
+                file to keys
+            }
+            val fingerprint = async { services.firestore.get(idToken, "users/$uid")?.text("fingerprint") }
+            drive.await() to fingerprint.await()
+        }
+        val (driveFile, driveKeys) = drivePart
         val local = services.keyStore.load(uid)
-        val driveFile = services.drive.list(driveToken).firstOrNull { it.name == identityFileName(uid) }
-        val driveKeys = driveFile
-            ?.takeIf { it.appProperties[PROP_UID] == uid }
-            ?.let { MailboxKeys.parsePrivate(services.drive.download(driveToken, it.id)) }
-        val published = services.firestore.get(idToken, "users/$uid")?.text("fingerprint")
 
         val decision = IdentityPolicy.decide(local?.fingerprint, driveKeys?.fingerprint, published)
         Log.d(TAG, "Key decision: ${decision::class.simpleName}")

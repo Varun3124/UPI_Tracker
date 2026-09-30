@@ -24,6 +24,7 @@ import com.varun.upitracker.data.mailbox.TurnOnResult
 import com.varun.upitracker.domain.mailbox.KeyFingerprint
 import com.varun.upitracker.ui.settings.AppViewModelFactory
 import com.varun.upitracker.ui.theme.padRootForSystemBars
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.launch
 
 /**
@@ -42,19 +43,36 @@ class MailboxActivity : AppCompatActivity() {
     private lateinit var viewModel: MailboxViewModel
     private lateinit var accounts: GoogleAccountRepository
 
-    /** What to do once the user has finished with the Drive consent screen. */
-    private var pendingDriveAction: ((String) -> Unit)? = null
-
+    /**
+     * Back from Google's Drive consent screen. What was waiting on it is read from the ViewModel, not
+     * from this Activity, which may be a new one by now: while that screen is up, a phone short of
+     * memory is free to destroy the screen underneath.
+     */
     private val consentLauncher = registerForActivityResult(
         ActivityResultContracts.StartIntentSenderForResult()
     ) { result ->
-        val action = pendingDriveAction
-        pendingDriveAction = null
+        viewModel.setStep(null)
         when (val authorized = accounts.resultFrom(this, result.data)) {
-            is DriveAuthResult.Authorized -> action?.invoke(authorized.accessToken)
-            is DriveAuthResult.Failed -> toast(authorized.reason)
+            is DriveAuthResult.Authorized -> {
+                val resumed = viewModel.resume(
+                    authorized.accessToken,
+                    onTurnedOn = ::announceTurnedOn,
+                    onDeleted = { toast("Your mailbox account has been deleted.") },
+                    onError = ::toast
+                )
+                // The whole app was restarted behind the consent screen, sign-in and all. Drive
+                // access is granted now, so a second tap goes straight through.
+                if (!resumed) toast("Google Drive access is on. Tap the button again to finish.")
+            }
+            is DriveAuthResult.Failed -> {
+                viewModel.pending = null
+                toast(authorized.reason)
+            }
             // Being asked to consent again after consenting would be a loop; stop and say so.
-            is DriveAuthResult.NeedsConsent -> toast("Google Drive access was not granted.")
+            is DriveAuthResult.NeedsConsent -> {
+                viewModel.pending = null
+                toast("Google Drive access was not granted.")
+            }
         }
     }
 
@@ -125,10 +143,10 @@ class MailboxActivity : AppCompatActivity() {
             }
         }
 
-        toggle.isEnabled = !state.isBusy
-        delete.isEnabled = !state.isBusy
-        findViewById<View>(R.id.busyBar).visibility = if (state.isBusy) View.VISIBLE else View.GONE
-        findViewById<TextView>(R.id.tvBusy).text = state.busyMessage.orEmpty()
+        toggle.isEnabled = !state.showsProgress
+        delete.isEnabled = !state.showsProgress
+        findViewById<View>(R.id.busyBar).visibility = if (state.showsProgress) View.VISIBLE else View.GONE
+        findViewById<TextView>(R.id.tvBusy).text = (state.busyMessage ?: state.step).orEmpty()
     }
 
     private fun onToggle() {
@@ -145,18 +163,7 @@ class MailboxActivity : AppCompatActivity() {
                 .show()
             return
         }
-        withGoogle { signIn ->
-            withDriveToken { token ->
-                viewModel.turnOn(
-                    googleIdToken = signIn.idToken,
-                    email = signIn.account.email,
-                    displayName = signIn.account.displayName,
-                    driveToken = token,
-                    onDone = ::announceTurnedOn,
-                    onError = ::toast
-                )
-            }
-        }
+        withGoogle(MailboxAction.TURN_ON)
     }
 
     private fun announceTurnedOn(result: TurnOnResult) {
@@ -199,27 +206,30 @@ class MailboxActivity : AppCompatActivity() {
                     "Your transactions stay exactly as they are. You will be asked to sign in once more."
             )
             .setPositiveButton("Keep my account", null)
-            .setNegativeButton("Delete account") { _, _ ->
-                withGoogle { signIn ->
-                    withDriveToken { token ->
-                        viewModel.deleteAccount(
-                            googleIdToken = signIn.idToken,
-                            email = signIn.account.email,
-                            displayName = signIn.account.displayName,
-                            driveToken = token,
-                            onDone = { toast("Your mailbox account has been deleted.") },
-                            onError = ::toast
-                        )
-                    }
-                }
-            }
+            .setNegativeButton("Delete account") { _, _ -> withGoogle(MailboxAction.DELETE) }
             .show()
     }
 
-    private fun withGoogle(action: (SignInResult.Success) -> Unit) {
+    /**
+     * Signs in, then gets Drive access, then does [action] -- saying which step is under way, since
+     * each Google step can take a few seconds with nothing else on screen.
+     */
+    private fun withGoogle(action: MailboxAction) {
+        viewModel.setStep("Signing in with Google…")
         lifecycleScope.launch {
-            when (val result = accounts.signIn(this@MailboxActivity)) {
-                is SignInResult.Success -> action(result)
+            // Cleared however it ends, a screen torn down mid-sheet included, so the buttons come back.
+            val result = try {
+                accounts.signIn(this@MailboxActivity)
+            } finally {
+                viewModel.setStep(null)
+            }
+            when (result) {
+                is SignInResult.Success -> {
+                    viewModel.pending = PendingMailboxStep(
+                        action, result.idToken, result.account.email, result.account.displayName
+                    )
+                    continueWithDrive()
+                }
                 is SignInResult.Cancelled -> Unit // The user said no; saying it back is noise.
                 is SignInResult.NoAccount ->
                     toast("There is no Google account on this phone. Add one in Android settings first.")
@@ -228,19 +238,31 @@ class MailboxActivity : AppCompatActivity() {
         }
     }
 
-    /** Runs [action] with a Drive token, prompting for consent only if it is not already granted. */
-    private fun withDriveToken(action: (String) -> Unit) {
+    /** Gets a Drive token for what [MailboxViewModel.pending] holds, prompting for consent only if it is not already granted. */
+    private fun continueWithDrive() {
+        viewModel.setStep("Getting access to your Google Drive…")
         lifecycleScope.launch {
-            val result = accounts.authorizeDrive(this@MailboxActivity)
+            val result = try {
+                accounts.authorizeDrive(this@MailboxActivity)
+            } catch (error: CancellationException) {
+                viewModel.setStep(null)
+                throw error
+            }
             // The outcome's kind only: the Authorized case carries a live access token.
             Log.d(TAG, "Drive authorization: ${result::class.simpleName}")
             when (result) {
-                is DriveAuthResult.Authorized -> action(result.accessToken)
-                is DriveAuthResult.NeedsConsent -> {
-                    pendingDriveAction = action
-                    consentLauncher.launch(IntentSenderRequest.Builder(result.pendingIntent).build())
+                is DriveAuthResult.Authorized -> {
+                    viewModel.setStep(null)
+                    viewModel.resume(result.accessToken, ::announceTurnedOn, { toast("Your mailbox account has been deleted.") }, ::toast)
                 }
-                is DriveAuthResult.Failed -> toast(result.reason)
+                // The step stays up until the consent screen answers.
+                is DriveAuthResult.NeedsConsent ->
+                    consentLauncher.launch(IntentSenderRequest.Builder(result.pendingIntent).build())
+                is DriveAuthResult.Failed -> {
+                    viewModel.setStep(null)
+                    viewModel.pending = null
+                    toast(result.reason)
+                }
             }
         }
     }

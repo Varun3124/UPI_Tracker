@@ -48,22 +48,31 @@ class BackupActivity : AppCompatActivity() {
 
     private companion object {
         private const val TAG = "BackupActivity"
+        private const val KEY_PENDING_TASK = "pending_drive_task"
     }
 
     private val dateFmt = SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault())
     private lateinit var viewModel: BackupViewModel
     private lateinit var accounts: GoogleAccountRepository
 
-    /** What to do once the user has finished with the Drive consent screen. */
-    private var pendingAction: ((String) -> Unit)? = null
+    /** What a Drive token is wanted for. A name rather than a lambda, so it can be saved with the screen. */
+    private enum class DriveTask { UPLOAD, RESTORE }
+
+    /**
+     * What to do once the user has finished with the Drive consent screen. Saved with the instance
+     * state: a phone short of memory recreates this screen while that one is up, and the tap used to
+     * be lost with it.
+     */
+    private var pendingTask: DriveTask? = null
 
     private val consentLauncher = registerForActivityResult(
         ActivityResultContracts.StartIntentSenderForResult()
     ) { result ->
-        val action = pendingAction
-        pendingAction = null
+        val task = pendingTask
+        pendingTask = null
         when (val authorized = accounts.resultFrom(this, result.data)) {
-            is DriveAuthResult.Authorized -> action?.invoke(authorized.accessToken)
+            is DriveAuthResult.Authorized -> task?.let { runTask(it, authorized.accessToken) }
+                ?: toast("Google Drive access is on. Tap the button again to finish.")
             is DriveAuthResult.Failed -> toast(authorized.reason)
             // Being asked to consent again after consenting would be a loop; stop and say so.
             is DriveAuthResult.NeedsConsent -> toast("Google Drive access was not granted.")
@@ -86,8 +95,11 @@ class BackupActivity : AppCompatActivity() {
 
         findViewById<ImageButton>(R.id.btnBackBackup).setOnClickListener { finish() }
         findViewById<Button>(R.id.btnAccount).setOnClickListener { onAccountTapped() }
-        findViewById<Button>(R.id.btnBackUpNow).setOnClickListener { withDriveToken(::startUpload) }
-        findViewById<Button>(R.id.btnRestore).setOnClickListener { withDriveToken(::startRestore) }
+        pendingTask = savedInstanceState?.getString(KEY_PENDING_TASK)?.let { name ->
+            DriveTask.entries.firstOrNull { it.name == name }
+        }
+        findViewById<Button>(R.id.btnBackUpNow).setOnClickListener { withDriveToken(DriveTask.UPLOAD) }
+        findViewById<Button>(R.id.btnRestore).setOnClickListener { withDriveToken(DriveTask.RESTORE) }
         findViewById<Button>(R.id.btnUndo).setOnClickListener { confirmUndo() }
 
         viewModel.uiState.observe(this, ::render)
@@ -164,16 +176,26 @@ class BackupActivity : AppCompatActivity() {
      * Asked for fresh every time rather than cached: tokens last about an hour, and Play services
      * answers silently once consent stands, so there is nothing to gain by holding one.
      */
-    private fun withDriveToken(action: (String) -> Unit) {
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        pendingTask?.let { outState.putString(KEY_PENDING_TASK, it.name) }
+    }
+
+    private fun runTask(task: DriveTask, token: String) = when (task) {
+        DriveTask.UPLOAD -> startUpload(token)
+        DriveTask.RESTORE -> startRestore(token)
+    }
+
+    private fun withDriveToken(task: DriveTask) {
         lifecycleScope.launch {
             val result = accounts.authorizeDrive(this@BackupActivity)
             // One line per tap, so a flow that stops short says where it stopped. Logs the outcome's
             // kind only: the Authorized case carries a live access token that must not reach logcat.
             Log.d(TAG, "Drive authorization: ${result::class.simpleName}")
             when (result) {
-                is DriveAuthResult.Authorized -> action(result.accessToken)
+                is DriveAuthResult.Authorized -> runTask(task, result.accessToken)
                 is DriveAuthResult.NeedsConsent -> {
-                    pendingAction = action
+                    pendingTask = task
                     consentLauncher.launch(IntentSenderRequest.Builder(result.pendingIntent).build())
                 }
                 is DriveAuthResult.Failed -> toast(result.reason)

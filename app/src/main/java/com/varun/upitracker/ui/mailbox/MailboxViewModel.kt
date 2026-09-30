@@ -19,10 +19,28 @@ import kotlinx.coroutines.launch
 
 data class MailboxUiState(
     val status: MailboxStatus? = null,
-    val busyMessage: String? = null
+    val busyMessage: String? = null,
+    /**
+     * Which Google step is on screen before any mailbox work starts: the sign-in sheet, or the wait
+     * for Drive access. Without it the screen looks dead for the seconds Google takes.
+     */
+    val step: String? = null
 ) {
     val isBusy: Boolean get() = busyMessage != null
+
+    val showsProgress: Boolean get() = busyMessage != null || step != null
 }
+
+/** What the screen was doing when it sent the user to Google's Drive consent screen. */
+enum class MailboxAction { TURN_ON, DELETE }
+
+/** A sign-in waiting for Drive access, kept here so it outlives the Activity being recreated behind the consent screen. */
+data class PendingMailboxStep(
+    val action: MailboxAction,
+    val googleIdToken: String,
+    val email: String,
+    val displayName: String?
+)
 
 /**
  * The friends mailbox settings screen's state and its slow work.
@@ -44,6 +62,30 @@ class MailboxViewModel(context: Context) : ViewModel() {
     val uiState: LiveData<MailboxUiState> = _uiState
 
     private val current: MailboxUiState get() = _uiState.value ?: MailboxUiState()
+
+    /**
+     * A sign-in that is waiting on the Drive consent screen. Held here rather than in the Activity: a
+     * phone short of memory recreates the Activity while that screen is up, and the turn-on used to
+     * vanish silently with it.
+     */
+    var pending: PendingMailboxStep? = null
+
+    fun setStep(message: String?) {
+        _uiState.value = current.copy(step = message)
+    }
+
+    /** Runs what [pending] was waiting for, now that Drive access is granted. False when nothing was waiting. */
+    fun resume(driveToken: String, onTurnedOn: (TurnOnResult) -> Unit, onDeleted: () -> Unit, onError: (String) -> Unit): Boolean {
+        val step = pending ?: return false
+        pending = null
+        when (step.action) {
+            MailboxAction.TURN_ON ->
+                turnOn(step.googleIdToken, step.email, step.displayName, driveToken, onTurnedOn, onError)
+            MailboxAction.DELETE ->
+                deleteAccount(step.googleIdToken, step.email, step.displayName, driveToken, onDeleted, onError)
+        }
+        return true
+    }
 
     fun refresh() {
         viewModelScope.launch {
@@ -108,7 +150,7 @@ class MailboxViewModel(context: Context) : ViewModel() {
             Log.w(TAG, "Ignored \"$busyMessage\": still busy with \"${current.busyMessage}\"")
             return
         }
-        _uiState.value = current.copy(busyMessage = busyMessage)
+        _uiState.value = current.copy(busyMessage = busyMessage, step = null)
 
         viewModelScope.launch {
             val outcome: Result<T> = try {
