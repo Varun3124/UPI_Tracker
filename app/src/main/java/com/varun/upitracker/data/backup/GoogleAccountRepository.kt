@@ -16,7 +16,7 @@ import com.google.android.gms.auth.api.identity.AuthorizationResult
 import com.google.android.gms.auth.api.identity.Identity
 import com.google.android.gms.common.api.ApiException
 import com.google.android.gms.common.api.Scope
-import com.google.android.libraries.identity.googleid.GetGoogleIdOption
+import com.google.android.libraries.identity.googleid.GetSignInWithGoogleOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.varun.upitracker.R
 import com.varun.upitracker.data.mailbox.MailboxServices
@@ -86,14 +86,17 @@ class GoogleAccountRepository(context: Context) {
         MailboxServices.get(appContext).endSessionOnThisPhone()
     }
 
+    /**
+     * The full "Sign in with Google" dialog, for a button the user has just pressed.
+     *
+     * Not the one-tap bottom sheet (`GetGoogleIdOption`), which this used before. That sheet is meant
+     * to be offered unprompted, so once someone has dismissed it Google stops showing it for a while
+     * and answers "cancelled" at once -- which, after a tap on "Turn on", looked like a button that did
+     * nothing. This dialog always appears, lists every account on the phone, and reports a setup
+     * problem (a signing key the OAuth client does not know, say) as an error instead of quietly.
+     */
     suspend fun signIn(activity: Activity): SignInResult {
-        val option = GetGoogleIdOption.Builder()
-            // False so the picker offers every account on the device, not only ones that have
-            // already used this app. A first sign-in would otherwise show an empty sheet.
-            .setFilterByAuthorizedAccounts(false)
-            .setServerClientId(webClientId)
-            .setAutoSelectEnabled(false)
-            .build()
+        val option = GetSignInWithGoogleOption.Builder(webClientId).build()
 
         return try {
             val response = CredentialManager.create(appContext)
@@ -112,6 +115,8 @@ class GoogleAccountRepository(context: Context) {
             prefs.edit().putString(BackupPrefKeys.ACCOUNT_EMAIL, account.email).apply()
             SignInResult.Success(account, credential.idToken)
         } catch (error: GetCredentialCancellationException) {
+            // Logged, since it is also what a sign-in stopped by Google rather than by the user looks like.
+            Log.i(TAG, "Sign-in cancelled: ${error.message}")
             SignInResult.Cancelled
         } catch (error: NoCredentialException) {
             SignInResult.NoAccount
