@@ -35,6 +35,7 @@ import com.varun.upitracker.ui.declaration.AgreementDialogs
 import com.varun.upitracker.ui.declaration.AgreementText
 import com.varun.upitracker.ui.mailbox.MailboxActivity
 import com.varun.upitracker.ui.share.RecipientPicker
+import com.varun.upitracker.data.prefs.IouThresholdPrefs
 import com.varun.upitracker.ui.theme.ThemeAttr
 import com.varun.upitracker.ui.theme.padRootForSystemBars
 import com.varun.upitracker.ui.theme.themeColor
@@ -145,19 +146,24 @@ class FriendDetailActivity : AppCompatActivity() {
         friendName = friend.name
 
         findViewById<TextView>(R.id.tvFriendDetailName).text = friend.name
+        // A few rupees either way is settled for every purpose; see IouThresholds.
+        val thresholds = IouThresholdPrefs(this).get()
         findViewById<TextView>(R.id.tvFriendDetailBalance).apply {
             val net = state.summary?.netBalancePaise ?: 0L
+            val settled = thresholds.isSettled(net)
             text = when {
+                net == 0L -> "Settled"
+                // What is left still shows: the ledger holds it, and it is not nothing.
+                settled -> "Settled (${AmountFormat.rupees(kotlin.math.abs(net))} left)"
                 net > 0 -> "+" + AmountFormat.rupees(net)
-                net < 0 -> "-" + AmountFormat.rupees(-net)
-                else -> "Settled"
+                else -> "-" + AmountFormat.rupees(-net)
             }
             setTextColor(
                 themeColor(
                     when {
+                        settled -> ThemeAttr.amountNeutral
                         net > 0 -> ThemeAttr.positive
-                        net < 0 -> ThemeAttr.negative
-                        else -> ThemeAttr.amountNeutral
+                        else -> ThemeAttr.negative
                     }
                 )
             )
@@ -190,13 +196,13 @@ class FriendDetailActivity : AppCompatActivity() {
         }
 
         // Only worth splitting out once a chapter is actually moving the figure above.
+        val thresholds = IouThresholdPrefs(this).get()
         personal.visibility = View.VISIBLE
         personal.text = when {
+            thresholds.isSettled(summary.personalBalancePaise) -> "Directly between you: settled"
             summary.personalBalancePaise > 0L ->
                 "Directly between you: +${AmountFormat.rupees(summary.personalBalancePaise)}"
-            summary.personalBalancePaise < 0L ->
-                "Directly between you: -${AmountFormat.rupees(-summary.personalBalancePaise)}"
-            else -> "Directly between you: settled"
+            else -> "Directly between you: -${AmountFormat.rupees(-summary.personalBalancePaise)}"
         }
 
         chapters.forEach { chapter ->
@@ -204,17 +210,17 @@ class FriendDetailActivity : AppCompatActivity() {
             row.findViewById<TextView>(R.id.tvChapterLineLabel).text = chapter.name
             val amount = row.findViewById<TextView>(R.id.tvChapterLineAmount)
             when {
+                thresholds.isSettled(chapter.amountPaise) -> {
+                    amount.text = "even"
+                    amount.setTextColor(themeColor(ThemeAttr.textMuted))
+                }
                 chapter.amountPaise > 0L -> {
                     amount.text = "owes you ${AmountFormat.rupees(chapter.amountPaise)}"
                     amount.setTextColor(themeColor(ThemeAttr.positive))
                 }
-                chapter.amountPaise < 0L -> {
+                else -> {
                     amount.text = "you owe ${AmountFormat.rupees(-chapter.amountPaise)}"
                     amount.setTextColor(themeColor(ThemeAttr.negative))
-                }
-                else -> {
-                    amount.text = "even"
-                    amount.setTextColor(themeColor(ThemeAttr.textMuted))
                 }
             }
             row.setOnClickListener {

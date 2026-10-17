@@ -30,6 +30,8 @@ import com.varun.upitracker.ui.FriendDetailActivity
 import com.varun.upitracker.ui.LedgerEntry
 import com.varun.upitracker.ui.mailbox.MailboxInboxActivity
 import com.varun.upitracker.ui.parcel.ParcelImportActivity
+import com.varun.upitracker.data.prefs.IouThresholdPrefs
+import com.varun.upitracker.domain.iou.IouThresholds
 import com.varun.upitracker.ui.color
 import com.varun.upitracker.ui.formatTransferAmount
 import com.varun.upitracker.ui.colorAttr
@@ -88,6 +90,8 @@ class DashboardActivity : AppCompatActivity() {
 
     /** IOUs this small are noise (loose change, rounding) - hidden by default. */
     private var showInsignificantIou = false
+    /** Re-read on every resume, so a change made in Settings shows on the way back. */
+    private var iouThresholds = IouThresholds()
     private var latestIouSummaries: List<FriendLedgerSummary> = emptyList()
 
     /**
@@ -189,6 +193,7 @@ class DashboardActivity : AppCompatActivity() {
 
     override fun onResume() {
         super.onResume()
+        iouThresholds = IouThresholdPrefs(this).get()
         loadData()
         viewModel.collectMailbox()
         if (hasSmsPermission()) {
@@ -470,20 +475,22 @@ class DashboardActivity : AppCompatActivity() {
             name.text = summary.friendName
             Avatars.bind(initials, summary.friendName, ActorType.FRIEND, fallback = "F")
             when {
+                // A few rupees either way is settled for every purpose (see IouThresholds). What is
+                // left still shows, in the neutral colour, since the ledger still holds it.
+                iouThresholds.isSettled(summary.netBalancePaise) -> {
+                    label.text = "settled"
+                    amount.text = AmountFormat.rupees(kotlin.math.abs(summary.netBalancePaise))
+                    amount.setTextColor(themeColor(ThemeAttr.amountNeutral))
+                }
                 summary.netBalancePaise > 0 -> {
                     label.text = "owes you"
                     amount.text = AmountFormat.rupees(summary.netBalancePaise)
                     amount.setTextColor(themeColor(ThemeAttr.positive))
                 }
-                summary.netBalancePaise < 0 -> {
+                else -> {
                     label.text = "you owe"
                     amount.text = AmountFormat.rupees(-summary.netBalancePaise)
                     amount.setTextColor(themeColor(ThemeAttr.negative))
-                }
-                else -> {
-                    label.text = "settled"
-                    amount.text = AmountFormat.rupees(0L)
-                    amount.setTextColor(themeColor(ThemeAttr.amountNeutral))
                 }
             }
             card.setOnClickListener {
@@ -497,7 +504,7 @@ class DashboardActivity : AppCompatActivity() {
 
 
     private fun isInsignificantIou(summary: FriendLedgerSummary): Boolean =
-        kotlin.math.abs(summary.netBalancePaise) < INSIGNIFICANT_IOU_THRESHOLD_PAISE
+        iouThresholds.isInsignificant(summary.netBalancePaise)
 
     private fun launchManualEntry() {
         startActivity(Intent(this, TransactionEntryActivity::class.java))
@@ -516,9 +523,6 @@ class DashboardActivity : AppCompatActivity() {
     }
 
     private companion object {
-        /** Rs100, below which an IOU balance is treated as noise and hidden by default. */
-        const val INSIGNIFICANT_IOU_THRESHOLD_PAISE = 10_000L
-
         /** Half-width, each side of a segment border, of the cash flow card's color blend. */
         const val BORDER_BLEND_DP = 10
     }

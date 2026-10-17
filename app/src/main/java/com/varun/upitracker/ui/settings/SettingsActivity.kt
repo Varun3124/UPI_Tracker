@@ -4,12 +4,18 @@ import android.content.Intent
 import android.os.Bundle
 import android.provider.Settings
 import android.view.View
+import android.widget.EditText
 import android.widget.ImageButton
+import android.widget.Toast
+import androidx.appcompat.app.AlertDialog
 import android.widget.TextView
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
 import com.varun.upitracker.R
+import com.varun.upitracker.data.prefs.IouThresholdPrefs
 import com.varun.upitracker.data.prefs.SelfIdentity
+import com.varun.upitracker.domain.iou.IouThresholds
+import com.varun.upitracker.util.AmountFormat
 import com.varun.upitracker.ui.AliasMappingsActivity
 import com.varun.upitracker.ui.CategorySettingsActivity
 import com.varun.upitracker.ui.backup.BackupActivity
@@ -53,6 +59,8 @@ class SettingsActivity : AppCompatActivity() {
             SelfIdentityDialog.show(this) { renderSelfIdentity() }
         }
         renderSelfIdentity()
+        findViewById<View>(R.id.cardIouThresholds).setOnClickListener { editIouThresholds() }
+        renderIouThresholds()
         findViewById<View>(R.id.cardFriendAliases).setOnClickListener {
             startActivity(AliasMappingsActivity.createIntent(this, AliasMappingsActivity.MODE_FRIEND))
         }
@@ -62,6 +70,55 @@ class SettingsActivity : AppCompatActivity() {
         findViewById<View>(R.id.cardNotificationAccess).setOnClickListener {
             startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
         }
+    }
+
+    private fun renderIouThresholds() {
+        val thresholds = IouThresholdPrefs(this).get()
+        findViewById<TextView>(R.id.tvIouThresholdsSummary).text =
+            "Settled below ${AmountFormat.rupeesExact(thresholds.settledBelowPaise)} · " +
+                "insignificant below ${AmountFormat.rupeesExact(thresholds.insignificantBelowPaise)}"
+    }
+
+    /** Both lines in one dialog, since each is only right in relation to the other. */
+    private fun editIouThresholds() {
+        val store = IouThresholdPrefs(this)
+        val current = store.get()
+        val content = layoutInflater.inflate(R.layout.dialog_iou_thresholds, null)
+        val etSettled = content.findViewById<EditText>(R.id.etSettledBelow)
+        val etInsignificant = content.findViewById<EditText>(R.id.etInsignificantBelow)
+        etSettled.setText(AmountFormat.forInput(current.settledBelowPaise))
+        etInsignificant.setText(AmountFormat.forInput(current.insignificantBelowPaise))
+
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("IOU thresholds")
+            .setView(content)
+            .setPositiveButton("Save", null)
+            .setNeutralButton("Defaults", null)
+            .setNegativeButton("Cancel", null)
+            .create()
+        // Wired after show so a refusal keeps the dialog open with what was typed.
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener {
+                etSettled.setText(AmountFormat.forInput(IouThresholds.DEFAULT_SETTLED_BELOW_PAISE))
+                etInsignificant.setText(AmountFormat.forInput(IouThresholds.DEFAULT_INSIGNIFICANT_BELOW_PAISE))
+            }
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val settled = AmountFormat.paiseOrNull(etSettled.text.toString().ifBlank { "0" })
+                val insignificant = AmountFormat.paiseOrNull(etInsignificant.text.toString().ifBlank { "0" })
+                val problem = if (settled == null || insignificant == null) {
+                    "Enter an amount in rupees for both."
+                } else {
+                    store.set(IouThresholds(settled, insignificant))
+                }
+                if (problem != null) {
+                    Toast.makeText(this, problem, Toast.LENGTH_LONG).show()
+                } else {
+                    dialog.dismiss()
+                    renderIouThresholds()
+                }
+            }
+        }
+        dialog.show()
     }
 
     private fun renderSelfIdentity() {

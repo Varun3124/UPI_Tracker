@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Settings > IOU thresholds: when a small balance stops counting as owed, and stops showing. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:paddingStart="@dimen/space_xl"
+    android:paddingEnd="@dimen/space_xl"
+    android:paddingTop="@dimen/space_s">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="Settled below (₹)"
+        android:textAppearance="@style/TextAppearance.UPI.Caption" />
+
+    <EditText
+        android:id="@+id/etSettledBelow"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:inputType="numberDecimal"
+        android:importantForAutofill="no" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="A balance smaller than this either way reads as settled."
+        android:textAppearance="@style/TextAppearance.UPI.Caption"
+        android:textColor="?attr/appTextMuted" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/space_m"
+        android:text="Insignificant below (₹)"
+        android:textAppearance="@style/TextAppearance.UPI.Caption" />
+
+    <EditText
+        android:id="@+id/etInsignificantBelow"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:inputType="numberDecimal"
+        android:importantForAutofill="no" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:text="A balance smaller than this is hidden on the dashboard until you show it."
+        android:textAppearance="@style/TextAppearance.UPI.Caption"
+        android:textColor="?attr/appTextMuted" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/space_m"
+        android:text="Only how balances are shown changes. Every amount owed is still kept exactly."
+        android:textAppearance="@style/TextAppearance.UPI.Caption"
+        android:textColor="?attr/appTextMuted" />
+</LinearLayout>

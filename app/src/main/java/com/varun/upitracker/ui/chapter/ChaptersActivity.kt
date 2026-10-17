@@ -18,6 +18,7 @@ import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.varun.upitracker.R
+import com.varun.upitracker.data.prefs.IouThresholdPrefs
 import com.varun.upitracker.database.entity.ChapterState
 import com.varun.upitracker.database.entity.Friend
 import com.varun.upitracker.ui.formatRupees
@@ -165,20 +166,21 @@ class ChaptersActivity : AppCompatActivity() {
                 subtitle.text = "$state · $members$pending"
 
                 when {
+                    // A few rupees either way is settled for every purpose; see IouThresholds.
+                    IouThresholdPrefs(itemView.context).get().isSettled(row.myNetPaise) -> {
+                        netLabel.text = ""
+                        net.text = "Even"
+                        net.setTextColor(itemView.themeColor(ThemeAttr.amountNeutral))
+                    }
                     row.myNetPaise > 0L -> {
                         netLabel.text = "owed to you"
                         net.text = formatRupees(row.myNetPaise)
                         net.setTextColor(itemView.themeColor(ThemeAttr.positive))
                     }
-                    row.myNetPaise < 0L -> {
+                    else -> {
                         netLabel.text = "you owe"
                         net.text = formatRupees(-row.myNetPaise)
                         net.setTextColor(itemView.themeColor(ThemeAttr.negative))
-                    }
-                    else -> {
-                        netLabel.text = ""
-                        net.text = "Even"
-                        net.setTextColor(itemView.themeColor(ThemeAttr.amountNeutral))
                     }
                 }
 
