@@ -427,6 +427,24 @@ class AccountRepository private constructor(
     }
 
     /**
+     * How far the combined balance of [accountIds] moved over `(fromEpochExclusive, toEpoch]`:
+     * positive when more came in than went out.
+     *
+     * Physical money, not logical: every movement the accounts saw counts, including lending to a
+     * friend and being paid back, and a reconciliation that corrected a balance -- the things
+     * [getSpendSince] deliberately leaves out because they do not change net worth.
+     */
+    suspend fun getBalanceChange(
+        accountIds: Collection<String>,
+        fromEpochExclusive: Long,
+        toEpoch: Long = System.currentTimeMillis()
+    ): Long = accountIds.sumOf { id ->
+        // getBalance's bound is inclusive, so the balance at the exclusive start already holds
+        // everything dated at or before it, and the difference is exactly the window.
+        getBalance(id, toEpoch) - getBalance(id, fromEpochExclusive)
+    }
+
+    /**
      * Net spend since [fromEpoch]: money that actually left net worth, not just what was spent.
      *
      * ME's expense total minus ME's income total (neither scoped to an account — see

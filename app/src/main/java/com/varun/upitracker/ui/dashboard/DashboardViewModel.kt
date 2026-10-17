@@ -12,7 +12,9 @@ import com.varun.upitracker.data.repository.AccountRepository
 import com.varun.upitracker.data.repository.LedgerRepository
 import com.varun.upitracker.database.AppDatabase
 import com.varun.upitracker.database.entity.MailboxMessageState
+import com.varun.upitracker.domain.statistics.AccountScope
 import com.varun.upitracker.domain.statistics.PerDayRate
+import com.varun.upitracker.domain.statistics.resolve
 import com.varun.upitracker.domain.statistics.StatisticsPeriods
 import com.varun.upitracker.domain.statistics.StatsPeriod
 import com.varun.upitracker.maintenance.MailboxCollection
@@ -75,10 +77,15 @@ class DashboardViewModel(private val context: Context) : ViewModel() {
                 val transfers = db.accountTransferDao().getRecentTransfers(5).map(LedgerEntry::Transfer)
                 val weekly = StatisticsPeriods.rangeFor(StatsPeriod.WEEKLY, now)
                 val monthly = StatisticsPeriods.rangeFor(StatsPeriod.MONTHLY, now)
+                // All accounts, the same set the statistics scope picker calls "All accounts".
+                val allAccounts = AccountScope.Total.resolve(db.accountDao().getAllSync())
+                // Spend is what left the accounts, so a fall in the balance reads as positive.
+                suspend fun spentSince(fromExclusive: Long) =
+                    -accountRepository.getBalanceChange(allAccounts, fromExclusive, now)
                 DashboardUiState(
-                    dailySpendPaise = accountRepository.getSpendSince(spendFrom(StatsPeriod.DAILY, now)),
-                    weeklySpendPaise = accountRepository.getSpendSince(weekly.fromExclusive),
-                    monthlySpendPaise = accountRepository.getSpendSince(monthly.fromExclusive),
+                    dailySpendPaise = spentSince(spendFrom(StatsPeriod.DAILY, now)),
+                    weeklySpendPaise = spentSince(weekly.fromExclusive),
+                    monthlySpendPaise = spentSince(monthly.fromExclusive),
                     // fromExclusive is one millisecond before the first day; add it back to get the
                     // inclusive start the day count is measured from.
                     weeklyDays = PerDayRate.daysElapsed(weekly.fromExclusive + 1, weekly.toInclusive, now),
@@ -144,13 +151,13 @@ class DashboardViewModel(private val context: Context) : ViewModel() {
     }
 
     /**
-     * The lower bound [AccountRepository.getSpendSince] wants, which is **exclusive**.
+     * The lower bound [AccountRepository.getBalanceChange] wants, which is **exclusive**.
      *
      * Passing a start-of-period epoch straight in drops anything dated exactly at midnight, and
      * `XlsStatementReader.parseDate` gives every statement-imported row exactly midnight -- so a
      * row imported today was never counted in Today, and one dated the 1st never counted in This
-     * Month. [StatisticsPeriods] already returns the corrected bound, and using it here is also
-     * what keeps these figures agreeing with the statistics screen they open.
+     * Month. [StatisticsPeriods] already returns the corrected bound, and using it here keeps these
+     * figures on the same days as the statistics screen they open.
      */
     private fun spendFrom(period: StatsPeriod, now: Long): Long =
         StatisticsPeriods.rangeFor(period, now).fromExclusive
