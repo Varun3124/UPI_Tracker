@@ -32,6 +32,7 @@ import com.varun.upitracker.domain.mailbox.LinkInviteCode
 import com.varun.upitracker.domain.parcel.SenderChoice
 import com.varun.upitracker.ui.chapter.ChapterDetailActivity
 import com.varun.upitracker.ui.mailbox.MailboxActivity
+import com.varun.upitracker.ui.openDashboardIfLeavingRoot
 import com.varun.upitracker.ui.settings.AppViewModelFactory
 import com.varun.upitracker.ui.theme.ThemeAttr
 import com.varun.upitracker.ui.theme.padRootForSystemBars
@@ -71,6 +72,15 @@ class ParcelImportActivity : AppCompatActivity() {
     private val dateFmt = SimpleDateFormat("dd MMM yyyy", Locale.getDefault())
     private lateinit var viewModel: ParcelImportViewModel
     private var adapter: ParcelRowAdapter? = null
+
+    /** Set once the dashboard is already behind the page this one hands over to. */
+    private var dashboardPlaced = false
+
+    /** Opened from an invite link, this can be the task's root: see [openDashboardIfLeavingRoot]. */
+    override fun finish() {
+        if (!dashboardPlaced) openDashboardIfLeavingRoot()
+        super.finish()
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
@@ -412,6 +422,9 @@ class ParcelImportActivity : AppCompatActivity() {
                 viewModel.keepCopy(
                     preview,
                     onKept = { chapterId ->
+                        // Behind the chapter, not on top of it: back from the chapter lands there.
+                        openDashboardIfLeavingRoot()
+                        dashboardPlaced = true
                         startActivity(
                             Intent(this, ChapterDetailActivity::class.java)
                                 .putExtra(ChapterDetailActivity.EXTRA_CHAPTER_ID, chapterId)

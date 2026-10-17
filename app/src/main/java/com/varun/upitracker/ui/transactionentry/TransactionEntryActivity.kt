@@ -102,6 +102,7 @@ import com.varun.upitracker.ui.displayName
 import com.varun.upitracker.ui.ScreenViewModelFactory
 import com.varun.upitracker.ui.TransactionEntryViewModel
 import com.varun.upitracker.ui.meShareOnSide
+import com.varun.upitracker.ui.openDashboardIfLeavingRoot
 import com.varun.upitracker.ui.payeeActorRef
 import com.varun.upitracker.ui.payerActorRef
 import com.varun.upitracker.ui.resolveActorDisplayName
@@ -353,6 +354,12 @@ class TransactionEntryActivity : AppCompatActivity() {
             }
         }
         viewModel.load(transactionId, transferId, showOriginal = isOriginalView)
+    }
+
+    /** Opened from a notification or the overlay, this can be the task's root: see [openDashboardIfLeavingRoot]. */
+    override fun finish() {
+        openDashboardIfLeavingRoot()
+        super.finish()
     }
 
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {

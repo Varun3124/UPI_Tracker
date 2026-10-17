@@ -18,6 +18,7 @@ import com.varun.upitracker.data.mailbox.MailboxStatus
 import com.varun.upitracker.data.mailbox.PendingLinkReply
 import com.varun.upitracker.domain.mailbox.KeyFingerprint
 import com.varun.upitracker.ui.declaration.AgreementDialogs
+import com.varun.upitracker.ui.openDashboardIfLeavingRoot
 import com.varun.upitracker.ui.parcel.ParcelImportActivity
 import com.varun.upitracker.ui.settings.AppViewModelFactory
 import com.varun.upitracker.ui.theme.padRootForSystemBars
@@ -37,6 +38,12 @@ class MailboxInboxActivity : AppCompatActivity() {
     private val dateFmt = SimpleDateFormat("dd MMM, HH:mm", Locale.getDefault())
     private lateinit var viewModel: MailboxInboxViewModel
     private lateinit var agreementDialogs: AgreementDialogs
+
+    /** Opened from the mailbox's notification, this can be the task's root: see [openDashboardIfLeavingRoot]. */
+    override fun finish() {
+        openDashboardIfLeavingRoot()
+        super.finish()
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()

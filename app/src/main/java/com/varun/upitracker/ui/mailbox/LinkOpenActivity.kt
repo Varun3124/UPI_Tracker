@@ -27,8 +27,11 @@ class LinkOpenActivity : Activity() {
             Toast.makeText(this, "That link does not carry an invite. Ask for it to be sent again.", Toast.LENGTH_LONG)
                 .show()
         }
+        // Into the app's own task rather than the chat app's, so back goes through this app's pages
+        // to its dashboard instead of dropping into the chat.
         startActivity(
             Intent(this, ParcelImportActivity::class.java)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 .putExtra(ParcelImportActivity.EXTRA_INVITE_CODE, code)
         )
         finish()
