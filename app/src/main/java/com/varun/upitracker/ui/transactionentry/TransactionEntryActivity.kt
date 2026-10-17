@@ -144,6 +144,12 @@ class TransactionEntryActivity : AppCompatActivity() {
 
         /** The picker is a flat dialog list, so keep it to a scannable number of recent purchases. */
         private const val REFUND_CANDIDATE_LIMIT = 60
+
+        /**
+         * A primary friend row whose name matches nobody yet. Not blank, so the row still counts in
+         * the live split; saving replaces it with the friend the name resolves to.
+         */
+        private const val UNRESOLVED_PRIMARY_KEY = "F:?"
     }
 
     private data class CategoryEntry(
@@ -1367,6 +1373,21 @@ class TransactionEntryActivity : AppCompatActivity() {
             refreshRefundCandidatesIfNeeded()
         }
 
+        // The same for a friend at either end, for the same reason: the endpoint's id is what saving
+        // trusts first (see resolveFriendId), so a renamed primary friend kept the friend it was
+        // loaded with -- on a friend's transaction, always the sender. A name that matches nobody
+        // clears it, and saving finds or adds that person and points the row at them.
+        if (rowIndex == 0 && actorTypeFor(isPayer) == ActorType.FRIEND) {
+            val friend = allFriends.firstOrNull { it.name.equals(trimmed, ignoreCase = true) }
+            if (isPayer) payerFriendId = friend?.id else payeeFriendId = friend?.id
+            if (friend != null) {
+                updateShareRowParticipant(rows, 0, ActorType.FRIEND, friend.id, friend.name, friend.avatarInitials)
+            } else if (rows[0].friendId != null) {
+                rows[0] = rows[0].copy(key = UNRESOLVED_PRIMARY_KEY, friendId = null)
+            }
+            return
+        }
+
         val match = allFriends.firstOrNull { it.name == trimmed }
         if (match != null) {
             updateShareRowParticipant(rows, rowIndex, ActorType.FRIEND, match.id, match.name, match.avatarInitials)
@@ -2430,6 +2451,7 @@ class TransactionEntryActivity : AppCompatActivity() {
             ActorType.FRIEND -> {
                 val friendId = resolveFriendId(db, typedLabel, isPayer)
                 currentSmsRawLabel(isPayer)?.let { maybeLinkRawAliasToFriend(db, friendId, it) }
+                pointPrimaryRowAt(db, isPayer, friendId)
                 ActorRef(ActorType.FRIEND, friendId = friendId, rawLabel = typedLabel)
             }
             ActorType.MERCHANT -> {
@@ -2439,6 +2461,19 @@ class TransactionEntryActivity : AppCompatActivity() {
             }
             else -> ActorRef(ActorType.UNKNOWN, rawLabel = typedLabel)
         }
+    }
+
+    /**
+     * Makes the primary share row name [friendId], the friend the endpoint was just resolved to.
+     * Runs before the shares are built, so a primary friend typed in by a new name saves with their
+     * share under them rather than under whoever the row named before.
+     */
+    private suspend fun pointPrimaryRowAt(db: AppDatabase, isPayer: Boolean, friendId: Long) {
+        if (isPayer) payerFriendId = friendId else payeeFriendId = friendId
+        val rows = rowsFor(isPayer)
+        if (rows.isEmpty() || rows[0].friendId == friendId) return
+        val friend = allFriends.firstOrNull { it.id == friendId } ?: db.friendDao().getFriendById(friendId) ?: return
+        updateShareRowParticipant(rows, 0, ActorType.FRIEND, friend.id, friend.name, friend.avatarInitials)
     }
 
     private suspend fun resolveFriendId(db: AppDatabase, typedLabel: String, isPayer: Boolean): Long {
