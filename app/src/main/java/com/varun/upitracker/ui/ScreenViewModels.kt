@@ -140,6 +140,8 @@ data class AllTransactionsUiState(
     val pendingOnly: Boolean = false,
     /** True when only entries where neither side of the transaction is ME should show. */
     val thirdPartyOnly: Boolean = false,
+    /** True when only transactions that came from a friend, or went to one, should show. */
+    val sharedOnly: Boolean = false,
     /** Every account, for the scope picker: archived ones included, since one can be named. */
     val accounts: List<Account> = emptyList(),
     /** Which accounts the list and the balance row cover. */
@@ -172,7 +174,7 @@ data class AllTransactionsUiState(
     val selected: Set<String> = emptySet()
 ) {
     val isFiltered: Boolean
-        get() = pendingOnly || thirdPartyOnly || scope != AccountScope.Liquid ||
+        get() = pendingOnly || thirdPartyOnly || sharedOnly || scope != AccountScope.Liquid ||
             query.isNotBlank() || minPaise != null || maxPaise != null || payee != null
 
     val isOpeningSpeculative: Boolean
@@ -211,6 +213,7 @@ class AllTransactionsViewModel(context: Context) : ViewModel() {
     private var window: ListWindow = ListWindow.currentMonth()
     private var pendingOnly: Boolean = false
     private var thirdPartyOnly: Boolean = false
+    private var sharedOnly: Boolean = false
     private var scope: AccountScope = AccountScope.Liquid
     private var query: String = ""
     private var minPaise: Long? = null
@@ -309,6 +312,8 @@ class AllTransactionsViewModel(context: Context) : ViewModel() {
     fun setPendingOnly(enabled: Boolean) = ifChanged(enabled != pendingOnly) { pendingOnly = enabled }
 
     fun setThirdPartyOnly(enabled: Boolean) = ifChanged(enabled != thirdPartyOnly) { thirdPartyOnly = enabled }
+
+    fun setSharedOnly(enabled: Boolean) = ifChanged(enabled != sharedOnly) { sharedOnly = enabled }
 
     fun setShowBalance(enabled: Boolean) = ifChanged(enabled != showBalance) { showBalance = enabled }
 
@@ -436,6 +441,13 @@ class AllTransactionsViewModel(context: Context) : ViewModel() {
                 !thirdPartyOnly ||
                     (it is LedgerEntry.Tx && it.transaction.amountPerspective() == AmountPerspective.NEUTRAL)
             }
+            // Received from a friend (pasted or by mailbox), or sent to one: a sent row carries the
+            // reference friends dedup it under from the first time it goes out by mailbox or in a
+            // shared chapter. A pasted send leaves nothing behind on this phone to find it by.
+            .filter {
+                !sharedOnly ||
+                    (it is LedgerEntry.Tx && (it.transaction.sharedRefId != null || it.transaction.shareRef != null))
+            }
             .filter { it.isInScope(scope, ids) }
             .filter { it.matchesAmount(minPaise, maxPaise) }
             .filter { entry -> payee.let { it == null || entry.involves(it.ref) } }
@@ -454,6 +466,7 @@ class AllTransactionsViewModel(context: Context) : ViewModel() {
             scope = scope,
             pendingOnly = pendingOnly,
             thirdPartyOnly = thirdPartyOnly,
+            sharedOnly = sharedOnly,
             query = query,
             minPaise = minPaise,
             maxPaise = maxPaise,
@@ -485,6 +498,8 @@ class AllTransactionsViewModel(context: Context) : ViewModel() {
                 is LedgerEntry.Tx -> entry.transaction.resolveTypeLabel()
                 is LedgerEntry.Transfer -> entry.transfer.resolveRouteLabel(loadedAccountLabels)
             },
+            // Badged in the dashboard's pending yellow, so a row still waiting on review stands out.
+            noteBadgeAttr = ThemeAttr.warning.takeIf { entry is LedgerEntry.Tx && entry.transaction.isPending },
             balance = if (showBalance && balance != null) formatRupees(balance) else null,
             // Everything before the first reconciliation is worked out from the transaction record
             // alone, which is the part nobody has ever checked.

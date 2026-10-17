@@ -73,6 +73,7 @@ class AllTransactionsActivity : AppCompatActivity() {
     private lateinit var btnAccountFilter: TextView
     private lateinit var btnAmountRange: TextView
     private lateinit var btnThirdPartyOnly: TextView
+    private lateinit var btnSharedOnly: TextView
     private lateinit var btnPayeeFilter: TextView
     private lateinit var cbShowBalance: CheckBox
     private lateinit var etSearch: EditText
@@ -109,6 +110,11 @@ class AllTransactionsActivity : AppCompatActivity() {
         btnThirdPartyOnly = findViewById(R.id.btnThirdPartyOnly)
         btnThirdPartyOnly.setOnClickListener {
             viewModel.setThirdPartyOnly(viewModel.uiState.value?.thirdPartyOnly != true)
+        }
+
+        btnSharedOnly = findViewById(R.id.btnSharedOnly)
+        btnSharedOnly.setOnClickListener {
+            viewModel.setSharedOnly(viewModel.uiState.value?.sharedOnly != true)
         }
 
         btnAccountFilter = findViewById(R.id.btnAccountFilter)
@@ -292,6 +298,7 @@ class AllTransactionsActivity : AppCompatActivity() {
     private fun renderFilterBar(state: AllTransactionsUiState) {
         btnPendingOnly.isSelected = state.pendingOnly
         btnThirdPartyOnly.isSelected = state.thirdPartyOnly
+        btnSharedOnly.isSelected = state.sharedOnly
 
         // Never offered as a choice here -- only Statistics narrows to a payee -- so once cleared
         // it is gone rather than left behind as an empty pill.
@@ -330,6 +337,7 @@ class AllTransactionsActivity : AppCompatActivity() {
             state.payee?.let { add("with ${it.name}") }
             if (state.pendingOnly) add("pending review")
             if (state.thirdPartyOnly) add("with neither side me")
+            if (state.sharedOnly) add("shared with friends")
             if (state.scope != AccountScope.Liquid) add("in $scopeName")
             if (state.minPaise != null || state.maxPaise != null) add(amountRangeLabel(state))
             if (state.query.isNotBlank()) add("matching \"${state.query.trim()}\"")

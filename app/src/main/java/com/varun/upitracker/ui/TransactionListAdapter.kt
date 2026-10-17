@@ -1,5 +1,6 @@
 package com.varun.upitracker.ui
 
+import android.content.res.ColorStateList
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
@@ -8,6 +9,7 @@ import android.widget.TextView
 import androidx.recyclerview.widget.RecyclerView
 import com.varun.upitracker.R
 import com.varun.upitracker.ui.theme.ThemeAttr
+import com.varun.upitracker.ui.theme.dp
 import com.varun.upitracker.ui.theme.themeColor
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -31,6 +33,11 @@ data class TransactionRowInfo(
      * of choosing what to send -- and less use than its IOU state the rest of the time.
      */
     val noteWhenSelecting: String? = null,
+    /**
+     * When set, [note] is drawn as a small badge filled with this theme colour instead of as plain
+     * text -- the way the dashboard marks a pending transaction.
+     */
+    val noteBadgeAttr: Int? = null,
     /** Small figure under the amount: what this row did to a shared balance. */
     val trailing: String? = null,
     /** Theme attribute [trailing] is painted with. */
@@ -133,8 +140,9 @@ class TransactionListAdapter(
 
         holder.date.text = dateFmt.format(Date(entry.dateEpoch))
         holder.title.text = row?.title.orEmpty()
-        holder.note.text = (if (selectionMode) row?.noteWhenSelecting ?: row?.note else row?.note).orEmpty()
-        holder.note.setTextColor(holder.note.themeColor(ThemeAttr.secondary))
+        val noteText = (if (selectionMode) row?.noteWhenSelecting ?: row?.note else row?.note).orEmpty()
+        holder.note.text = noteText
+        bindNoteBadge(holder.note, row?.noteBadgeAttr?.takeIf { noteText == row.note })
 
         holder.trailing.text = row?.trailing.orEmpty()
         row?.trailing?.let { holder.trailing.setTextColor(holder.trailing.themeColor(row.trailingAttr)) }
@@ -162,6 +170,24 @@ class TransactionListAdapter(
             onLongPress(entry)
             true
         }
+    }
+
+    /** Plain text, or the dashboard's badge: set both ways on every bind, for the recycled holder. */
+    private fun bindNoteBadge(note: TextView, badgeAttr: Int?) {
+        if (badgeAttr == null) {
+            note.background = null
+            note.backgroundTintList = null
+            note.setPadding(0, 0, 0, 0)
+            note.setTextColor(note.themeColor(ThemeAttr.secondary))
+            return
+        }
+        val horizontal = note.resources.getDimensionPixelSize(R.dimen.space_s)
+        // The dashboard badge's own padding: 2dp above and below.
+        val vertical = note.dp(2)
+        note.setBackgroundResource(R.drawable.bg_badge)
+        note.backgroundTintList = ColorStateList.valueOf(note.themeColor(badgeAttr))
+        note.setPadding(horizontal, vertical, horizontal, vertical)
+        note.setTextColor(note.themeColor(ThemeAttr.onPrimary))
     }
 
     private companion object {

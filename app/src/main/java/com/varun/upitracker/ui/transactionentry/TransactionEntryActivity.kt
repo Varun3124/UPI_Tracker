@@ -54,6 +54,7 @@ import com.varun.upitracker.database.entity.Merchant
 import com.varun.upitracker.database.entity.MerchantCategory
 import com.varun.upitracker.database.entity.MerchantRawName
 import com.varun.upitracker.database.entity.MerchantUpiId
+import com.varun.upitracker.data.prefs.SelfIdentity
 import com.varun.upitracker.data.repository.ChapterRepository
 import com.varun.upitracker.data.repository.ReceivedOriginalRepository
 import com.varun.upitracker.data.repository.ReceivedOriginalView
@@ -181,6 +182,15 @@ class TransactionEntryActivity : AppCompatActivity() {
     private lateinit var viewModel: TransactionEntryViewModel
 
     private var currentTransaction: Transaction? = null
+
+    /** The alias friends see on what this person sends, or null if they never gave one. */
+    private val selfAlias: String? by lazy { SelfIdentity(this).alias() }
+
+    /**
+     * How a share row names the user: "Asha(Me)" once they have an alias, so the dropdown reads as
+     * them rather than as a word. Display only -- what is saved for ME stays "Me".
+     */
+    private val meLabel: String by lazy { selfAlias?.let { "$it(Me)" } ?: "Me" }
 
     /** This page is a received row's original: read-only, and its one action is Revert. */
     private val isOriginalView: Boolean by lazy { intent.getBooleanExtra(EXTRA_SHOW_ORIGINAL, false) }
@@ -594,7 +604,7 @@ class TransactionEntryActivity : AppCompatActivity() {
 
     private fun accountLabelForDisplay(isPayer: Boolean): String {
         val accounts = availableAccounts()
-        if (accounts.isEmpty()) return "Me"
+        if (accounts.isEmpty()) return meLabel
         // Falling back also rewrites the id, so we never display one account and persist another.
         val account = accounts.firstOrNull { it.id == accountIdFor(isPayer) }
             ?: accounts.first().also { setAccountId(isPayer, it.id) }
@@ -914,7 +924,7 @@ class TransactionEntryActivity : AppCompatActivity() {
 
     private fun primarySuggestions(isPayer: Boolean): List<String> = when (actorTypeFor(isPayer)) {
         ActorType.MERCHANT -> allMerchants.map { it.name }
-        ActorType.ME -> listOf("Me")
+        ActorType.ME -> listOf(meLabel)
         else -> allFriends.map { it.name }
     }
 
@@ -1004,7 +1014,7 @@ class TransactionEntryActivity : AppCompatActivity() {
         key = "ME",
         participantType = ActorType.ME,
         friendId = null,
-        label = "Me",
+        label = meLabel,
         initials = "ME",
         amountPaise = getCurrentAmountPaise()
     )
@@ -1078,7 +1088,7 @@ class TransactionEntryActivity : AppCompatActivity() {
 
     private fun buildShareRowFromShare(share: TransactionShare): ShareRow {
         val row = if (share.participantType == ActorType.ME) {
-            ShareRow("ME", ActorType.ME, null, "Me", "ME", share.amountPaise)
+            ShareRow("ME", ActorType.ME, null, meLabel, "ME", share.amountPaise)
         } else {
             val friend = allFriends.firstOrNull { it.id == share.friendId }
             // rawLabel is how a shared parcel names someone this database cannot identify. Without
@@ -1153,7 +1163,7 @@ class TransactionEntryActivity : AppCompatActivity() {
                     val showMeOption = !hasMeAlready || row.participantType == ActorType.ME
                     val availableFriends = allFriends.filter { "F:${it.id}" !in excludedKeys || it.id == row.friendId }
                     buildList {
-                        if (showMeOption) add("Me")
+                        if (showMeOption) add(meLabel)
                         addAll(availableFriends.map { it.name })
                     }
                 }
@@ -2459,6 +2469,18 @@ class TransactionEntryActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * Whether a name typed or picked into a share row means the user: "Me", the "Asha(Me)" the
+     * dropdown offers, or the bare alias. The bare alias gives way to a friend who has exactly that
+     * name, who could otherwise never be picked from the list at all.
+     */
+    private fun isMeName(name: String): Boolean {
+        val typed = name.trim()
+        if (typed.equals("Me", ignoreCase = true) || typed.equals(meLabel, ignoreCase = true)) return true
+        val alias = selfAlias ?: return false
+        return typed.equals(alias, ignoreCase = true) && allFriends.none { it.name.equals(typed, ignoreCase = true) }
+    }
+
     private suspend fun commitShareRowName(isPayer: Boolean, index: Int, rawName: String): Boolean {
         if (index <= 0) return true
         val rows = rowsFor(isPayer)
@@ -2472,12 +2494,12 @@ class TransactionEntryActivity : AppCompatActivity() {
 
         val db = AppDatabase.Companion.getInstance(applicationContext)
         val newKey = when {
-            name.equals("Me", ignoreCase = true) -> {
+            isMeName(name) -> {
                 if (rows.withIndex().any { (i, r) -> i != index && r.participantType == ActorType.ME }) {
                     toast("Person already added")
                     return false
                 }
-                updateShareRowParticipant(rows, index, ActorType.ME, null, "Me", "ME")
+                updateShareRowParticipant(rows, index, ActorType.ME, null, meLabel, "ME")
                 "ME"
             }
             else -> {
@@ -2529,9 +2551,9 @@ class TransactionEntryActivity : AppCompatActivity() {
         if (name.isBlank()) return
 
         when {
-            name.equals("Me", ignoreCase = true) -> {
+            isMeName(name) -> {
                 if (rows.withIndex().any { (i, r) -> i != index && r.participantType == ActorType.ME }) return
-                updateShareRowParticipant(rows, index, ActorType.ME, null, "Me", "ME")
+                updateShareRowParticipant(rows, index, ActorType.ME, null, meLabel, "ME")
             }
             else -> {
                 val existing = allFriends.firstOrNull { it.name.equals(name, ignoreCase = true) }
