@@ -1,6 +1,5 @@
 package com.varun.upitracker.ui.parcel
 
-import android.content.ClipboardManager
 import android.content.Intent
 import android.os.Bundle
 import android.text.Editable
@@ -8,12 +7,9 @@ import android.text.TextWatcher
 import android.view.LayoutInflater
 import android.view.View
 import android.view.ViewGroup
-import android.widget.AdapterView
-import android.widget.ArrayAdapter
 import android.widget.EditText
 import android.widget.ImageButton
 import android.widget.ImageView
-import android.widget.Spinner
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.addCallback
@@ -30,8 +26,10 @@ import com.varun.upitracker.data.repository.ParcelEntry
 import com.varun.upitracker.data.repository.ParcelImportPlan
 import com.varun.upitracker.database.entity.Friend
 import com.varun.upitracker.database.entity.IouRecovery
+import com.varun.upitracker.domain.chapter.ChapterPasteResult
 import com.varun.upitracker.domain.mailbox.KeyFingerprint
 import com.varun.upitracker.domain.mailbox.LinkInviteCode
+import com.varun.upitracker.domain.parcel.SenderChoice
 import com.varun.upitracker.ui.chapter.ChapterDetailActivity
 import com.varun.upitracker.ui.mailbox.MailboxActivity
 import com.varun.upitracker.ui.settings.AppViewModelFactory
@@ -46,9 +44,10 @@ import java.util.Locale
 /**
  * Look through what a friend sent, and keep what is new.
  *
- * Two ways in. From Settings, paste what a friend sent through a chat -- a parcel, or an invite to
- * link -- having said who it is from. From the friends mailbox, open a parcel already collected and
- * verified, whose sender needs no saying.
+ * Two ways in. From Settings, or by long-pressing Add on the dashboard, paste what a friend sent
+ * through a chat -- a parcel, a chapter copy, or an invite to link. A parcel names whoever wrote it,
+ * and the review says who that is here, open to correction; the other two ask. From the friends
+ * mailbox, open a parcel already collected and verified, whose sender needs no saying.
  *
  * One Activity with two panels rather than two activities, matching
  * [com.varun.upitracker.ui.statement.StatementImportActivity] -- the plan is too big to pass
@@ -71,7 +70,6 @@ class ParcelImportActivity : AppCompatActivity() {
 
     private val dateFmt = SimpleDateFormat("dd MMM yyyy", Locale.getDefault())
     private lateinit var viewModel: ParcelImportViewModel
-    private var friends: List<Friend> = emptyList()
     private var adapter: ParcelRowAdapter? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -85,15 +83,6 @@ class ParcelImportActivity : AppCompatActivity() {
         findViewById<ImageButton>(R.id.btnBackParcel).setOnClickListener { onBack() }
         onBackPressedDispatcher.addCallback(this) { onBack() }
 
-        findViewById<Spinner>(R.id.spinnerSender).onItemSelectedListener =
-            object : AdapterView.OnItemSelectedListener {
-                override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
-                    friends.getOrNull(position)?.let { viewModel.selectSender(it.id) }
-                }
-
-                override fun onNothingSelected(parent: AdapterView<*>?) = Unit
-            }
-
         findViewById<EditText>(R.id.etParcel).addTextChangedListener(object : TextWatcher {
             override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
             override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
@@ -102,20 +91,20 @@ class ParcelImportActivity : AppCompatActivity() {
             }
         })
 
-        findViewById<View>(R.id.btnPasteParcel).setOnClickListener { pasteFromClipboard() }
         findViewById<View>(R.id.btnRead).setOnClickListener {
-            viewModel.read(onInvite = ::confirmInvite, onChapterCopy = ::confirmChapterCopy, onError = ::toast)
+            viewModel.read(onInvite = ::chooseInviteSender, onChapterCopy = ::chooseChapterOwner, onError = ::toast)
         }
         findViewById<View>(R.id.btnCommitParcel).setOnClickListener { commit() }
         findViewById<View>(R.id.btnDismissParcel).setOnClickListener { confirmDismiss() }
+        findViewById<View>(R.id.btnChangeSender).setOnClickListener { chooseSender() }
 
         viewModel.uiState.observe(this) { render(it) }
         viewModel.loadFriends()
         intent.getStringExtra(EXTRA_INVITE_CODE)?.let { code ->
             // Filled in, not acted on: who the invite is from is still the user's to say, and saying
-            // it is what binds a friend to an account.
+            // it is what binds a friend to an account. Read asks.
             findViewById<EditText>(R.id.etParcel).setText(code)
-            toast("Say who this invite is from, then tap Read.")
+            toast("Tap Read to say who this invite is from.")
         }
         intent.getStringExtra(EXTRA_MESSAGE_ID)?.let { messageId ->
             viewModel.loadMailboxParcel(messageId) { error ->
@@ -136,17 +125,6 @@ class ParcelImportActivity : AppCompatActivity() {
     }
 
     private fun renderSetup(state: ParcelImportUiState) {
-        if (state.friends !== friends) {
-            friends = state.friends
-            findViewById<Spinner>(R.id.spinnerSender).adapter = ArrayAdapter(
-                this,
-                android.R.layout.simple_spinner_dropdown_item,
-                friends.map { it.name }
-            )
-        }
-        findViewById<View>(R.id.tvNoFriends).visibility =
-            if (friends.isEmpty()) View.VISIBLE else View.GONE
-
         findViewById<TextView>(R.id.btnRead).apply {
             isEnabled = state.canRead
             alpha = if (state.canRead) 1f else 0.5f
@@ -156,13 +134,17 @@ class ParcelImportActivity : AppCompatActivity() {
     private fun renderReview(state: ParcelImportUiState) {
         val plan = state.plan ?: return
 
-        findViewById<TextView>(R.id.tvParcelTitle).text =
-            if (plan.isFromMailbox) "From ${plan.senderName}" else "Paste from a friend"
+        findViewById<TextView>(R.id.tvParcelTitle).text = when {
+            plan.isFromMailbox -> "From ${plan.senderName}"
+            plan.senderAlias != null -> "From ${plan.senderAlias}"
+            else -> "Paste from a friend"
+        }
         findViewById<View>(R.id.btnDismissParcel).visibility =
             if (plan.isFromMailbox) View.VISIBLE else View.GONE
+        renderSender(plan)
 
         findViewById<TextView>(R.id.tvReviewSummary).text = buildString {
-            append(if (plan.isFromMailbox) "From ${plan.senderName}, through the mailbox. " else "From ${plan.senderName}. ")
+            if (plan.isFromMailbox) append("From ${plan.senderName}, through the mailbox. ")
             append(
                 when (plan.entries.size) {
                     0 -> "Nothing new."
@@ -202,9 +184,60 @@ class ParcelImportActivity : AppCompatActivity() {
                 count == 1 -> "Save 1 pending transaction"
                 else -> "Save $count pending transactions"
             }
-            isEnabled = (count > 0 || plan.isFromMailbox) && !state.busy
+            isEnabled = (count > 0 || plan.isFromMailbox) && plan.canSave && !state.busy
             alpha = if (isEnabled) 1f else 0.5f
         }
+    }
+
+    /**
+     * Who the rows will land as coming from, and why -- the part of a pasted parcel the app worked
+     * out by itself, so the part the reader most needs to see before saving. Never shown for the
+     * mailbox, whose sender is verified.
+     */
+    private fun renderSender(plan: ParcelImportPlan) {
+        findViewById<View>(R.id.rowSender).visibility = if (plan.isFromMailbox) View.GONE else View.VISIBLE
+        if (plan.isFromMailbox) return
+        val from = plan.senderAlias?.let { "From $it · " }.orEmpty()
+        findViewById<TextView>(R.id.tvSenderMatch).text = when (val sender = plan.sender) {
+            is SenderChoice.Existing -> from + when (sender.how) {
+                SenderChoice.How.REMEMBERED -> "saved under ${plan.senderName}, as before"
+                SenderChoice.How.UPI_ID -> "saved under ${plan.senderName}, who has the same UPI ID"
+                SenderChoice.How.NAME -> "saved under ${plan.senderName}, by name"
+                SenderChoice.How.PICKED -> "saved under ${plan.senderName}"
+            }
+            is SenderChoice.New -> from + "will be added to your people as a new person"
+            SenderChoice.Unknown -> "This parcel is from an older app and does not say who sent it. Choose who, to save it."
+        }
+        findViewById<TextView>(R.id.btnChangeSender).text =
+            if (plan.sender is SenderChoice.Unknown) "Choose" else "Change"
+    }
+
+    /** The reader's say on who sent a pasted parcel: anyone in their list, or a new person by its alias. */
+    private fun chooseSender() {
+        val state = viewModel.uiState.value ?: return
+        val plan = state.plan ?: return
+        val alias = plan.senderAlias
+        val friends = state.friends
+        val options = buildList {
+            if (alias != null) add("Add \"$alias\" as a new person")
+            addAll(friends.map { it.name })
+        }
+        if (options.isEmpty()) {
+            toast("Add the person to your people list first, then paste it again.")
+            return
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Who sent this?")
+            .setItems(options.toTypedArray()) { _, index ->
+                val friendIndex = if (alias != null) index - 1 else index
+                val choice = if (friendIndex < 0) {
+                    SenderChoice.New(requireNotNull(alias))
+                } else {
+                    SenderChoice.Existing(friends[friendIndex].id, SenderChoice.How.PICKED)
+                }
+                viewModel.chooseSender(choice, ::toast)
+            }
+            .show()
     }
 
     private fun renderRows(state: ParcelImportUiState, plan: ParcelImportPlan) {
@@ -213,7 +246,6 @@ class ParcelImportActivity : AppCompatActivity() {
         if (existing == null || existing.entries !== plan.entries) {
             adapter = ParcelRowAdapter(
                 entries = plan.entries,
-                senderName = plan.senderName,
                 dateFmt = dateFmt,
                 onToggleSkip = { index -> viewModel.toggleSkipped(index) },
                 onMapPeople = { entry -> showPersonMapping(entry) }
@@ -222,7 +254,7 @@ class ParcelImportActivity : AppCompatActivity() {
                 recycler.adapter = it
             }
         }
-        adapter?.updateState(state.skipped, state.personMappings)
+        adapter?.updateState(state.skipped, state.personMappings, plan.senderName)
     }
 
     /**
@@ -257,25 +289,48 @@ class ParcelImportActivity : AppCompatActivity() {
     }
 
     /**
+     * Which of the user's people an invite is from. Binding a friend to an account is exactly what
+     * accepting does, so it is always asked, never matched -- the friend whose name matches the
+     * invite only starts out ticked. Someone not in the list yet can be added, once Link is pressed.
+     */
+    private fun chooseInviteSender(invite: LinkInviteCode) {
+        val friends = viewModel.uiState.value?.friends.orEmpty()
+        val options = listOf("Add \"${invite.nameHint}\" as a new person") + friends.map { it.name }
+        val matched = friends.indexOfFirst { it.name.trim().equals(invite.nameHint.trim(), ignoreCase = true) }
+        var picked = if (matched >= 0) matched + 1 else 0
+        AlertDialog.Builder(this)
+            .setTitle("Who is this invite from?")
+            .setSingleChoiceItems(options.toTypedArray(), picked) { _, index -> picked = index }
+            .setPositiveButton("Next") { _, _ ->
+                confirmInvite(invite, friends.getOrNull(picked - 1))
+            }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    /**
      * An invite binds a friend to an account, so the user sees exactly which friend and which
      * account before anything is sent. The fingerprint is there for anyone who wants to compare it
-     * with what their friend's app shows.
+     * with what their friend's app shows. A null [friend] is a new person named by the invite.
      */
-    private fun confirmInvite(invite: LinkInviteCode, friend: Friend) {
+    private fun confirmInvite(invite: LinkInviteCode, friend: Friend?) {
+        val name = friend?.name ?: invite.nameHint
+        val who = if (friend == null) "$name, added to your people list," else "$name in your people list"
         AlertDialog.Builder(this)
-            .setTitle("Link ${friend.name} with this account?")
+            .setTitle("Link $name with this account?")
             .setMessage(
                 "This invite is from the DhanMoney account of \"${invite.nameHint}\". Accepting it links " +
-                    "${friend.name} in your people list to that account, so transactions between you can " +
+                    "$who to that account, so transactions between you can " +
                     "arrive here directly instead of being pasted.\n\n" +
-                    "Only accept an invite ${friend.name} sent you themselves. They confirm it on their side " +
+                    "Only accept an invite $name sent you themselves. They confirm it on their side " +
                     "before anything is shared.\n\n" +
                     "Their security key: ${KeyFingerprint.display(invite.ownerFingerprint)}"
             )
             .setPositiveButton("Link") { _, _ ->
                 viewModel.acceptInvite(
                     invite = invite,
-                    friendId = friend.id,
+                    friendId = friend?.id,
+                    newName = invite.nameHint.takeIf { friend == null },
                     onDone = { message ->
                         toast(message)
                         finish()
@@ -285,6 +340,24 @@ class ParcelImportActivity : AppCompatActivity() {
                 )
             }
             .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    /**
+     * Whose chapter a pasted copy is. The copy names nobody, and who keeps it is a person already
+     * in the list -- the copy is counted against them -- so this picks from the list only.
+     */
+    private fun chooseChapterOwner(decoded: ChapterPasteResult.Ok) {
+        val friends = viewModel.uiState.value?.friends.orEmpty()
+        if (friends.isEmpty()) {
+            toast("Add the person to your people list first, then paste it again.")
+            return
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Whose chapter is \"${decoded.snapshot.name}\"?")
+            .setItems(friends.map { it.name }.toTypedArray()) { _, index ->
+                viewModel.previewCopy(friends[index].id, decoded, ::confirmChapterCopy, ::toast)
+            }
             .show()
     }
 
@@ -379,16 +452,6 @@ class ParcelImportActivity : AppCompatActivity() {
             .show()
     }
 
-    private fun pasteFromClipboard() {
-        val clip = getSystemService(ClipboardManager::class.java).primaryClip
-        val text = clip?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.coerceToText(this)?.toString()
-        if (text.isNullOrBlank()) {
-            toast("There is nothing on your clipboard.")
-            return
-        }
-        findViewById<EditText>(R.id.etParcel).setText(text)
-    }
-
     private fun commit() {
         viewModel.commit(
             onDone = { result ->
@@ -418,7 +481,6 @@ class ParcelImportActivity : AppCompatActivity() {
 
 private class ParcelRowAdapter(
     val entries: List<ParcelEntry>,
-    private val senderName: String,
     private val dateFmt: SimpleDateFormat,
     private val onToggleSkip: (Int) -> Unit,
     private val onMapPeople: (ParcelEntry) -> Unit
@@ -426,11 +488,13 @@ private class ParcelRowAdapter(
 
     private var skipped: Set<Int> = emptySet()
     private var personMappings: Map<String, Long> = emptyMap()
+    private var senderName: String = ""
 
-    fun updateState(skipped: Set<Int>, personMappings: Map<String, Long>) {
-        if (this.skipped == skipped && this.personMappings == personMappings) return
+    fun updateState(skipped: Set<Int>, personMappings: Map<String, Long>, senderName: String) {
+        if (this.skipped == skipped && this.personMappings == personMappings && this.senderName == senderName) return
         this.skipped = skipped
         this.personMappings = personMappings
+        this.senderName = senderName
         notifyDataSetChanged()
     }
 

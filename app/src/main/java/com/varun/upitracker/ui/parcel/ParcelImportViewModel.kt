@@ -23,8 +23,11 @@ import com.varun.upitracker.domain.chapter.ChapterPasteResult
 import com.varun.upitracker.domain.mailbox.InviteCode
 import com.varun.upitracker.domain.mailbox.InviteDecodeResult
 import com.varun.upitracker.domain.mailbox.LinkInviteCode
+import com.varun.upitracker.domain.parcel.Parcel
 import com.varun.upitracker.domain.parcel.ParcelCodec
 import com.varun.upitracker.domain.parcel.ParcelDecodeResult
+import com.varun.upitracker.domain.parcel.SenderChoice
+import com.varun.upitracker.util.initialsOf
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -32,8 +35,9 @@ import kotlinx.coroutines.withContext
 
 data class ParcelImportUiState(
     val friends: List<Friend> = emptyList(),
-    val senderFriendId: Long? = null,
     val pastedText: String = "",
+    /** The pasted parcel as read, kept so a different answer to who sent it can plan it again. */
+    val parcel: Parcel? = null,
     /** Non-null once the parcel has been read -- the screen switches to its review state. */
     val plan: ParcelImportPlan? = null,
     /** Entry indices the user has marked as already recorded here, and so will not be written. */
@@ -43,11 +47,11 @@ data class ParcelImportUiState(
     val busy: Boolean = false,
     /**
      * Set when the screen was opened on a parcel collected from the mailbox. There is nothing to
-     * paste and no sender to pick: the verified sender is the friend they linked with.
+     * paste and no sender to ask about: the verified sender is the friend they linked with.
      */
     val mailboxMessageId: String? = null
 ) {
-    val canRead: Boolean get() = senderFriendId != null && pastedText.isNotBlank() && !busy
+    val canRead: Boolean get() = pastedText.isNotBlank() && !busy
 
     val willCreate: Int
         get() = plan?.entries?.filterIndexed { index, entry ->
@@ -66,7 +70,7 @@ class ParcelImportViewModel(context: Context) : ViewModel() {
 
     private val appContext = context.applicationContext
     private val db = AppDatabase.getInstance(appContext)
-    private val repository = ParcelImportRepository(db)
+    private val repository = ParcelImportRepository(db, appContext)
     private val links = LinkRepository(appContext, db)
     private val identities = MailboxIdentityRepository(appContext, db)
     private val sharedChapters = SharedChapterRepository(appContext, db)
@@ -83,37 +87,28 @@ class ParcelImportViewModel(context: Context) : ViewModel() {
         }
     }
 
-    fun selectSender(friendId: Long) {
-        _uiState.value = current.copy(senderFriendId = friendId)
-    }
-
     fun setText(text: String) {
         if (text == current.pastedText) return
         _uiState.value = current.copy(pastedText = text)
     }
 
     /**
-     * Reads what was pasted. An invite to link goes to [onInvite] for the screen to confirm, with the
-     * friend picked above as the person it is from; a copy of a friend's chapter goes to
-     * [onChapterCopy], previewed but not kept; a parcel is planned and the screen moves on to
+     * Reads what was pasted. An invite to link goes to [onInvite], and a copy of a friend's chapter
+     * to [onChapterCopy]: neither says by itself which friend it is from, so the screen asks before
+     * going on. A parcel names its writer, so it is planned straight away and the screen moves on to
      * reviewing it.
      */
     fun read(
-        onInvite: (LinkInviteCode, Friend) -> Unit,
-        onChapterCopy: (CopyPreview) -> Unit,
+        onInvite: (LinkInviteCode) -> Unit,
+        onChapterCopy: (ChapterPasteResult.Ok) -> Unit,
         onError: (String) -> Unit
     ) {
         val state = current
-        val senderFriendId = state.senderFriendId ?: return onError("Say who sent this first.")
 
         if (InviteCode.looksLikeInvite(state.pastedText)) {
             when (val decoded = InviteCode.decode(state.pastedText)) {
                 is InviteDecodeResult.Failed -> onError(decoded.reason)
-                is InviteDecodeResult.Ok -> {
-                    val friend = state.friends.firstOrNull { it.id == senderFriendId }
-                        ?: return onError("That person is no longer in your list.")
-                    onInvite(decoded.invite, friend)
-                }
+                is InviteDecodeResult.Ok -> onInvite(decoded.invite)
             }
             return
         }
@@ -121,7 +116,7 @@ class ParcelImportViewModel(context: Context) : ViewModel() {
         if (ChapterPasteCodec.looksLikeCopy(state.pastedText)) {
             when (val decoded = ChapterPasteCodec.decode(state.pastedText)) {
                 is ChapterPasteResult.Failed -> onError(decoded.reason)
-                is ChapterPasteResult.Ok -> previewCopy(senderFriendId, decoded, onChapterCopy, onError)
+                is ChapterPasteResult.Ok -> onChapterCopy(decoded)
             }
             return
         }
@@ -135,14 +130,13 @@ class ParcelImportViewModel(context: Context) : ViewModel() {
                 _uiState.value = state.copy(busy = true)
                 viewModelScope.launch {
                     val plan = try {
-                        withContext(Dispatchers.IO) {
-                            repository.buildPlan(decoded.parcel, senderFriendId)
-                        }
+                        withContext(Dispatchers.IO) { repository.buildPlan(decoded.parcel) }
                     } catch (error: IllegalArgumentException) {
                         _uiState.value = current.copy(busy = false)
                         return@launch onError(error.message ?: "Could not read that parcel.")
                     }
                     _uiState.value = current.copy(
+                        parcel = decoded.parcel,
                         plan = plan,
                         busy = false,
                         skipped = emptySet(),
@@ -153,7 +147,29 @@ class ParcelImportViewModel(context: Context) : ViewModel() {
         }
     }
 
-    private fun previewCopy(
+    /**
+     * The reader's own answer to who sent a pasted parcel. Planned again rather than patched, since
+     * the preview's balances and its "you may already have this" matches both turn on who it is.
+     * What was ticked and mapped stays: the rows are the same rows.
+     */
+    fun chooseSender(choice: SenderChoice, onError: (String) -> Unit) {
+        val state = current
+        val parcel = state.parcel ?: return
+        if (state.busy) return
+        _uiState.value = state.copy(busy = true)
+        viewModelScope.launch {
+            val plan = try {
+                withContext(Dispatchers.IO) { repository.buildPlan(parcel, choice) }
+            } catch (error: IllegalArgumentException) {
+                _uiState.value = current.copy(busy = false)
+                return@launch onError(error.message ?: "Could not read that parcel.")
+            }
+            _uiState.value = current.copy(plan = plan, busy = false)
+        }
+    }
+
+    /** Previews a chapter copy as [senderFriendId]'s, once the reader has said it is theirs. */
+    fun previewCopy(
         senderFriendId: Long,
         decoded: ChapterPasteResult.Ok,
         onChapterCopy: (CopyPreview) -> Unit,
@@ -191,12 +207,16 @@ class ParcelImportViewModel(context: Context) : ViewModel() {
     }
 
     /**
-     * Answers [invite] as coming from [friendId]. [onMailboxOff] is the common first-time case:
-     * answering needs the mailbox on, and the screen can offer to open its settings.
+     * Answers [invite] as coming from [friendId], or from a new person called [newName] when the
+     * reader said it is someone not in their list yet. That person is only added once the mailbox is
+     * known to be on, and taken out again if answering fails, so a refused invite leaves nobody
+     * behind. [onMailboxOff] is the common first-time case: answering needs the mailbox on, and the
+     * screen can offer to open its settings.
      */
     fun acceptInvite(
         invite: LinkInviteCode,
-        friendId: Long,
+        friendId: Long?,
+        newName: String?,
         onDone: (String) -> Unit,
         onMailboxOff: () -> Unit,
         onError: (String) -> Unit
@@ -204,17 +224,29 @@ class ParcelImportViewModel(context: Context) : ViewModel() {
         if (current.busy) return
         _uiState.value = current.copy(busy = true)
         viewModelScope.launch {
+            var added: Friend? = null
             val outcome: Result<String?> = try {
                 if (identities.status() !is MailboxStatus.On) {
                     Result.success(null)
                 } else {
-                    Result.success(links.acceptInvite(invite, friendId))
+                    val target = friendId ?: withContext(Dispatchers.IO) {
+                        val name = requireNotNull(newName) { "Say who this invite is from." }
+                        val id = db.friendDao().insertFriend(
+                            Friend(name = name, avatarInitials = initialsOf(name, fallback = "F"), addedEpoch = System.currentTimeMillis())
+                        )
+                        db.friendDao().getFriendById(id)?.also { added = it }?.id ?: id
+                    }
+                    Result.success(links.acceptInvite(invite, target))
                 }
             } catch (error: LinkException) {
                 Result.failure(error)
             } catch (error: MailboxException) {
                 Result.failure(error)
             }
+            if (outcome.isFailure) {
+                added?.let { friend -> withContext(Dispatchers.IO) { db.friendDao().deleteFriend(friend) } }
+            }
+            if (outcome.isSuccess && added != null) loadFriends()
             _uiState.value = current.copy(busy = false)
             outcome.fold(
                 onSuccess = { friendName ->
@@ -278,12 +310,13 @@ class ParcelImportViewModel(context: Context) : ViewModel() {
     }
 
     fun backToSetup() {
-        _uiState.value = current.copy(plan = null, skipped = emptySet(), personMappings = emptyMap())
+        _uiState.value = current.copy(parcel = null, plan = null, skipped = emptySet(), personMappings = emptyMap())
     }
 
     fun commit(onDone: (ParcelImportResult) -> Unit, onError: (String) -> Unit) {
         val state = current
         val plan = state.plan ?: return
+        if (!plan.canSave) return onError("Say who sent this first.")
         _uiState.value = state.copy(busy = true)
         viewModelScope.launch {
             val result = try {

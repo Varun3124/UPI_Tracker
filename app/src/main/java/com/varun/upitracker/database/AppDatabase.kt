@@ -19,6 +19,7 @@ import com.varun.upitracker.database.dao.FriendDao
 import com.varun.upitracker.database.dao.IouDao
 import com.varun.upitracker.database.dao.MailboxDao
 import com.varun.upitracker.database.dao.MerchantDao
+import com.varun.upitracker.database.dao.ReceivedOriginalDao
 import com.varun.upitracker.database.dao.TransactionCategorySplitDao
 import com.varun.upitracker.database.dao.TransactionDao
 import com.varun.upitracker.database.dao.TransactionShareDao
@@ -47,6 +48,8 @@ import com.varun.upitracker.database.entity.Merchant
 import com.varun.upitracker.database.entity.MerchantCategory
 import com.varun.upitracker.database.entity.MerchantRawName
 import com.varun.upitracker.database.entity.MerchantUpiId
+import com.varun.upitracker.database.entity.ReceivedOriginal
+import com.varun.upitracker.database.entity.ReceivedOriginalShare
 import com.varun.upitracker.database.entity.Transaction
 import com.varun.upitracker.database.entity.TransactionCategorySplit
 import com.varun.upitracker.database.entity.TransactionDelivery
@@ -84,9 +87,11 @@ import kotlinx.coroutines.launch
         IouDeclaration::class,
         DeclarationPart::class,
         ChapterShare::class,
-        ChapterPerson::class
+        ChapterPerson::class,
+        ReceivedOriginal::class,
+        ReceivedOriginalShare::class
     ],
-    version = 22,
+    version = 23,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -104,6 +109,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun iouDao(): IouDao
     abstract fun mailboxDao(): MailboxDao
     abstract fun merchantDao(): MerchantDao
+    abstract fun receivedOriginalDao(): ReceivedOriginalDao
     abstract fun categorySplitDao(): TransactionCategorySplitDao
     abstract fun transactionDao(): TransactionDao
     abstract fun transactionShareDao(): TransactionShareDao
@@ -688,6 +694,55 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Received transactions as they arrived, kept so the receiver can change the row freely and
+         * still go back. Two new tables and nothing else: rows imported before this have no original,
+         * and simply never offer one.
+         */
+        private val MIGRATION_22_23 = object : Migration(22, 23) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `received_originals` (`transactionId` INTEGER NOT NULL, " +
+                        "`senderName` TEXT NOT NULL, `receivedEpoch` INTEGER NOT NULL, " +
+                        "`amountPaise` INTEGER NOT NULL, `dateEpoch` INTEGER NOT NULL, " +
+                        "`payerActorType` TEXT NOT NULL, `payerFriendId` INTEGER, `payerMerchantId` INTEGER, " +
+                        "`payerRawLabel` TEXT, `payeeActorType` TEXT NOT NULL, `payeeFriendId` INTEGER, " +
+                        "`payeeMerchantId` INTEGER, `payeeRawLabel` TEXT, `reason` TEXT, " +
+                        "`ledgerEffect` TEXT NOT NULL, `iouRecovery` TEXT, " +
+                        "PRIMARY KEY(`transactionId`), " +
+                        "FOREIGN KEY(`transactionId`) REFERENCES `transactions`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE , " +
+                        "FOREIGN KEY(`payerFriendId`) REFERENCES `friends`(`id`) ON UPDATE NO ACTION ON DELETE SET NULL , " +
+                        "FOREIGN KEY(`payerMerchantId`) REFERENCES `merchants`(`id`) ON UPDATE NO ACTION ON DELETE SET NULL , " +
+                        "FOREIGN KEY(`payeeFriendId`) REFERENCES `friends`(`id`) ON UPDATE NO ACTION ON DELETE SET NULL , " +
+                        "FOREIGN KEY(`payeeMerchantId`) REFERENCES `merchants`(`id`) ON UPDATE NO ACTION ON DELETE SET NULL )"
+                )
+                listOf("payerFriendId", "payerMerchantId", "payeeFriendId", "payeeMerchantId").forEach { column ->
+                    db.execSQL(
+                        "CREATE INDEX IF NOT EXISTS `index_received_originals_$column` " +
+                            "ON `received_originals` (`$column`)"
+                    )
+                }
+
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `received_original_shares` (" +
+                        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `transactionId` INTEGER NOT NULL, " +
+                        "`side` TEXT, `participantType` TEXT NOT NULL, `friendId` INTEGER, `rawLabel` TEXT, " +
+                        "`amountPaise` INTEGER NOT NULL, `keepPayeeLeg` INTEGER NOT NULL, " +
+                        "`keepPayerLeg` INTEGER NOT NULL, " +
+                        "FOREIGN KEY(`transactionId`) REFERENCES `received_originals`(`transactionId`) ON UPDATE NO ACTION ON DELETE CASCADE , " +
+                        "FOREIGN KEY(`friendId`) REFERENCES `friends`(`id`) ON UPDATE NO ACTION ON DELETE SET NULL )"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_received_original_shares_transactionId` " +
+                        "ON `received_original_shares` (`transactionId`)"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_received_original_shares_friendId` " +
+                        "ON `received_original_shares` (`friendId`)"
+                )
+            }
+        }
+
         private fun hasColumn(db: SupportSQLiteDatabase, table: String, column: String): Boolean {
             db.query("PRAGMA table_info(`$table`)").use { cursor ->
                 val nameColumnIndex = cursor.getColumnIndex("name")
@@ -720,7 +775,8 @@ abstract class AppDatabase : RoomDatabase() {
                         MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11, MIGRATION_11_12,
                         MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16,
                         MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19,
-                        MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22
+                        MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22,
+                        MIGRATION_22_23
                     )
                     .addCallback(object : Callback() {
                         override fun onCreate(db: SupportSQLiteDatabase) {

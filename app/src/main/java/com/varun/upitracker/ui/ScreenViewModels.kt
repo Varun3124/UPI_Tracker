@@ -12,6 +12,8 @@ import com.varun.upitracker.data.repository.AccountRepository
 import com.varun.upitracker.data.repository.ChapterRepository
 import com.varun.upitracker.data.repository.LedgerRepository
 import com.varun.upitracker.data.repository.ParcelExportRepository
+import com.varun.upitracker.data.repository.ReceivedOriginalRepository
+import com.varun.upitracker.data.repository.ReceivedOriginalView
 import com.varun.upitracker.data.repository.SettingsRepository
 import com.varun.upitracker.data.repository.TransactionRemoval
 import com.varun.upitracker.database.AppDatabase
@@ -27,6 +29,8 @@ import com.varun.upitracker.domain.statistics.AccountScope
 import com.varun.upitracker.domain.statistics.ListWindow
 import com.varun.upitracker.domain.statistics.PayeeRef
 import com.varun.upitracker.domain.statistics.resolve
+import com.varun.upitracker.domain.parcel.overlayOn
+import com.varun.upitracker.domain.parcel.toShare
 import com.varun.upitracker.maintenance.ChapterPublishing
 import com.varun.upitracker.ui.theme.ThemeAttr
 import com.varun.upitracker.util.AmountFormat
@@ -34,6 +38,7 @@ import com.varun.upitracker.database.entity.Category
 import com.varun.upitracker.database.entity.Friend
 import com.varun.upitracker.database.entity.Merchant
 import com.varun.upitracker.database.entity.Transaction
+import com.varun.upitracker.database.entity.TransactionShare
 import com.varun.upitracker.ui.transactionentry.EntrySide
 import com.varun.upitracker.ui.transactionentry.TransactionEntryAction
 import com.varun.upitracker.ui.transactionentry.TransactionEntryEffect
@@ -52,7 +57,14 @@ data class TransactionEntryReferenceData(
     /** Wider list used in transfer mode, where any active account is a valid endpoint. */
     val transferAccounts: List<Account> = emptyList(),
     val transaction: Transaction? = null,
-    val transfer: AccountTransfer? = null
+    val transfer: AccountTransfer? = null,
+    /** What a friend sent, for a row that came from one and was received after originals were kept. */
+    val original: ReceivedOriginalView? = null,
+    /**
+     * Set only when showing that original: its shares, which the screen shows in place of the row's
+     * own. [transaction] is then the row with the original laid over it.
+     */
+    val originalShares: List<TransactionShare>? = null
 )
 
 class TransactionEntryViewModel(context: Context) : ViewModel() {
@@ -94,17 +106,24 @@ class TransactionEntryViewModel(context: Context) : ViewModel() {
         _effects.value = TransactionEntryEffect.RunLegacyAction(action)
     }
 
-    fun load(transactionId: Long?, transferId: String? = null) {
+    /** [showOriginal] opens a received row as its friend sent it, read-only, instead of as it is now. */
+    fun load(transactionId: Long?, transferId: String? = null, showOriginal: Boolean = false) {
         viewModelScope.launch {
             _referenceData.value = withContext(Dispatchers.IO) {
+                val transaction = transactionId?.let { db.transactionDao().getTransactionById(it) }
+                val original = transaction?.takeIf { it.sharedRefId != null }
+                    ?.let { ReceivedOriginalRepository(db).load(it.id) }
+                val asSent = original?.takeIf { showOriginal }
                 TransactionEntryReferenceData(
                     friends = db.friendDao().getAllFriendsByFrequency(),
                     merchants = db.merchantDao().getAllMerchantsSync(),
                     categories = db.categoryDao().getAllCategoriesSync(),
                     accounts = db.accountDao().getActiveByTypes(AccountTypes.LIQUID),
                     transferAccounts = db.accountDao().getActiveSync(),
-                    transaction = transactionId?.let { db.transactionDao().getTransactionById(it) },
-                    transfer = transferId?.let { db.accountTransferDao().getById(it) }
+                    transaction = if (asSent != null && transaction != null) asSent.original.overlayOn(transaction) else transaction,
+                    transfer = transferId?.let { db.accountTransferDao().getById(it) },
+                    original = original,
+                    originalShares = asSent?.shares?.map { it.toShare() }
                 )
             }
         }

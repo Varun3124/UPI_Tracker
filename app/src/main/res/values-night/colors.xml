@@ -33,6 +33,8 @@
     <color name="app_positive">#4FC9A0</color>
     <color name="app_negative">#F0697D</color>
     <color name="app_warning">#F0B366</color>
+    <color name="app_revert">#C9A8F5</color>
+    <color name="app_on_revert">#2B1152</color>
     <color name="app_amount_neutral">#79839E</color>
     <color name="app_speculative">#C6A184</color>
 

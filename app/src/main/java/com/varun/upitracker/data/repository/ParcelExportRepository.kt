@@ -1,6 +1,7 @@
 package com.varun.upitracker.data.repository
 
 import android.content.Context
+import com.varun.upitracker.data.prefs.SelfIdentity
 import com.varun.upitracker.database.AppDatabase
 import com.varun.upitracker.database.entity.Transaction
 import com.varun.upitracker.domain.parcel.Parcel
@@ -57,6 +58,9 @@ class ParcelExportRepository(private val db: AppDatabase, private val context: C
      * [friendId] need not be in any of them -- see [ParcelEligibility.pasteBlockedReason]. Ids not
      * eligible are skipped rather than refused: the selection came from a screen that already
      * disabled them, so anything left is a race worth ignoring.
+     *
+     * Signed with the user's alias and UPI ID, which callers make sure exist before asking -- see
+     * [com.varun.upitracker.ui.share.RecipientPicker].
      */
     suspend fun buildParcel(friendId: Long, transactionIds: Set<Long>): String {
         val friendNames = db.friendDao().getAllFriendsSync().associate { it.id to it.name }
@@ -77,7 +81,11 @@ class ParcelExportRepository(private val db: AppDatabase, private val context: C
                 )
             }
 
-        return ParcelCodec.encode(Parcel(ParcelFormat.VERSION, originTokenFor(friendId), rows))
+        val self = SelfIdentity(context)
+        val alias = requireNotNull(self.alias()) { "Say how friends should see you before sharing." }
+        return ParcelCodec.encode(
+            Parcel(ParcelFormat.VERSION, originTokenFor(friendId), rows, senderAlias = alias, senderUpiId = self.upiId())
+        )
     }
 
     /**

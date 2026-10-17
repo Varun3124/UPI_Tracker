@@ -101,6 +101,22 @@ class ParcelPerspectiveTest {
     }
 
     @Test
+    fun `a recipient who is not in the transaction appears nowhere as me`() {
+        // A paid Charlie, split with Charlie only. B was in none of it.
+        val row = flip(
+            tx(payeeActorType = ActorType.FRIEND, payeeFriendId = charlieInAsBook),
+            listOf(
+                share("PAYEE", ActorType.FRIEND, 15000L, friendId = charlieInAsBook),
+                share("PAYEE", ActorType.ME, 15000L)
+            )
+        )
+        val everyone = listOf(row.payer, row.payee) + row.shares.map { it.participant }
+        assertTrue(everyone.none { it == ParcelActor.Me })
+        assertEquals(ParcelActor.Sender, row.payer)
+        assertEquals(ParcelActor.Person("Charlie"), row.payee)
+    }
+
+    @Test
     fun `a third party stays a named person and never becomes me or the sender`() {
         val row = flip(
             tx(payeeActorType = ActorType.MERCHANT, payeeFriendId = null, payeeMerchantId = 11L),
@@ -276,7 +292,7 @@ class ParcelPerspectiveTest {
                 share("PAYER", ActorType.FRIEND, 10000L, charlieInAsBook)
             )
         )
-        val encoded = ParcelCodec.encode(Parcel(ParcelFormat.VERSION, "tok3n", listOf(row)))
+        val encoded = ParcelCodec.encode(Parcel(ParcelFormat.VERSION, "tok3n", listOf(row), senderAlias = "Asha"))
         val decoded = (ParcelCodec.decode(encoded) as ParcelDecodeResult.Ok).parcel
         assertEquals(row, decoded.transactions.single())
 

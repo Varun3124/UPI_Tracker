@@ -3,7 +3,7 @@ package com.varun.upitracker.domain.parcel
 /**
  * What travels between two phones by paste: `UPIX1.<crc32>.<payload>`, framed by [PasteFraming].
  *
- * Only ever a pasted parcel: version 3, or version 1 from an app that predates it. The `1` in the
+ * Only ever a pasted parcel: version 4, or version 3 or 1 from an app that predates it. The `1` in the
  * prefix numbers the framing, not the parcel inside, which is what lets an older app get far enough
  * into a newer parcel to say it needs updating. Version 2 names accounts, and a pasted parcel has
  * nothing that verified who wrote it, so version 2 travels by mailbox and is refused here in both

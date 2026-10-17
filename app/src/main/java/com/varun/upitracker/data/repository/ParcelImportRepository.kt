@@ -1,8 +1,12 @@
 package com.varun.upitracker.data.repository
 
+import android.content.Context
 import android.database.sqlite.SQLiteConstraintException
 import android.util.Log
+import com.varun.upitracker.data.prefs.AppPrefs
 import com.varun.upitracker.database.AppDatabase
+import com.varun.upitracker.database.entity.Friend
+import com.varun.upitracker.database.entity.FriendUpiId
 import com.varun.upitracker.database.entity.IouRecovery
 import com.varun.upitracker.database.entity.MailboxMessageState
 import com.varun.upitracker.database.entity.Transaction
@@ -14,12 +18,15 @@ import com.varun.upitracker.domain.parcel.ParcelActor
 import com.varun.upitracker.domain.parcel.ParcelDecodeResult
 import com.varun.upitracker.domain.parcel.ParcelFormat
 import com.varun.upitracker.domain.parcel.ParcelPerspective
+import com.varun.upitracker.domain.parcel.ParcelSender
 import com.varun.upitracker.domain.parcel.ParcelTransaction
+import com.varun.upitracker.domain.parcel.SenderChoice
 import com.varun.upitracker.domain.transactionentry.persistence.LedgerPostingService
 import com.varun.upitracker.domain.transactionentry.validation.PendingReviewRules
 import com.varun.upitracker.ledger.DeltaRecorder
 import com.varun.upitracker.ui.payeeActorRef
 import com.varun.upitracker.ui.payerActorRef
+import com.varun.upitracker.util.initialsOf
 import kotlinx.coroutines.runBlocking
 import java.util.concurrent.TimeUnit
 
@@ -78,7 +85,7 @@ data class ParcelEntry(
 /** Where a plan's rows came from, which decides the reference each one lands under. */
 sealed interface ParcelOrigin {
 
-    /** Pasted: the reader said who sent it, and rows are qualified by the sender's token. */
+    /** Pasted: the parcel suggests who sent it, and rows are qualified by the sender's token. */
     data class Pasted(val originToken: String) : ParcelOrigin
 
     /** Collected from the mailbox: the verified sender says who, and rows carry their own references. */
@@ -86,8 +93,14 @@ sealed interface ParcelOrigin {
 }
 
 data class ParcelImportPlan(
-    val senderFriendId: Long,
+    /** Who the rows land as coming from. Never [SenderChoice.Unknown] once saving starts. */
+    val sender: SenderChoice,
+    /** What this screen calls them: your own name for a friend, or the alias a new person will get. */
     val senderName: String,
+    /** What the parcel calls its writer, when it says. Null from the mailbox and from older apps. */
+    val senderAlias: String?,
+    /** The writer's UPI ID, when the parcel gave one. */
+    val senderUpiId: String?,
     val origin: ParcelOrigin,
     val entries: List<ParcelEntry>,
     /** Rows skipped because this parcel, or one carrying the same rows, was already applied. */
@@ -102,6 +115,19 @@ data class ParcelImportPlan(
         get() = entries.flatMap { it.preview.unmappedPeople }.distinct().sorted()
 
     val isFromMailbox: Boolean get() = origin is ParcelOrigin.Mailbox
+
+    /** The friend the rows land under, or null while that person is still to be added or named. */
+    val senderFriendId: Long? get() = (sender as? SenderChoice.Existing)?.friendId
+
+    val canSave: Boolean get() = sender !is SenderChoice.Unknown
+
+    companion object {
+        /**
+         * The id the preview posts the sender's side against when they are not in the list yet. No
+         * real friend can have it, and it only ever keys the preview's own deltas.
+         */
+        const val PREVIEW_SENDER_ID = -1L
+    }
 }
 
 data class ParcelImportResult(
@@ -117,16 +143,30 @@ data class ParcelImportResult(
  * to the ledger -- every row lands pending, and the existing review flow decides what money moves,
  * which keeps a friend's parcel from being able to change your balances on its own.
  *
- * A parcel arrives one of two ways, and they differ only in who says who sent it. Pasted, the reader
- * picks the sender. Collected from the mailbox, the verified sender is the linked friend, and people
- * in the rows the reader has linked are identified by account rather than left as names.
+ * A parcel arrives one of two ways, and they differ only in who says who sent it. Pasted, the parcel
+ * names its writer and [ParcelSender] suggests who that is here; the reader can say otherwise.
+ * Collected from the mailbox, the verified sender is the linked friend, and people in the rows the
+ * reader has linked are identified by account rather than left as names.
+ *
+ * Every row saved also keeps an untouchable copy of itself as it arrived -- see
+ * [ReceivedOriginalRepository].
  */
-class ParcelImportRepository(private val db: AppDatabase) {
+class ParcelImportRepository(private val db: AppDatabase, context: Context) {
 
     private val ledgerPostingService = LedgerPostingService()
+    private val prefs = AppPrefs.of(context)
+    private val originals = ReceivedOriginalRepository(db)
 
     companion object {
         private const val TAG = "ParcelImport"
+
+        /**
+         * `parcel_sender_<originToken>` -> the friend that token's rows were last saved under. The
+         * token is per writer and per reader, so this is the reader's own earlier answer to "who is
+         * this", which outranks anything the parcel claims. Kept in preferences beside the writer's
+         * `parcel_origin_` tokens, and backed up with them.
+         */
+        private const val SENDER_KEY_PREFIX = "parcel_sender_"
 
         /**
          * The same tolerance the statement importer uses, and for a related reason: two phones
@@ -136,15 +176,25 @@ class ParcelImportRepository(private val db: AppDatabase) {
         private val DATE_TOLERANCE_MILLIS = TimeUnit.DAYS.toMillis(1)
     }
 
-    suspend fun buildPlan(parcel: Parcel, senderFriendId: Long): ParcelImportPlan {
-        val sender = db.friendDao().getFriendById(senderFriendId)
-            ?: throw IllegalArgumentException("That friend is no longer in your list.")
+    /**
+     * The plan for a pasted parcel. [override] is the reader's own answer to who sent it; without
+     * one, the parcel's alias and UPI ID are matched against this person's friends.
+     */
+    suspend fun buildPlan(parcel: Parcel, override: SenderChoice? = null): ParcelImportPlan {
         val originToken = parcel.originToken
             ?: throw IllegalArgumentException("That parcel carries no origin token.")
+        val sender = override ?: resolveSender(parcel)
+        val senderName = when (sender) {
+            is SenderChoice.Existing -> db.friendDao().getFriendById(sender.friendId)?.name
+                ?: throw IllegalArgumentException("That friend is no longer in your list.")
+            is SenderChoice.New -> sender.name
+            SenderChoice.Unknown -> "Whoever sent this"
+        }
+        val senderFriendId = (sender as? SenderChoice.Existing)?.friendId ?: ParcelImportPlan.PREVIEW_SENDER_ID
         return plan(
             parcel = parcel,
-            senderFriendId = senderFriendId,
-            senderName = sender.name,
+            sender = sender,
+            senderName = senderName,
             origin = ParcelOrigin.Pasted(originToken),
             linkedFriendIds = emptyMap(),
             sameSenderPrefixes = listOf("$originToken."),
@@ -158,6 +208,24 @@ class ParcelImportRepository(private val db: AppDatabase) {
                     resolveShop = { null },
                     carryUpiRefId = false
                 )
+            }
+        )
+    }
+
+    /** See [ParcelSender]. Read here once, so its lambdas need no database of their own. */
+    private suspend fun resolveSender(parcel: Parcel): SenderChoice {
+        val friends = db.friendDao().getAllFriendsSync()
+        val friendIds = friends.map { it.id }.toSet()
+        val upiOwner = parcel.senderUpiId?.let { db.friendDao().findByUpiIdIgnoreCase(it)?.friendId }
+        return ParcelSender.resolve(
+            parcel = parcel,
+            rememberedFriendId = { token ->
+                prefs.getLong(SENDER_KEY_PREFIX + token, -1L).takeIf { it in friendIds }
+            },
+            friendByUpiId = { upiOwner },
+            // Only when exactly one friend has the name. Two Rahuls is a question, not an answer.
+            friendByName = { name ->
+                friends.filter { it.name.trim().equals(name.trim(), ignoreCase = true) }.singleOrNull()?.id
             }
         )
     }
@@ -196,7 +264,7 @@ class ParcelImportRepository(private val db: AppDatabase) {
 
         return plan(
             parcel = parcel,
-            senderFriendId = senderFriendId,
+            sender = SenderChoice.Existing(senderFriendId, SenderChoice.How.PICKED),
             senderName = sender.name,
             origin = ParcelOrigin.Mailbox(messageId, senderUid),
             linkedFriendIds = linkedFriendIds,
@@ -228,7 +296,7 @@ class ParcelImportRepository(private val db: AppDatabase) {
 
     private suspend fun plan(
         parcel: Parcel,
-        senderFriendId: Long,
+        sender: SenderChoice,
         senderName: String,
         origin: ParcelOrigin,
         linkedFriendIds: Map<String, Long>,
@@ -238,6 +306,7 @@ class ParcelImportRepository(private val db: AppDatabase) {
     ): ParcelImportPlan {
         val accountIds = db.accountDao().getAllSync().map { it.id }
         val friendNames = db.friendDao().getAllFriendsSync().associate { it.id to it.name }
+        val senderFriendId = (sender as? SenderChoice.Existing)?.friendId ?: ParcelImportPlan.PREVIEW_SENDER_ID
 
         var alreadyImported = 0
         val entries = mutableListOf<ParcelEntry>()
@@ -266,8 +335,10 @@ class ParcelImportRepository(private val db: AppDatabase) {
         }
 
         return ParcelImportPlan(
-            senderFriendId = senderFriendId,
+            sender = sender,
             senderName = senderName,
+            senderAlias = parcel.senderAlias,
+            senderUpiId = parcel.senderUpiId,
             origin = origin,
             entries = entries,
             alreadyImported = alreadyImported,
@@ -413,13 +484,18 @@ class ParcelImportRepository(private val db: AppDatabase) {
         skipped: Set<Int>,
         personMappings: Map<String, Long>
     ): ParcelImportResult {
+        require(plan.canSave) { "Say who sent this first." }
         val merchantIds = resolveMerchantIds(plan)
-        return db.runInTransaction<ParcelImportResult> {
+        var settledSenderId: Long? = null
+        val result = db.runInTransaction<ParcelImportResult> {
             runBlocking {
                 var created = 0
                 plan.entries.forEachIndexed { index, entry ->
                     if (index in skipped || entry.certainDuplicateId != null) return@forEachIndexed
-                    if (insert(entry, plan, personMappings, merchantIds)) created++
+                    // Settled only once a row is about to go in, so a parcel that turns out to hold
+                    // nothing new leaves no stranger behind in the people list.
+                    val senderFriendId = settledSenderId ?: settleSender(plan).also { settledSenderId = it }
+                    if (insert(entry, plan, senderFriendId, personMappings, merchantIds)) created++
                 }
                 (plan.origin as? ParcelOrigin.Mailbox)?.let {
                     db.mailboxDao().setMessageState(it.messageId, MailboxMessageState.IMPORTED)
@@ -430,6 +506,37 @@ class ParcelImportRepository(private val db: AppDatabase) {
                 )
             }
         }
+        // After the transaction, never inside it: a save that rolled back must not be remembered.
+        val pasted = plan.origin as? ParcelOrigin.Pasted
+        val senderId = settledSenderId
+        if (pasted != null && senderId != null && result.created > 0) {
+            prefs.edit().putLong(SENDER_KEY_PREFIX + pasted.originToken, senderId).apply()
+        }
+        return result
+    }
+
+    /**
+     * The friend the rows land under, adding them first when the parcel's writer is new here. A
+     * pasted writer's UPI ID is kept against them too, unless someone already holds it: that is what
+     * lets this person's own SMS of a payment to or from them resolve to the same friend from now on.
+     */
+    private suspend fun settleSender(plan: ParcelImportPlan): Long {
+        val friendId = when (val sender = plan.sender) {
+            is SenderChoice.Existing -> sender.friendId
+            is SenderChoice.New -> db.friendDao().insertFriend(
+                Friend(
+                    name = sender.name,
+                    avatarInitials = initialsOf(sender.name, fallback = "F"),
+                    addedEpoch = System.currentTimeMillis()
+                )
+            )
+            SenderChoice.Unknown -> throw IllegalArgumentException("Say who sent this first.")
+        }
+        val upiId = plan.senderUpiId
+        if (upiId != null && plan.origin is ParcelOrigin.Pasted && db.friendDao().findByUpiIdIgnoreCase(upiId) == null) {
+            db.friendDao().insertUpiId(FriendUpiId(friendId = friendId, upiId = upiId))
+        }
+        return friendId
     }
 
     /** Looked up before the write transaction opens, so the commit stays a straight run of inserts. */
@@ -448,16 +555,17 @@ class ParcelImportRepository(private val db: AppDatabase) {
     private suspend fun insert(
         entry: ParcelEntry,
         plan: ParcelImportPlan,
+        senderFriendId: Long,
         personMappings: Map<String, Long>,
         merchantIds: Map<String, Long>
     ): Boolean {
         // Never map a name onto the sender: the parcel already says which rows are theirs, and a
         // same-named friend of theirs would otherwise double their balance.
-        val mapPerson = { name: String -> personMappings[name]?.takeIf { it != plan.senderFriendId } }
+        val mapPerson = { name: String -> personMappings[name]?.takeIf { it != senderFriendId } }
         val local = when (val origin = plan.origin) {
             is ParcelOrigin.Pasted -> ParcelPerspective.toLocal(
                 row = entry.row,
-                senderFriendId = plan.senderFriendId,
+                senderFriendId = senderFriendId,
                 originToken = origin.originToken,
                 mapPerson = mapPerson,
                 resolveShop = { name -> merchantIds[name] },
@@ -465,10 +573,10 @@ class ParcelImportRepository(private val db: AppDatabase) {
             )
             is ParcelOrigin.Mailbox -> ParcelPerspective.toLocalFromMailbox(
                 row = entry.row,
-                senderFriendId = plan.senderFriendId,
+                senderFriendId = senderFriendId,
                 senderUid = origin.senderUid,
                 mapPerson = mapPerson,
-                resolveLinked = { uid -> plan.linkedFriendIds[uid]?.takeIf { it != plan.senderFriendId } },
+                resolveLinked = { uid -> plan.linkedFriendIds[uid]?.takeIf { it != senderFriendId } },
                 resolveShop = { name -> merchantIds[name] },
                 carryUpiRefId = true
             )
@@ -478,6 +586,7 @@ class ParcelImportRepository(private val db: AppDatabase) {
             local.shares.forEach { share ->
                 db.transactionShareDao().insert(share.copy(transactionId = transactionId))
             }
+            originals.captureInTransaction(transactionId, local.transaction, local.shares, plan.senderName)
             true
         } catch (error: SQLiteConstraintException) {
             // The unique sharedRefId or upiRefId index caught a duplicate the plan did not see --

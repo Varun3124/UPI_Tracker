@@ -35,11 +35,16 @@ import com.varun.upitracker.ui.dashboard.DashboardActivity
 import kotlinx.coroutines.launch
 import com.varun.upitracker.ui.theme.padRootForSystemBars
 import android.widget.ImageButton
+import android.text.Editable
+import android.text.TextWatcher
+import com.varun.upitracker.data.prefs.SelfIdentity
+import com.varun.upitracker.domain.parcel.SenderIdentity
 
 class OnboardingActivity : AppCompatActivity() {
 
     // --- Screens ---
     private lateinit var screenPermissions: LinearLayout
+    private lateinit var screenProfile: View
     private lateinit var screenAccounts: LinearLayout
     private lateinit var screenScanning: LinearLayout
 
@@ -48,6 +53,12 @@ class OnboardingActivity : AppCompatActivity() {
     private lateinit var btnGrantNotifications: Button
     private lateinit var btnNextToAccount: Button
     private lateinit var btnRestoreFromDrive: Button
+
+    // --- Profile screen ---
+    private lateinit var etSelfAlias: EditText
+    private lateinit var etSelfUpiId: EditText
+    private lateinit var tvProfileError: TextView
+    private lateinit var btnNextFromProfile: Button
 
     // --- Accounts screen ---
     private lateinit var accountInputContainer: LinearLayout
@@ -83,6 +94,7 @@ class OnboardingActivity : AppCompatActivity() {
 
         // Screens
         screenPermissions = findViewById(R.id.screenPermissions)
+        screenProfile      = findViewById(R.id.screenProfile)
         screenAccounts     = findViewById(R.id.screenAccounts)
         screenScanning    = findViewById(R.id.screenScanning)
 
@@ -91,6 +103,12 @@ class OnboardingActivity : AppCompatActivity() {
         btnGrantNotifications = findViewById(R.id.btnGrantNotifications)
         btnNextToAccount      = findViewById(R.id.btnNextToAccounts)
         btnRestoreFromDrive   = findViewById(R.id.btnRestoreFromDrive)
+
+        // Profile screen
+        etSelfAlias        = findViewById(R.id.etSelfAlias)
+        etSelfUpiId        = findViewById(R.id.etSelfUpiId)
+        tvProfileError     = findViewById(R.id.tvProfileError)
+        btnNextFromProfile = findViewById(R.id.btnNextFromProfile)
 
         // Accounts screen
         accountInputContainer = findViewById(R.id.accountInputContainer)
@@ -103,6 +121,7 @@ class OnboardingActivity : AppCompatActivity() {
         showScreen(screenPermissions)
         bindViewModel()
         setupPermissionScreen()
+        setupProfileScreen()
         setupAccountsScreen()
         updatePermissionButtons()
     }
@@ -135,7 +154,7 @@ class OnboardingActivity : AppCompatActivity() {
         }
 
         btnNextToAccount.setOnClickListener {
-            showScreen(screenAccounts)
+            showScreen(screenProfile)
         }
 
         // Sends the user straight to the Backup screen rather than running a restore here. That
@@ -173,7 +192,43 @@ class OnboardingActivity : AppCompatActivity() {
                 PackageManager.PERMISSION_GRANTED
 
     // ------------------------------------------------------------------
-    // Screen 2 — Accounts
+    // Screen 2 — About you
+    // ------------------------------------------------------------------
+
+    /**
+     * The alias every parcel this person pastes will carry, so a friend's app knows who it is from
+     * without asking. Required; the UPI ID is not.
+     */
+    private fun setupProfileScreen() {
+        val identity = SelfIdentity(this)
+        etSelfAlias.setText(identity.alias().orEmpty())
+        etSelfUpiId.setText(identity.upiId().orEmpty())
+        val refresh = {
+            btnNextFromProfile.isEnabled = SenderIdentity.normaliseAlias(etSelfAlias.text.toString()) != null
+        }
+        etSelfAlias.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(s: CharSequence?, start: Int, count: Int, after: Int) = Unit
+            override fun onTextChanged(s: CharSequence?, start: Int, before: Int, count: Int) = Unit
+            override fun afterTextChanged(s: Editable?) = refresh()
+        })
+        refresh()
+
+        btnNextFromProfile.setOnClickListener {
+            when (val result = identity.set(etSelfAlias.text.toString(), etSelfUpiId.text.toString())) {
+                is SelfIdentity.Result.Invalid -> {
+                    tvProfileError.text = result.message
+                    tvProfileError.visibility = View.VISIBLE
+                }
+                SelfIdentity.Result.Saved -> {
+                    tvProfileError.visibility = View.GONE
+                    showScreen(screenAccounts)
+                }
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Screen 3 — Accounts
     // ------------------------------------------------------------------
 
     private fun setupAccountsScreen() {
@@ -293,7 +348,7 @@ class OnboardingActivity : AppCompatActivity() {
     }
 
     // ------------------------------------------------------------------
-    // Screen 3 — Scan
+    // Screen 4 — Scan
     // ------------------------------------------------------------------
 
     private fun bindViewModel() {
@@ -328,8 +383,9 @@ class OnboardingActivity : AppCompatActivity() {
     // Helpers
     // ------------------------------------------------------------------
 
-    private fun showScreen(screen: LinearLayout) {
+    private fun showScreen(screen: View) {
         screenPermissions.visibility = View.GONE
+        screenProfile.visibility     = View.GONE
         screenAccounts.visibility     = View.GONE
         screenScanning.visibility    = View.GONE
         screen.visibility            = View.VISIBLE

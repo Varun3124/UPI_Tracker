@@ -34,7 +34,7 @@ class ParcelCodecTest {
     )
 
     private fun parcelOf(vararg transactions: ParcelTransaction) =
-        Parcel(ParcelFormat.VERSION, "tok3n", transactions.toList())
+        Parcel(ParcelFormat.VERSION, "tok3n", transactions.toList(), senderAlias = "Asha")
 
     private fun roundTrip(parcel: Parcel): Parcel {
         val result = ParcelCodec.decode(ParcelCodec.encode(parcel))
@@ -120,7 +120,7 @@ class ParcelCodecTest {
 
     @Test
     fun `an empty parcel round trips`() {
-        val parcel = Parcel(ParcelFormat.VERSION, "tok3n", emptyList())
+        val parcel = Parcel(ParcelFormat.VERSION, "tok3n", emptyList(), senderAlias = "Asha")
         assertEquals(parcel, roundTrip(parcel))
     }
 
@@ -245,7 +245,8 @@ class ParcelCodecTest {
                         ParcelShare("PAYER", ParcelActor.Me, 15000L)
                     )
                 )
-            }
+            },
+            senderAlias = "Asha"
         )
         val encoded = ParcelCodec.encode(parcel)
         assertEquals(parcel, roundTrip(parcel))
@@ -253,12 +254,12 @@ class ParcelCodecTest {
     }
 
     @Test
-    fun `a pasted parcel is written as version 3 and says which side pays back`() {
+    fun `a pasted parcel is written as version 4 and says which side pays back`() {
         val parcel = parcelOf(
             tx(sourceId = 1L, iouRecovery = IouRecovery.FROM_SECONDARY_PAYERS),
             tx(sourceId = 2L, iouRecovery = IouRecovery.FROM_SECONDARY_PAYEES)
         )
-        assertTrue(ParcelFormat.format(parcel).startsWith("V|3|"))
+        assertTrue(ParcelFormat.format(parcel).startsWith("V|4|"))
         assertEquals(parcel, roundTrip(parcel))
     }
 

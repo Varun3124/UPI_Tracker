@@ -277,6 +277,11 @@ class SettingsRepository(private val context: Context) {
         db.transactionDao().reassignPayerFriend(source.id, target.id)
         db.transactionDao().reassignPayeeFriend(source.id, target.id)
         db.transactionShareDao().reassignFriend(source.id, target.id)
+        // Before the source goes too: an original names people with SET_NULL, so after the delete it
+        // would only know them by name.
+        db.receivedOriginalDao().reassignPayerFriend(source.id, target.id)
+        db.receivedOriginalDao().reassignPayeeFriend(source.id, target.id)
+        db.receivedOriginalDao().reassignShareFriend(source.id, target.id)
         db.iouDao().reassignFriend(source.id, target.id)
         // `chapter_members` is keyed on (chapterId, friendId), so a plain UPDATE would collide
         // wherever both friends are already in the same chapter. Drop the source's duplicates first
@@ -311,6 +316,8 @@ class SettingsRepository(private val context: Context) {
         if (source.id == target.id) return
         db.transactionDao().reassignPayerMerchant(source.id, target.id)
         db.transactionDao().reassignPayeeMerchant(source.id, target.id)
+        db.receivedOriginalDao().reassignPayerMerchant(source.id, target.id)
+        db.receivedOriginalDao().reassignPayeeMerchant(source.id, target.id)
         db.merchantDao().moveAllRawNames(source.id, target.id)
         db.merchantDao().moveAllUpiIds(source.id, target.id)
         db.categoryDao().getCategoriesForMerchant(source.id).forEach { category ->

@@ -74,7 +74,61 @@
             android:text="Restore from Google Drive" />
     </LinearLayout>
 
-    <!-- Screen 2: Accounts -->
+    <!-- Screen 2: Who you are to your friends -->
+    <ScrollView
+        android:id="@+id/screenProfile"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:fillViewport="true"
+        android:visibility="gone">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="32dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="8dp"
+                android:text="About you"
+                android:textColor="?attr/colorOnSurface"
+                android:textSize="24sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="24dp"
+                android:text="You can change these later in Settings"
+                android:textColor="?attr/appTextMuted"
+                android:textSize="13sp" />
+
+            <include
+                android:id="@+id/profileFields"
+                layout="@layout/view_self_identity_fields" />
+
+            <TextView
+                android:id="@+id/tvProfileError"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:textColor="?attr/appWarning"
+                android:textSize="13sp"
+                android:visibility="gone" />
+
+            <Button
+                android:id="@+id/btnNextFromProfile"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="32dp"
+                android:enabled="false"
+                android:text="Next →" />
+        </LinearLayout>
+    </ScrollView>
+
+    <!-- Screen 3: Accounts -->
     <LinearLayout
         android:id="@+id/screenAccounts"
         android:layout_width="match_parent"
@@ -136,7 +190,7 @@
         </LinearLayout>
     </LinearLayout>
 
-    <!-- Screen 3: Scanning -->
+    <!-- Screen 4: Scanning -->
     <LinearLayout
         android:id="@+id/screenScanning"
         android:layout_width="match_parent"

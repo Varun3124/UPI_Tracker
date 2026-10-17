@@ -93,7 +93,7 @@ class ChapterPasteCodecTest {
 
     @Test
     fun `a paste knows copies apart from parcels`() {
-        val parcel = ParcelCodec.encode(Parcel(ParcelFormat.VERSION, "tok", emptyList()))
+        val parcel = ParcelCodec.encode(Parcel(ParcelFormat.VERSION, "tok", emptyList(), senderAlias = "Asha"))
         assertFalse(ChapterPasteCodec.looksLikeCopy(parcel))
         assertTrue(ChapterPasteCodec.decode(parcel) is ChapterPasteResult.Failed)
         assertTrue(ChapterPasteCodec.looksLikeCopy(ChapterPasteCodec.encode(snapshot)))

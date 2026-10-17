@@ -119,6 +119,10 @@ object ThemeAttr {
     val onNegativeContainer = R.attr.appOnNegativeContainer
     val textMuted = R.attr.appTextMuted
 
+    /** Putting a received transaction back as it was sent. */
+    val revert = R.attr.appRevert
+    val onRevert = R.attr.appOnRevert
+
     /** A balance the app worked out rather than one it was told. */
     val speculative = R.attr.appSpeculative
 

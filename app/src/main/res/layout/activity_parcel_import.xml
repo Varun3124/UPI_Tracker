@@ -31,7 +31,7 @@
             android:visibility="gone" />
     </LinearLayout>
 
-    <!-- Setup state: say who sent it, then paste it. -->
+    <!-- Setup state: paste it. A parcel says who sent it; an invite or chapter copy asks after. -->
     <ScrollView
         android:id="@+id/panelSetup"
         android:layout_width="match_parent"
@@ -60,44 +60,6 @@
                     <TextView
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="Who sent this?"
-                        android:textSize="12sp"
-                        android:textColor="?attr/colorOnSurfaceVariant" />
-
-                    <Spinner
-                        android:id="@+id/spinnerSender"
-                        android:layout_width="match_parent"
-                        android:layout_height="48dp"
-                        android:layout_marginTop="4dp" />
-
-                    <TextView
-                        android:id="@+id/tvNoFriends"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="8dp"
-                        android:text="Add the person to your people list first, then come back."
-                        android:textSize="12sp"
-                        android:textColor="?attr/appWarning"
-                        android:visibility="gone" />
-                </LinearLayout>
-            </androidx.cardview.widget.CardView>
-
-            <androidx.cardview.widget.CardView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="12dp"
-                app:cardCornerRadius="12dp"
-                app:cardElevation="2dp">
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="vertical"
-                    android:padding="16dp">
-
-                    <TextView
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
                         android:text="What they sent"
                         android:textSize="12sp"
                         android:textColor="?attr/colorOnSurfaceVariant" />
@@ -105,7 +67,7 @@
                     <EditText
                         android:id="@+id/etParcel"
                         android:layout_width="match_parent"
-                        android:layout_height="120dp"
+                        android:layout_height="160dp"
                         android:layout_marginTop="4dp"
                         android:gravity="top|start"
                         android:hint="Paste the parcel, chapter copy or link invite they sent you"
@@ -113,14 +75,6 @@
                         android:textSize="12sp"
                         android:importantForAutofill="no"
                         android:autofillHints="" />
-
-                    <Button
-                        android:id="@+id/btnPasteParcel"
-                        style="?attr/materialButtonOutlinedStyle"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:layout_marginTop="8dp"
-                        android:text="Paste from clipboard" />
                 </LinearLayout>
             </androidx.cardview.widget.CardView>
 
@@ -164,6 +118,34 @@
             android:paddingBottom="4dp"
             android:textSize="13sp"
             android:textColor="?attr/colorOnSurfaceVariant" />
+
+        <!-- Pasted parcels only: who the rows will land as coming from, and a way to say otherwise. -->
+        <LinearLayout
+            android:id="@+id/rowSender"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal"
+            android:paddingStart="12dp"
+            android:paddingEnd="4dp"
+            android:paddingBottom="4dp"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/tvSenderMatch"
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:textSize="13sp"
+                android:textColor="?attr/colorOnSurface" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/btnChangeSender"
+                style="@style/Widget.UPI.Button.Text"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="Change" />
+        </LinearLayout>
 
         <TextView
             android:id="@+id/tvUnmappedPeople"

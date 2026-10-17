@@ -4,6 +4,8 @@ import android.app.AlertDialog
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
 import android.content.Context
+import android.content.Intent
+import android.content.res.ColorStateList
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Rect
@@ -27,6 +29,7 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
@@ -52,6 +55,9 @@ import com.varun.upitracker.database.entity.MerchantCategory
 import com.varun.upitracker.database.entity.MerchantRawName
 import com.varun.upitracker.database.entity.MerchantUpiId
 import com.varun.upitracker.data.repository.ChapterRepository
+import com.varun.upitracker.data.repository.ReceivedOriginalRepository
+import com.varun.upitracker.data.repository.ReceivedOriginalView
+import com.varun.upitracker.data.repository.RevertException
 import com.varun.upitracker.database.entity.ChapterState
 import com.varun.upitracker.maintenance.ChapterPublishing
 import com.varun.upitracker.database.entity.Transaction
@@ -124,6 +130,15 @@ class TransactionEntryActivity : AppCompatActivity() {
         /** Separate from [EXTRA_TRANSACTION_ID] because `AccountTransfer.id` is a UUID string. */
         const val EXTRA_TRANSFER_ID = "transfer_id"
 
+        /**
+         * With [EXTRA_TRANSACTION_ID] on a received row: show it as the friend sent it, read-only,
+         * with Revert in place of Done.
+         */
+        const val EXTRA_SHOW_ORIGINAL = "show_original"
+
+        /** What the original's page answers with once it has put the row back. */
+        const val RESULT_REVERTED = RESULT_FIRST_USER + 1
+
         private const val NOT_A_REFUND_LABEL = "Not a refund - counts as income"
 
         /** The picker is a flat dialog list, so keep it to a scannable number of recent purchases. */
@@ -166,6 +181,18 @@ class TransactionEntryActivity : AppCompatActivity() {
     private lateinit var viewModel: TransactionEntryViewModel
 
     private var currentTransaction: Transaction? = null
+
+    /** This page is a received row's original: read-only, and its one action is Revert. */
+    private val isOriginalView: Boolean by lazy { intent.getBooleanExtra(EXTRA_SHOW_ORIGINAL, false) }
+    /** What a friend sent, when the row came from one after originals were kept. */
+    private var originalView: ReceivedOriginalView? = null
+    /** Set on the original's page only: the shares as sent, shown in place of the row's own. */
+    private var originalShares: List<TransactionShare>? = null
+
+    /** The original's page closes this one too when it reverts: what was being edited is gone. */
+    private val originalLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == RESULT_REVERTED) finish()
+    }
     /**
      * Every chapter, open or not, a friend's included: a transaction may already sit in a closed one,
      * or be claimed into a friend's. Only the user's own open ones are ever offered (S10).
@@ -198,8 +225,6 @@ class TransactionEntryActivity : AppCompatActivity() {
      * changes. Set on load only when the choice already mattered for the saved row.
      */
     private var iouRecoveryOverride: IouRecovery? = null
-    /** On a transaction a friend sent: the side it arrived with, which the pills cannot change. */
-    private var lockedIouRecovery: IouRecovery? = null
     /** Kind the pill list is currently offering; a change clears what was checked. */
     private var categoryKind = CategoryKind.EXPENSE
     private var refundsTransactionId: Long? = null
@@ -265,7 +290,6 @@ class TransactionEntryActivity : AppCompatActivity() {
     private lateinit var tvRecoverFromPayers: TextView
     private lateinit var tvRecoverFromPayees: TextView
     private lateinit var iouLinesContainer: LinearLayout
-    private lateinit var tvIouRecoveryLocked: TextView
     /** What the line pills last showed, so a keystroke that changes no line does not rebuild them. */
     private var renderedIouLines: List<Pair<String, Boolean>>? = null
     private lateinit var refundSection: LinearLayout
@@ -298,6 +322,8 @@ class TransactionEntryActivity : AppCompatActivity() {
             transferAccounts = referenceData.transferAccounts
             currentTransaction = referenceData.transaction
             currentTransfer = referenceData.transfer
+            originalView = referenceData.original
+            originalShares = referenceData.originalShares
             viewModel.launchTask {
                 setupUi(db)
             }
@@ -310,7 +336,7 @@ class TransactionEntryActivity : AppCompatActivity() {
                 is TransactionEntryEffect.RunLegacyAction -> handleLegacyAction(effect.action)
             }
         }
-        viewModel.load(transactionId, transferId)
+        viewModel.load(transactionId, transferId, showOriginal = isOriginalView)
     }
 
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
@@ -360,7 +386,6 @@ class TransactionEntryActivity : AppCompatActivity() {
         tvRecoverFromPayers = findViewById(R.id.tvRecoverFromPayers)
         tvRecoverFromPayees = findViewById(R.id.tvRecoverFromPayees)
         iouLinesContainer = findViewById(R.id.iouLinesContainer)
-        tvIouRecoveryLocked = findViewById(R.id.tvIouRecoveryLocked)
         tvRecoverFromPayers.setOnClickListener {
             viewModel.onAction(TransactionEntryAction.IouRecoverySelected(IouRecovery.FROM_SECONDARY_PAYERS))
         }
@@ -383,8 +408,10 @@ class TransactionEntryActivity : AppCompatActivity() {
         val transfer = currentTransfer
         isSmsSource = transfer == null && (tx?.source == "SMS" || tx?.source == "NOTIFICATION")
         selectedDateEpoch = tx?.dateEpoch ?: transfer?.dateEpoch ?: System.currentTimeMillis()
+        val asSent = originalView?.takeIf { isOriginalView }
         tvTopInfo.text = when {
             transfer != null -> "${transfer.type.displayName()} - ${fmtDateTime(selectedDateEpoch)}"
+            asSent != null -> "As ${asSent.original.senderName} sent it - ${fmtDateTime(selectedDateEpoch)}"
             tx != null -> "${resolveHeaderLabel(db, tx)} - ${fmtDateTime(selectedDateEpoch)}"
             else -> "Manual Entry - ${fmtDateTime(selectedDateEpoch)}"
         }
@@ -406,7 +433,8 @@ class TransactionEntryActivity : AppCompatActivity() {
             else -> seedDefaultState()
         }
         setupChapterField(db)
-        loadAgreements(db)
+        // An original is only read: nothing it shows can be added to an agreement from here.
+        if (!isOriginalView) loadAgreements(db)
         ensureBaseShareRows()
         enforceTransferModeRows()
         updatePrimaryRowLabel(true)
@@ -422,6 +450,76 @@ class TransactionEntryActivity : AppCompatActivity() {
         buildShareSection(false)
         updateLiveCalc()
         renderCategories()
+        renderOriginalControls()
+    }
+
+    /**
+     * A received row is the receiver's to change in every way. When it has been changed and saved,
+     * "Go to original" opens what the friend sent; on that page the form is shielded from edits and
+     * Done becomes Revert.
+     */
+    private fun renderOriginalControls() {
+        val goToOriginal = findViewById<Button>(R.id.btnGoToOriginal)
+        val original = originalView
+        goToOriginal.visibility =
+            if (!isOriginalView && original != null && original.differs) View.VISIBLE else View.GONE
+        goToOriginal.setOnClickListener {
+            val tx = currentTransaction ?: return@setOnClickListener
+            originalLauncher.launch(
+                Intent(this, TransactionEntryActivity::class.java)
+                    .putExtra(EXTRA_TRANSACTION_ID, tx.id)
+                    .putExtra(EXTRA_SHOW_ORIGINAL, true)
+            )
+        }
+        if (!isOriginalView) return
+
+        findViewById<Button>(R.id.btnDone).apply {
+            text = "Revert"
+            backgroundTintList = ColorStateList.valueOf(themeColor(ThemeAttr.revert))
+            setTextColor(themeColor(ThemeAttr.onRevert))
+        }
+        val close = findViewById<View>(R.id.btnClose)
+        findViewById<View>(R.id.originalShield).apply {
+            visibility = View.VISIBLE
+            // Every tap is kept from the form except one on Close. Declining the touch is what
+            // lets it fall through to the view underneath.
+            setOnTouchListener { _, event -> !isOver(close, event) }
+        }
+    }
+
+    private fun isOver(view: View, event: MotionEvent): Boolean {
+        val location = IntArray(2)
+        view.getLocationOnScreen(location)
+        val x = event.rawX
+        val y = event.rawY
+        return x >= location[0] && x <= location[0] + view.width && y >= location[1] && y <= location[1] + view.height
+    }
+
+    private fun confirmRevert() {
+        val original = originalView ?: return
+        AlertDialog.Builder(this)
+            .setTitle("Put this back as ${original.original.senderName} sent it?")
+            .setMessage(
+                "Your changes to it are undone. It becomes pending again, and leaves your balances until " +
+                    "you confirm it. The account, categories and chapter you gave it are cleared."
+            )
+            .setPositiveButton("Revert") { _, _ -> viewModel.launchTask { revertToOriginal() } }
+            .setNegativeButton("Cancel", null)
+            .show()
+    }
+
+    private suspend fun revertToOriginal() {
+        val tx = currentTransaction ?: return
+        val db = AppDatabase.Companion.getInstance(applicationContext)
+        val chapterId = try {
+            withContext(Dispatchers.IO) { ReceivedOriginalRepository(db).revert(tx.id) }
+        } catch (error: RevertException) {
+            return toast(error.message ?: "Could not put it back.")
+        }
+        publishIfShared(db, setOfNotNull(chapterId))
+        toast("Put back as it was sent. It is pending again.")
+        setResult(RESULT_REVERTED)
+        finish()
     }
 
     private fun setupDateSection() {
@@ -733,8 +831,8 @@ class TransactionEntryActivity : AppCompatActivity() {
 
         etDescription.setText(tx.reason ?: "")
 
-        val shares =
-            withContext(Dispatchers.IO) { db.transactionShareDao().getSharesForTransaction(tx.id) }
+        val shares = originalShares
+            ?: withContext(Dispatchers.IO) { db.transactionShareDao().getSharesForTransaction(tx.id) }
         seedShareRows(shares)
         // Saved as moving nobody's balance -- the old "doesn't affect what we owe" switch -- reads as
         // every IOU line left out, which is exactly what saving it again derives.
@@ -745,10 +843,10 @@ class TransactionEntryActivity : AppCompatActivity() {
             }
         }
 
-        // A friend's transaction keeps the side it arrived with. One of ours keeps its side only if it
-        // was already split, so a split added now starts from what its shape suggests.
+        // A row keeps its side only if it was already split, so a split added now starts from what its
+        // shape suggests. A friend's transaction is no different: what it means here is the receiver's
+        // to decide, and what was sent is kept apart, untouched, as its original.
         val savedIouRecovery = IouLegs.resolve(tx, shares)
-        lockedIouRecovery = savedIouRecovery.takeIf { tx.sharedRefId != null }
         iouRecoveryOverride = savedIouRecovery.takeIf {
             IouLegs.choiceMatters(tx.payerActorRef(), tx.payeeActorRef(), shares, LedgerEffect.DEBT)
         }
@@ -758,7 +856,8 @@ class TransactionEntryActivity : AppCompatActivity() {
         // otherwise an income transaction's splits find no pill to attach to.
         applyCategoryKind(categoryTargeting().kind)
 
-        val splits = withContext(Dispatchers.IO) { db.categorySplitDao().getForTransaction(tx.id) }
+        // What a friend sent never carries categories: those are the receiver's own.
+        val splits = if (isOriginalView) emptyList() else withContext(Dispatchers.IO) { db.categorySplitDao().getForTransaction(tx.id) }
         if (splits.isNotEmpty()) {
             categoryEntries.forEach { entry ->
                 val split = splits.firstOrNull { it.categoryId == entry.category.id }
@@ -1221,18 +1320,16 @@ class TransactionEntryActivity : AppCompatActivity() {
             }
 
             is TransactionEntryAction.IouRecoverySelected -> {
-                if (lockedIouRecovery == null) {
-                    iouRecoveryOverride = action.recovery
-                    updateIouRecoveryUi()
-                    updateCategoryVisibility()
-                    updateTrackedCategoryAmount()
-                }
+                iouRecoveryOverride = action.recovery
+                updateIouRecoveryUi()
+                updateCategoryVisibility()
+                updateTrackedCategoryAmount()
             }
             is TransactionEntryAction.IouLineToggled -> toggleIouLine(action.debtor, action.creditor)
             is TransactionEntryAction.CategoryToggled -> updateCategoryVisibility()
             is TransactionEntryAction.CategoryAmountChanged -> updateCategoryVisibility()
             TransactionEntryAction.SaveClicked -> {
-                viewModel.launchTask { handleDone() }
+                if (isOriginalView) confirmRevert() else viewModel.launchTask { handleDone() }
             }
 
             TransactionEntryAction.CloseClicked -> finish()
@@ -1562,16 +1659,12 @@ class TransactionEntryActivity : AppCompatActivity() {
         val lines = if (isTransferMode()) emptyList() else currentIouLines(payer, payee, shares)
         iouRecoverySection.visibility = if (lines.isEmpty()) View.GONE else View.VISIBLE
         if (lines.isNotEmpty()) {
-            val editable = !isReceivedTransaction()
             val recovery = chosenIouRecovery(payer, payee, shares)
             iouRecoveryPills.visibility =
                 if (IouLegs.choiceMatters(payer, payee, shares, LedgerEffect.DEBT)) View.VISIBLE else View.GONE
             tvRecoverFromPayers.isSelected = recovery == IouRecovery.FROM_SECONDARY_PAYERS
             tvRecoverFromPayees.isSelected = recovery == IouRecovery.FROM_SECONDARY_PAYEES
-            tvRecoverFromPayers.isEnabled = editable
-            tvRecoverFromPayees.isEnabled = editable
-            tvIouRecoveryLocked.visibility = if (editable) View.GONE else View.VISIBLE
-            renderIouLines(lines, editable)
+            renderIouLines(lines)
         }
 
         // The refund section sits above this one: only space the two apart when both show.
@@ -1592,11 +1685,8 @@ class TransactionEntryActivity : AppCompatActivity() {
     private fun currentIouLines(payer: ActorRef, payee: ActorRef, shares: List<TransactionShare>): List<IouLine> =
         IouLegs.lines(payer, payee, shares, getCurrentAmountPaise(), chosenIouRecovery(payer, payee, shares))
 
-    /** A friend sent this: who owes whom on it is theirs to say, so neither the side nor the lines can change. */
-    private fun isReceivedTransaction(): Boolean = currentTransaction?.sharedRefId != null
-
-    private fun renderIouLines(lines: List<IouLine>, editable: Boolean) {
-        val shown = lines.map { lineText(it) to it.kept } + ("" to editable)
+    private fun renderIouLines(lines: List<IouLine>) {
+        val shown = lines.map { lineText(it) to it.kept }
         if (shown == renderedIouLines) return
         renderedIouLines = shown
 
@@ -1611,7 +1701,6 @@ class TransactionEntryActivity : AppCompatActivity() {
             } else {
                 pill.paintFlags or Paint.STRIKE_THRU_TEXT_FLAG
             }
-            pill.isEnabled = editable
             pill.setOnClickListener {
                 viewModel.onAction(TransactionEntryAction.IouLineToggled(line.debtor, line.creditor))
             }
@@ -1624,7 +1713,6 @@ class TransactionEntryActivity : AppCompatActivity() {
      * the rows as they stand now: the pill that was tapped may have been drawn before a row changed.
      */
     private fun toggleIouLine(debtor: IouParty, creditor: IouParty) {
-        if (isReceivedTransaction()) return
         val payer = draftActorRef(true)
         val payee = draftActorRef(false)
         val draft = draftShareRows(0L)
@@ -1641,12 +1729,12 @@ class TransactionEntryActivity : AppCompatActivity() {
         updateTrackedCategoryAmount()
     }
 
-    /** What saving now would store: the side a friend's transaction arrived with, the user's pick, then the split's shape. */
+    /** What saving now would store: the user's pick, then the split's shape. */
     private fun chosenIouRecovery(payer: ActorRef, payee: ActorRef, shares: List<TransactionShare>): IouRecovery =
         IouLegs.effectiveRecovery(
             payer,
             payee,
-            lockedIouRecovery ?: iouRecoveryOverride ?: IouLegs.shapeDefault(payer, payee, shares)
+            iouRecoveryOverride ?: IouLegs.shapeDefault(payer, payee, shares)
         )
 
     /**

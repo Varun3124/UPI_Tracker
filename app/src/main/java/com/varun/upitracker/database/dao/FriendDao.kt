@@ -35,6 +35,10 @@ interface FriendDao {
     @Query("SELECT * FROM friend_upi_ids WHERE upiId = :upiId LIMIT 1")
     suspend fun findByUpiId(upiId: String): com.varun.upitracker.database.entity.FriendUpiId?
 
+    /** For a UPI ID a friend typed about themselves, which may not share the SMS's capitalisation. */
+    @Query("SELECT * FROM friend_upi_ids WHERE LOWER(upiId) = LOWER(:upiId) LIMIT 1")
+    suspend fun findByUpiIdIgnoreCase(upiId: String): com.varun.upitracker.database.entity.FriendUpiId?
+
     // Debit resolution — look up by raw name
     @Query("SELECT * FROM friend_raw_names WHERE rawName = :rawName LIMIT 1")
     suspend fun findByRawName(rawName: String): com.varun.upitracker.database.entity.FriendRawName?

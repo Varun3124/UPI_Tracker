@@ -12,14 +12,15 @@ import com.varun.upitracker.domain.mailbox.MailboxIds
  * project, so the alternative is a hand-rolled JSON writer -- more code, for a format that would
  * then compress worse. Every line repeats its neighbours' shape, which is what DEFLATE is good at.
  *
- * Version 3 is pasted through a chat app:
+ * Version 4 is pasted through a chat app:
  *
- *     V|3|<originToken>|<txCount>
+ *     V|4|<originToken>|<senderAlias>|<senderUpiId>|<txCount>
  *     T|<sourceId>|<dateEpoch>|<amountPaise>|<payer>|<payee>|<DEBT|NONE>|<upiRefId>|<reason>|<PAYERS|PAYEES>
  *     S|<PAYER|PAYEE>|<participant>|<amountPaise>|<keptLegs>
  *
- * Version 1 is version 3 without the last field of either line, as apps from before [IouRecovery]
- * wrote it. It is still read, so a friend who has not updated can still paste to one who has, but
+ * `<senderUpiId>` may be empty. Version 3 is version 4 without the two sender fields, and version 1
+ * is version 3 without the last field of either row line, as apps from before [IouRecovery] wrote
+ * it. Both are still read, so a friend who has not updated can still paste to one who has, but
  * never written.
  *
  * Version 2 only ever travels inside a mailbox envelope:
@@ -38,7 +39,10 @@ import com.varun.upitracker.domain.mailbox.MailboxIds
 object ParcelFormat {
 
     /** Pasted through a chat app. */
-    const val VERSION = 3
+    const val VERSION = 4
+
+    /** Pasted by an app from before the writer's alias travelled. Read, never written. */
+    const val PRE_ALIAS_VERSION = 3
 
     /** Pasted by an app from before [IouRecovery]. Read, never written. */
     const val LEGACY_VERSION = 1
@@ -70,7 +74,12 @@ object ParcelFormat {
         out.append("V").append(FIELD).append(parcel.version)
         if (!mailbox) {
             val token = requireNotNull(parcel.originToken) { "A pasted parcel needs an origin token." }
+            val alias = requireNotNull(SenderIdentity.normaliseAlias(parcel.senderAlias)) {
+                "A pasted parcel needs its writer's alias."
+            }
             out.append(FIELD).append(escape(token))
+                .append(FIELD).append(escape(alias))
+                .append(FIELD).append(escape(SenderIdentity.normaliseUpiId(parcel.senderUpiId).orEmpty()))
         }
         out.append(FIELD).append(parcel.transactions.size)
         parcel.transactions.forEach { tx ->
@@ -102,8 +111,8 @@ object ParcelFormat {
 
     /**
      * Reads a parcel of exactly [expectedVersion] -- the version of the route it arrived by. A pasted
-     * parcel is version 3, or version 1 from an older app, and a mailbox envelope carries version 2: a
-     * version 2 body smuggled into a pasted parcel would name accounts that nothing has verified.
+     * parcel is version 4, or version 3 or 1 from an older app, and a mailbox envelope carries version
+     * 2: a version 2 body smuggled into a pasted parcel would name accounts that nothing has verified.
      */
     fun parse(plaintext: String, expectedVersion: Int = VERSION): ParcelDecodeResult {
         val lines = plaintext.split('\n').filter { it.isNotEmpty() }
@@ -121,17 +130,32 @@ object ParcelFormat {
             )
         }
         val legacy = expectedVersion == VERSION && version == LEGACY_VERSION
-        if (version != expectedVersion && !legacy) {
+        val preAlias = expectedVersion == VERSION && version == PRE_ALIAS_VERSION
+        if (version != expectedVersion && !legacy && !preAlias) {
             return ParcelDecodeResult.Failed("This parcel is not in a form this screen can read.")
         }
         val mailbox = version == MAILBOX_VERSION
-        if (header.size != (if (mailbox) 3 else 4)) {
+        val carriesSender = version == VERSION
+        val headerFields = when {
+            mailbox -> 3
+            carriesSender -> 6
+            else -> 4
+        }
+        if (header.size != headerFields) {
             return ParcelDecodeResult.Failed("Line 1 is not a parcel header.")
         }
         val originToken = if (mailbox) null else unescape(header[2])
         if (originToken != null && originToken.isBlank()) {
             return ParcelDecodeResult.Failed("Line 1 has no origin token.")
         }
+        val senderAlias = if (carriesSender) {
+            SenderIdentity.normaliseAlias(unescape(header[3]))
+                ?: return ParcelDecodeResult.Failed("Line 1 does not say who sent it.")
+        } else {
+            null
+        }
+        // Optional, and only ever a hint: one that does not read as a UPI ID is dropped, not refused.
+        val senderUpiId = if (carriesSender) SenderIdentity.normaliseUpiId(unescape(header[4])) else null
         val declaredCount = header.last().toIntOrNull()
             ?: return ParcelDecodeResult.Failed("Line 1 has an unreadable transaction count.")
 
@@ -180,7 +204,7 @@ object ParcelFormat {
                     "${transactions.size}. It was probably cut short somewhere."
             )
         }
-        return ParcelDecodeResult.Ok(Parcel(version, originToken, transactions))
+        return ParcelDecodeResult.Ok(Parcel(version, originToken, transactions, senderAlias, senderUpiId))
     }
 
     private fun parseTransaction(

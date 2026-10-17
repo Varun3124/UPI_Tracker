@@ -3,6 +3,7 @@ package com.varun.upitracker.data.mailbox
 import android.content.Context
 import android.util.Log
 import com.varun.upitracker.data.declaration.DeclarationRepository
+import com.varun.upitracker.data.prefs.SelfIdentity
 import com.varun.upitracker.database.AppDatabase
 import com.varun.upitracker.database.entity.FriendLink
 import com.varun.upitracker.database.entity.FriendLinkState
@@ -57,6 +58,7 @@ class LinkRepository(context: Context, private val db: AppDatabase) {
 
     private val services = MailboxServices.get(context)
     private val identities = MailboxIdentityRepository(context, db)
+    private val self = SelfIdentity(context)
 
     /** Lazy so that a repository built only to read a link never builds this one too. */
     private val declarations by lazy { DeclarationRepository(context, db) }
@@ -245,7 +247,7 @@ class LinkRepository(context: Context, private val db: AppDatabase) {
             val mine = identity.keys.publicKeys
             val reply = LinkAccept(
                 inviteId = invite.inviteId,
-                responderName = identity.displayName,
+                responderName = shownName(identity),
                 encryptionKey = mine.encryptionKeyText,
                 signingKey = mine.signingKeyText,
                 proof = InviteCode.proof(invite.secret, invite.inviteId, uid, mine.fingerprint)
@@ -453,13 +455,16 @@ class LinkRepository(context: Context, private val db: AppDatabase) {
         return Triple(message, accept, keys)
     }
 
+    /** The alias friends already see on pasted parcels, so one person reads as one name everywhere. */
+    private fun shownName(identity: MailboxIdentity): String = self.alias() ?: identity.displayName
+
     private fun codeFor(invite: LinkInvite, identity: MailboxIdentity): String = InviteCode.encode(
         LinkInviteCode(
             inviteId = invite.id,
             secret = invite.secret,
             ownerUid = identity.uid,
             ownerFingerprint = identity.keys.fingerprint,
-            nameHint = identity.displayName,
+            nameHint = shownName(identity),
             expiresEpoch = invite.expiresEpoch
         )
     )

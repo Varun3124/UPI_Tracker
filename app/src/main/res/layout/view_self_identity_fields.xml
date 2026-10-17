@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The two things a person says about themselves, asked in onboarding and again from Settings. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical">
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="What should friends see you as?"
+        android:textAppearance="@style/TextAppearance.UPI.Caption" />
+
+    <EditText
+        android:id="@+id/etSelfAlias"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:hint="Your name"
+        android:inputType="textPersonName|textCapWords"
+        android:maxLength="40"
+        android:importantForAutofill="no" />
+
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/space_m"
+        android:text="Your UPI ID (optional)"
+        android:textAppearance="@style/TextAppearance.UPI.Caption" />
+
+    <EditText
+        android:id="@+id/etSelfUpiId"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="4dp"
+        android:hint="name@bank"
+        android:inputType="textEmailAddress|textNoSuggestions"
+        android:importantForAutofill="no" />
+
+    <TextView
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="@dimen/space_s"
+        android:text="Both go with every transaction you send a friend, so their app knows it came from you without asking them. Your UPI ID also lets it match payments you make them."
+        android:textAppearance="@style/TextAppearance.UPI.Caption"
+        android:textColor="?attr/appTextMuted" />
+</LinearLayout>

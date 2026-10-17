@@ -84,7 +84,8 @@ class ParcelFormatV2Test {
             listOf(
                 row(payer = ParcelActor.Sender, payee = ParcelActor.Me, shares = emptyList())
                     .copy(sourceId = 41L, shareRef = null)
-            )
+            ),
+            senderAlias = "Asha"
         )
         val result = ParcelFormat.parse(ParcelFormat.format(pasted), ParcelFormat.MAILBOX_VERSION)
         assertTrue(result is ParcelDecodeResult.Failed)
@@ -92,7 +93,7 @@ class ParcelFormatV2Test {
 
     @Test(expected = IllegalArgumentException::class)
     fun `a pasted parcel cannot name an account`() {
-        ParcelFormat.format(Parcel(ParcelFormat.VERSION, "tok3n", listOf(row().copy(sourceId = 41L))))
+        ParcelFormat.format(Parcel(ParcelFormat.VERSION, "tok3n", listOf(row().copy(sourceId = 41L)), senderAlias = "Asha"))
     }
 
     @Test(expected = IllegalArgumentException::class)

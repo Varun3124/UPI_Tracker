@@ -36,8 +36,9 @@ class TransactionPersistenceService(
     /**
      * [chooseIouRecovery] is only asked once the actors and share rows are resolved: a name typed into
      * a split but not yet committed only becomes a share there, and whether anyone else is in the split
-     * is what the choice turns on. A transaction a friend sent keeps the technique it arrived with --
-     * changing it here would leave the two copies disagreeing about who owes whom.
+     * is what the choice turns on. A transaction a friend sent is chosen for like any other: what it
+     * means here is the receiver's to decide, and what was sent is kept apart as its original -- see
+     * [com.varun.upitracker.data.repository.ReceivedOriginalRepository].
      *
      * The ledger effect is read off the share rows rather than asked for: with every IOU line left
      * out, the transaction moves nobody's balance. See [IouLegs.ledgerEffect].
@@ -61,11 +62,7 @@ class TransactionPersistenceService(
                 resolveUnresolvedShareRows()
                 val shares = buildSharesForPersistence(tx?.id ?: 0L)
                 val toCategorisePaise = categoryAmountPaise(shares)
-                val iouRecovery = IouLegs.effectiveRecovery(
-                    payer,
-                    payee,
-                    tx?.takeIf { it.sharedRefId != null }?.iouRecovery ?: chooseIouRecovery(payer, payee, shares)
-                )
+                val iouRecovery = IouLegs.effectiveRecovery(payer, payee, chooseIouRecovery(payer, payee, shares))
                 val ledgerEffect = IouLegs.ledgerEffect(payer, payee, shares, request.amountPaise, iouRecovery)
 
                 // Before any write, so the refusal costs nothing and so the friends who are about to

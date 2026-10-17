@@ -22,7 +22,13 @@
         android:fillViewport="true"
         android:scrollbars="none">
 
+        <!-- A FrameLayout only so the original's shield can sit over the form. -->
+        <FrameLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content">
+
         <LinearLayout
+            android:id="@+id/formContent"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:orientation="vertical"
@@ -44,6 +50,15 @@
                     android:ellipsize="end"
                     android:maxLines="2"
                     android:textAppearance="@style/TextAppearance.UPI.Label" />
+
+                <!-- A received row changed since it arrived: open it as the friend sent it. -->
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/btnGoToOriginal"
+                    style="@style/Widget.UPI.Button.Text"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="Go to original"
+                    android:visibility="gone" />
 
                 <ImageButton
                     android:id="@+id/btnClose"
@@ -506,14 +521,6 @@
                             android:layout_marginTop="@dimen/space_s"
                             android:gravity="start"
                             android:orientation="vertical" />
-
-                        <TextView
-                            android:id="@+id/tvIouRecoveryLocked"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:text="A friend sent this, so this can&apos;t be changed"
-                            android:textAppearance="@style/TextAppearance.UPI.Label"
-                            android:visibility="gone" />
                     </LinearLayout>
                 </LinearLayout>
             </com.google.android.material.card.MaterialCardView>
@@ -554,6 +561,16 @@
                 android:layout_width="match_parent"
                 android:layout_height="48dp" />
         </LinearLayout>
+
+        <!-- Showing a received transaction as it was sent: takes every tap except Close, so the
+             form reads but cannot be changed. Drags still reach the ScrollView, which intercepts
+             them before any child sees them. -->
+        <View
+            android:id="@+id/originalShield"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:visibility="gone" />
+        </FrameLayout>
     </ScrollView>
 
     <LinearLayout

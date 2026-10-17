@@ -48,6 +48,8 @@
     <color name="app_positive">#1F7A5C</color>
     <color name="app_negative">@color/brand_crimson</color>
     <color name="app_warning">#B26A00</color>
+    <color name="app_revert">#6B3FA0</color>
+    <color name="app_on_revert">#FFFFFF</color>
     <color name="app_amount_neutral">#7A8299</color>
 
     <!-- Speculation: a balance derived from an unchecked transaction history. Warm brown, well

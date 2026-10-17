@@ -5,14 +5,17 @@ import android.os.Bundle
 import android.provider.Settings
 import android.view.View
 import android.widget.ImageButton
+import android.widget.TextView
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
 import com.varun.upitracker.R
+import com.varun.upitracker.data.prefs.SelfIdentity
 import com.varun.upitracker.ui.AliasMappingsActivity
 import com.varun.upitracker.ui.CategorySettingsActivity
 import com.varun.upitracker.ui.backup.BackupActivity
 import com.varun.upitracker.ui.mailbox.MailboxActivity
 import com.varun.upitracker.ui.parcel.ParcelImportActivity
+import com.varun.upitracker.ui.share.SelfIdentityDialog
 import com.varun.upitracker.ui.statement.StatementImportActivity
 import com.varun.upitracker.ui.theme.padRootForSystemBars
 
@@ -46,6 +49,10 @@ class SettingsActivity : AppCompatActivity() {
         findViewById<View>(R.id.cardAccounts).setOnClickListener {
             startActivity(Intent(this, AccountsActivity::class.java))
         }
+        findViewById<View>(R.id.cardSelfIdentity).setOnClickListener {
+            SelfIdentityDialog.show(this) { renderSelfIdentity() }
+        }
+        renderSelfIdentity()
         findViewById<View>(R.id.cardFriendAliases).setOnClickListener {
             startActivity(AliasMappingsActivity.createIntent(this, AliasMappingsActivity.MODE_FRIEND))
         }
@@ -54,6 +61,16 @@ class SettingsActivity : AppCompatActivity() {
         }
         findViewById<View>(R.id.cardNotificationAccess).setOnClickListener {
             startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+        }
+    }
+
+    private fun renderSelfIdentity() {
+        val identity = SelfIdentity(this)
+        val alias = identity.alias()
+        findViewById<TextView>(R.id.tvSelfIdentitySummary).text = when {
+            alias == null -> "Not set. Friends' apps need it to tell who a parcel is from."
+            identity.upiId() == null -> "Friends see you as $alias."
+            else -> "Friends see you as $alias · ${identity.upiId()}"
         }
     }
 }

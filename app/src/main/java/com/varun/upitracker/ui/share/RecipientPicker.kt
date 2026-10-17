@@ -19,6 +19,7 @@ import com.varun.upitracker.data.mailbox.MailboxSendRepository
 import com.varun.upitracker.data.mailbox.MailboxStatus
 import com.varun.upitracker.data.mailbox.RecipientOption
 import com.varun.upitracker.data.mailbox.SendOutcome
+import com.varun.upitracker.data.prefs.SelfIdentity
 import com.varun.upitracker.data.repository.ParcelExportRepository
 import com.varun.upitracker.database.AppDatabase
 import com.varun.upitracker.database.entity.FriendLinkState
@@ -199,16 +200,31 @@ class RecipientPicker(
         }
     }
 
-    /** The old way, for someone not linked: a parcel to paste, written from their point of view. */
+    /**
+     * The old way, for someone not linked: a parcel to paste, written from their point of view. It
+     * carries the user's alias, which is how the other app knows who sent it -- so someone who
+     * onboarded before there was one is asked for it once, here.
+     */
     private fun shareParcel(option: RecipientOption) {
+        if (SelfIdentity(appContext).alias() == null) {
+            activity.lifecycleScope.launch {
+                val suggested = (identities.status() as? MailboxStatus.On)?.displayName
+                SelfIdentityDialog.show(
+                    activity,
+                    title = "First, how should friends see you?",
+                    suggestedAlias = suggested
+                ) { shareParcel(option) }
+            }
+            return
+        }
         activity.lifecycleScope.launch {
             val parcel = withContext(Dispatchers.IO) { export.buildParcel(option.friendId, option.pasteTransactionIds) }
             AlertDialog.Builder(activity)
                 .setTitle("A parcel for ${option.name}")
                 .setMessage(
                     "${option.name} is not reachable through the mailbox, so this goes as a parcel to paste. " +
-                        "Send it through a chat you already use with them; they paste it in Settings and pick " +
-                        "you as the sender."
+                        "Send it through a chat you already use with them; they long-press Add on their " +
+                        "dashboard and paste it. It tells their app it is from you."
                 )
                 .setPositiveButton("Send") { _, _ ->
                     activity.startActivity(

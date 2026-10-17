@@ -26,6 +26,12 @@ object AppPrefs {
     /** Whether the user has finished onboarding. The only gate between launch and the dashboard. */
     const val ONBOARDING_COMPLETE: String = "onboarding_complete"
 
+    /** What friends' apps show this person as. Written by onboarding and Settings, read when sharing. */
+    const val SELF_ALIAS: String = "self_alias"
+
+    /** This person's own UPI ID, optional. Travels with the alias so a friend's app can recognise them. */
+    const val SELF_UPI_ID: String = "self_upi_id"
+
     fun of(context: Context): SharedPreferences =
         context.applicationContext.getSharedPreferences(FILE_NAME, Context.MODE_PRIVATE)
 }

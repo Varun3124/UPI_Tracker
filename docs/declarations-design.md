@@ -502,8 +502,9 @@ exactly the old behaviour.
 - **Chapters list.** Badges: *Alice's · live*, *Alice's · frozen*, *Alice's · copy*; the user's own
   show *Active* and *Shared*. A friend's chapter shows the owner's nets, never ones worked out here.
   So does the dashboard's chapter slider.
-- **Paste box (Settings).** Reads a static copy as well as parcels and invites. The reader picks the
-  sender and sees the preview (§7), then **Keep copy** opens it.
+- **Paste box (Settings, or long-press Add on the dashboard).** Reads a static copy as well as
+  parcels and invites. A copy names nobody, so the reader picks whose it is, sees the preview (§7),
+  then **Keep copy** opens it. (A parcel names its writer by alias, and an invite asks who it is from.)
 - **Entry screen.** A row in a friend's chapter reads *"Alice's Goa trip"*, with *"Alice keeps this
   chapter…"* under it, and the chapter field cannot move it (S6). The picker offers the user's own
   chapters only (S10).

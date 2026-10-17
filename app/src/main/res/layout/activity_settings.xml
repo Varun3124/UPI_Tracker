@@ -211,6 +211,60 @@
                 android:textAppearance="@style/TextAppearance.UPI.SectionHeader" />
 
             <com.google.android.material.card.MaterialCardView
+                android:id="@+id/cardSelfIdentity"
+                style="@style/Widget.UPI.Card.Clickable"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginBottom="@dimen/space_s">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="horizontal"
+                    android:gravity="center_vertical"
+                    android:padding="@dimen/space_l">
+
+                    <ImageView
+                        android:layout_width="@dimen/icon_size"
+                        android:layout_height="@dimen/icon_size"
+                        android:layout_marginEnd="@dimen/space_l"
+                        android:src="@drawable/ic_person"
+                        app:tint="?attr/colorPrimary"
+                        android:importantForAccessibility="no" />
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="You"
+                            android:textAppearance="@style/TextAppearance.UPI.Title"
+                            android:textSize="15sp" />
+
+                        <TextView
+                            android:id="@+id/tvSelfIdentitySummary"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="@dimen/space_xs"
+                            android:text="The name and UPI ID your friends' apps see on what you send."
+                            android:textAppearance="@style/TextAppearance.UPI.Caption" />
+                    </LinearLayout>
+
+                    <ImageView
+                        android:layout_width="@dimen/icon_size"
+                        android:layout_height="@dimen/icon_size"
+                        android:layout_marginStart="@dimen/space_s"
+                        android:src="@drawable/ic_chevron_right"
+                        app:tint="?attr/appTextMuted"
+                        android:importantForAccessibility="no" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <com.google.android.material.card.MaterialCardView
                 android:id="@+id/cardFriendAliases"
                 style="@style/Widget.UPI.Card.Clickable"
                 android:layout_width="match_parent"

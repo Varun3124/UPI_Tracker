@@ -11,9 +11,12 @@ import com.varun.upitracker.database.entity.LedgerEffect
  * the awkward reasoning in one place -- [ParcelPerspective.flipForRecipient] -- instead of leaving
  * every reader of the format to work out whose "ME" a given row means.
  *
- * Three versions exist across the two routes:
- *  - **3** is pasted through a chat app. Nothing in it identifies anyone; the reader says who sent it.
- *    **1** is the same without [ParcelTransaction.iouRecovery], and is still read from older apps.
+ * Four versions exist across the two routes:
+ *  - **4** is pasted through a chat app, and says who wrote it: the writer's own alias and, if they
+ *    gave one, their UPI ID. That is a claim, not a proof -- nothing verifies a paste -- so the reader's
+ *    app uses it only to suggest who the sender is, and the reader can always say otherwise.
+ *  - **3** is version 4 without the writer's alias, from apps before it; the reader says who sent it.
+ *    **1** is version 3 without [ParcelTransaction.iouRecovery]. Both are still read, never written.
  *  - **2** only ever travels inside a signed, encrypted mailbox envelope, whose verified sender is
  *    what says who wrote it. Each row carries its own [ParcelTransaction.shareRef], and people the
  *    writer sent the same rows to can be named by account as [ParcelActor.Linked].
@@ -22,11 +25,16 @@ data class Parcel(
     val version: Int,
     /**
      * Pasted parcels only: an opaque token the writer keeps per recipient, qualifying
-     * [ParcelTransaction.sourceId] so two senders' row 41s cannot collide. Deliberately not a name:
-     * the reader says who sent this. Null in version 2, where every row carries its own reference.
+     * [ParcelTransaction.sourceId] so two senders' row 41s cannot collide. Deliberately not a name: a
+     * name can change, and this cannot, which is also what lets the reader's app remember who it was
+     * from last time. Null in version 2, where every row carries its own reference.
      */
     val originToken: String?,
-    val transactions: List<ParcelTransaction>
+    val transactions: List<ParcelTransaction>,
+    /** Version 4: what the writer calls themselves. Null in every other version. */
+    val senderAlias: String? = null,
+    /** Version 4, optional: the writer's own UPI ID, already normalised by [SenderIdentity]. */
+    val senderUpiId: String? = null
 )
 
 /** A person or shop as a parcel names them. */
@@ -35,7 +43,10 @@ sealed interface ParcelActor {
     /** Whoever imports this parcel. */
     data object Me : ParcelActor
 
-    /** Whoever wrote it. The importer decides which of their friends that is. */
+    /**
+     * Whoever wrote it. A version 4 parcel suggests who by [Parcel.senderAlias]; the importer has the
+     * last word on which of their friends that is.
+     */
     data object Sender : ParcelActor
 
     /**

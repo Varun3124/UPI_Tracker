@@ -55,6 +55,8 @@
         <item name="appPositive">@color/app_positive</item>
         <item name="appNegative">@color/app_negative</item>
         <item name="appWarning">@color/app_warning</item>
+        <item name="appRevert">@color/app_revert</item>
+        <item name="appOnRevert">@color/app_on_revert</item>
         <item name="appAmountNeutral">@color/app_amount_neutral</item>
         <item name="appPositiveContainer">@color/app_positive_container</item>
         <item name="appOnPositiveContainer">@color/app_on_positive_container</item>

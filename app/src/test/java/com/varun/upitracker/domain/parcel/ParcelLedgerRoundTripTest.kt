@@ -73,7 +73,7 @@ class ParcelLedgerRoundTripTest {
             friendName = { mapOf(bInAsBook to "Bob", charlieInAsBook to "Charlie", danInAsBook to "Dan")[it] },
             merchantName = { "Swiggy" }
         )
-        val decoded = ParcelCodec.decode(ParcelCodec.encode(Parcel(ParcelFormat.VERSION, "tok", listOf(row))))
+        val decoded = ParcelCodec.decode(ParcelCodec.encode(Parcel(ParcelFormat.VERSION, "tok", listOf(row), senderAlias = "Asha")))
         assertTrue("parcel did not survive the wire: $decoded", decoded is ParcelDecodeResult.Ok)
         return ParcelPerspective.toLocal(
             row = (decoded as ParcelDecodeResult.Ok).parcel.transactions.single(),

@@ -21,6 +21,11 @@
 
     <attr name="appTextMuted" format="color" />
 
+    <!-- Putting a received transaction back as it was sent. Purple, so it reads as neither saving
+         (primary) nor deleting (error): it undoes the receiver's own edits and nothing else. -->
+    <attr name="appRevert" format="color" />
+    <attr name="appOnRevert" format="color" />
+
     <!-- A balance the app worked out rather than one it was told; see BalanceConfidence. Brown,
          because it has to read as "not quite real" without colliding with the money semantics
          above: positive, negative and warning all already mean something. -->

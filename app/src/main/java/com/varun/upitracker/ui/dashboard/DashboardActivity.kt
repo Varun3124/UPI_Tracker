@@ -17,6 +17,8 @@ import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.accessibility.AccessibilityNodeInfoCompat.AccessibilityActionCompat
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
 import com.varun.upitracker.R
@@ -27,6 +29,7 @@ import com.varun.upitracker.ui.AmountPerspective
 import com.varun.upitracker.ui.FriendDetailActivity
 import com.varun.upitracker.ui.LedgerEntry
 import com.varun.upitracker.ui.mailbox.MailboxInboxActivity
+import com.varun.upitracker.ui.parcel.ParcelImportActivity
 import com.varun.upitracker.ui.color
 import com.varun.upitracker.ui.formatTransferAmount
 import com.varun.upitracker.ui.colorAttr
@@ -135,7 +138,21 @@ class DashboardActivity : AppCompatActivity() {
             startActivity(Intent(this, MailboxInboxActivity::class.java))
         }
 
-        findViewById<Button>(R.id.btnAddManual).setOnClickListener { launchManualEntry() }
+        findViewById<Button>(R.id.btnAddManual).apply {
+            setOnClickListener { launchManualEntry() }
+            // Something a friend sent is the other way a transaction arrives, so it lives on the
+            // same button: tap to type one in, hold to paste one.
+            setOnLongClickListener {
+                startActivity(Intent(this@DashboardActivity, ParcelImportActivity::class.java))
+                true
+            }
+            ViewCompat.replaceAccessibilityAction(
+                this,
+                AccessibilityActionCompat.ACTION_LONG_CLICK,
+                "Paste from a friend",
+                null
+            )
+        }
         viewModel.uiState.observe(this) { state ->
             // Sign is carried by color alone here (see styleCashFlowCard), so the figure itself
             // never needs a minus sign.

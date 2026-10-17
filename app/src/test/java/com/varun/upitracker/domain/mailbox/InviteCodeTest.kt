@@ -63,7 +63,7 @@ class InviteCodeTest {
 
     @Test
     fun `a parcel is not an invite, and an invite from a newer app says so`() {
-        val parcel = ParcelCodec.encode(Parcel(ParcelFormat.VERSION, "tok3n", emptyList()))
+        val parcel = ParcelCodec.encode(Parcel(ParcelFormat.VERSION, "tok3n", emptyList(), senderAlias = "Asha"))
         assertTrue(failureOf(parcel).contains("does not look like"))
         val future = "DHANLINK2" + InviteCode.encode(invite).removePrefix(InviteCode.PREFIX)
         assertTrue(failureOf(future).contains("newer version"))
@@ -138,7 +138,7 @@ class InviteCodeTest {
         assertNull(InviteCode.codeFrom("https://dhanmoney.web.app/link#notacode"))
         assertNull(InviteCode.codeFrom(""))
         // A parcel is not an invite, however it arrives.
-        val parcel = ParcelCodec.encode(Parcel(ParcelFormat.VERSION, "token1234", emptyList()))
+        val parcel = ParcelCodec.encode(Parcel(ParcelFormat.VERSION, "token1234", emptyList(), senderAlias = "Asha"))
         assertNull(InviteCode.codeFrom("https://dhanmoney.web.app/link#" + parcel))
     }
 
