@@ -146,7 +146,9 @@ class StatisticsActivity : AppCompatActivity() {
         swipeContainer.onSwipe = { direction -> viewModel.step(direction) }
 
         btnPickPeriod.setOnClickListener { showPeriodMenu() }
-        findViewById<ImageButton>(R.id.btnBackStats).setOnClickListener { onBackPressedDispatcher.onBackPressed() }
+        // The on-screen back arrow leaves the page outright; only the phone's back steps through
+        // what changed here (see BackHistory). Leaving clears this page's steps with it.
+        findViewById<ImageButton>(R.id.btnBackStats).setOnClickListener { finish() }
         btnPrevPeriod.setOnClickListener { viewModel.step(-1) }
         btnNextPeriod.setOnClickListener { viewModel.step(1) }
     }

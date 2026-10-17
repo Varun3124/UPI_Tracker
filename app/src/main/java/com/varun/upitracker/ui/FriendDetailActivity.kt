@@ -80,7 +80,9 @@ class FriendDetailActivity : AppCompatActivity() {
             ScreenViewModelFactory(applicationContext)
         )[FriendDetailViewModel::class.java]
 
-        findViewById<ImageButton>(R.id.btnBack).setOnClickListener { onBack() }
+        // The on-screen back arrow leaves the page outright; only the phone's back steps through
+        // what changed here (see BackHistory). Leaving clears this page's steps with it.
+        findViewById<ImageButton>(R.id.btnBack).setOnClickListener { finish() }
         onBackPressedDispatcher.addCallback(this) { onBack() }
         findViewById<View>(R.id.rowLinkStatus).setOnClickListener { onLinkTapped() }
         findViewById<View>(R.id.btnLinkAction).setOnClickListener { onLinkTapped() }

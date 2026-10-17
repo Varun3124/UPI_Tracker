@@ -84,7 +84,9 @@ class ChapterDetailActivity : AppCompatActivity() {
         )[ChapterDetailViewModel::class.java]
         padRootForSystemBars(R.id.main)
 
-        findViewById<ImageButton>(R.id.btnBackChapterDetail).setOnClickListener { onBack() }
+        // The on-screen back arrow leaves the page outright; only the phone's back steps through
+        // what changed here (see BackHistory). Leaving clears this page's steps with it.
+        findViewById<ImageButton>(R.id.btnBackChapterDetail).setOnClickListener { finish() }
         onBackPressedDispatcher.addCallback(this) { onBack() }
         findViewById<ImageButton>(R.id.btnChapterOverflow).setOnClickListener { showOverflow() }
         findViewById<View>(R.id.btnAddChapterTransactions).setOnClickListener {

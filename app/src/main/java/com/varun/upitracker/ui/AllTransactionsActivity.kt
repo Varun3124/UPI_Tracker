@@ -96,7 +96,9 @@ class AllTransactionsActivity : AppCompatActivity() {
         // Once only: after a rotation the ViewModel already holds this, plus whatever changed since.
         if (savedInstanceState == null) applyLaunchExtras()
 
-        findViewById<ImageButton>(R.id.btnBackAll).setOnClickListener { onBack() }
+        // The on-screen back arrow leaves the page outright; only the phone's back steps through
+        // what changed here (see BackHistory). Leaving clears this page's steps with it.
+        findViewById<ImageButton>(R.id.btnBackAll).setOnClickListener { finish() }
         onBackPressedDispatcher.addCallback(this) { onBack() }
 
         monthControl = MonthRangeControl(this, findViewById(R.id.btnPickMonth), viewModel::selectWindow)
