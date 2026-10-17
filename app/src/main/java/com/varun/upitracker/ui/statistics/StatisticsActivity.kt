@@ -4,7 +4,6 @@ import android.app.AlertDialog
 import android.app.DatePickerDialog
 import android.graphics.Color
 import android.os.Bundle
-import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.View
 import android.widget.LinearLayout
@@ -21,8 +20,7 @@ import com.varun.upitracker.domain.statistics.PerDayRate
 import com.varun.upitracker.domain.statistics.StatisticsPeriods
 import com.varun.upitracker.domain.statistics.StatsAggregator
 import com.varun.upitracker.domain.statistics.StatsPeriod
-import com.varun.upitracker.domain.statistics.TrendBucket
-import com.varun.upitracker.domain.statistics.TrendsBuckets
+import com.varun.upitracker.domain.statistics.serialise
 import com.varun.upitracker.ui.AccountScopePicker
 import com.varun.upitracker.ui.AllTransactionsActivity
 import com.varun.upitracker.ui.formatRupees
@@ -35,7 +33,6 @@ import com.varun.upitracker.ui.theme.ChartColors
 import android.widget.ImageButton
 import com.varun.upitracker.ui.theme.padRootForSystemBars
 import android.content.res.ColorStateList
-import androidx.core.widget.TextViewCompat
 import com.varun.upitracker.ui.theme.themeColor
 import com.varun.upitracker.ui.theme.ThemeAttr
 import com.varun.upitracker.ui.theme.dp
@@ -59,17 +56,15 @@ class StatisticsActivity : AppCompatActivity() {
     private lateinit var tvPeakDay: TextView
     private lateinit var weekBars: StackedBarChartView
     private lateinit var swipeContainer: SwipeableFrameLayout
-    private lateinit var trendsScroll: View
+    private lateinit var trendsPanel: View
+    private lateinit var periodRow: View
     private lateinit var btnSectionCategories: TextView
     private lateinit var btnSectionTrends: TextView
-    private lateinit var balanceLine: LineChartView
+    private lateinit var balanceGraph: BalanceGraphView
+    private lateinit var trendsOverlay: View
     private lateinit var tvBalanceLatest: TextView
-    private lateinit var tvBalanceChange: TextView
     private lateinit var tvSpeculationNote: TextView
     private lateinit var tvTrendsEmpty: TextView
-    private lateinit var flowChart: IncomeExpenseChartView
-    private lateinit var tvFlowSummary: TextView
-    private lateinit var cardFlowTrend: View
     private lateinit var btnPickScope: TextView
 
     private val dayFmt = SimpleDateFormat("d MMM yyyy", Locale.getDefault())
@@ -114,26 +109,21 @@ class StatisticsActivity : AppCompatActivity() {
         tvPeakDay = findViewById(R.id.tvPeakDay)
         weekBars = findViewById(R.id.weekBars)
         swipeContainer = findViewById(R.id.swipeContainer)
-        trendsScroll = findViewById(R.id.trendsScroll)
+        trendsPanel = findViewById(R.id.trendsPanel)
+        periodRow = findViewById(R.id.periodRow)
         btnSectionCategories = findViewById(R.id.btnSectionCategories)
         btnSectionTrends = findViewById(R.id.btnSectionTrends)
-        balanceLine = findViewById(R.id.balanceLine)
+        balanceGraph = findViewById(R.id.balanceGraph)
+        trendsOverlay = findViewById(R.id.trendsOverlay)
         tvBalanceLatest = findViewById(R.id.tvBalanceLatest)
-        tvBalanceChange = findViewById(R.id.tvBalanceChange)
         tvSpeculationNote = findViewById(R.id.tvSpeculationNote)
         tvTrendsEmpty = findViewById(R.id.tvTrendsEmpty)
-        flowChart = findViewById(R.id.flowChart)
-        tvFlowSummary = findViewById(R.id.tvFlowSummary)
-        cardFlowTrend = findViewById(R.id.cardFlowTrend)
         btnPickScope = findViewById(R.id.btnPickScope)
         btnPickScope.setOnClickListener { showScopeMenu() }
-        // Both charts drive the same window, which is what keeps them in step: whichever one the
-        // finger is on, the other redraws from the state the first one moved.
-        listOf(balanceLine, flowChart).forEach { chart ->
-            chart.onPanStart = { viewModel.beginPan() }
-            chart.onPan = { buckets -> viewModel.panBy(buckets) }
-            chart.onPanEnd = { viewModel.endPan() }
-        }
+        // The graph moves itself: nothing here, or in the back history, follows it around.
+        findViewById<View>(R.id.btnGraphHome).setOnClickListener { balanceGraph.goHome() }
+        findViewById<View>(R.id.btnGraphZoomIn).setOnClickListener { balanceGraph.zoomBy(ZOOM_STEP) }
+        findViewById<View>(R.id.btnGraphZoomOut).setOnClickListener { balanceGraph.zoomBy(1 / ZOOM_STEP) }
         btnSectionCategories.setOnClickListener { viewModel.selectSection(StatsSection.CATEGORIES) }
         btnSectionTrends.setOnClickListener { viewModel.selectSection(StatsSection.TRENDS) }
         btnClearDrill.setOnClickListener { viewModel.clearDrill() }
@@ -206,12 +196,9 @@ class StatisticsActivity : AppCompatActivity() {
     }
 
     /**
-     * The two sections share the header, the period control and the range label -- only the content
-     * and the controls beside the label differ.
-     *
-     * Trends steps by panning rather than by the chevrons, so those go there, and the account scope
-     * takes their row with the label moved to the start to make room. The range label stays: Trends
-     * has a visible window of its own, and this is the only thing that names it.
+     * The two sections share the header and the section tabs. The period control and its row are
+     * Categories' alone: Trends is one graph over all of history, zoomed to whatever span is wanted,
+     * so a period would only be a second way to say what the fingers already say.
      */
     private fun renderSection(state: StatisticsUiState) {
         val categories = state.section == StatsSection.CATEGORIES
@@ -219,9 +206,9 @@ class StatisticsActivity : AppCompatActivity() {
         btnSectionTrends.isSelected = !categories
 
         swipeContainer.visibility = if (categories) View.VISIBLE else View.GONE
-        trendsScroll.visibility = if (categories) View.GONE else View.VISIBLE
-        btnPickScope.visibility = if (categories) View.GONE else View.VISIBLE
-        tvRangeLabel.gravity = if (categories) Gravity.CENTER else Gravity.START or Gravity.CENTER_VERTICAL
+        trendsPanel.visibility = if (categories) View.GONE else View.VISIBLE
+        periodRow.visibility = if (categories) View.VISIBLE else View.GONE
+        btnPickPeriod.visibility = if (categories) View.VISIBLE else View.GONE
 
         // Invisible rather than gone on Categories, so a period that cannot step (all time, a custom
         // range) keeps its label centred where the stepping ones put it.
@@ -239,63 +226,35 @@ class StatisticsActivity : AppCompatActivity() {
     }
 
     /**
-     * The balance line, plus the two figures beside it.
+     * The graph, and the scope and balance floating on it.
      *
-     * Drawn only while Trends is showing: the series is loaded lazily, so on Categories there is
-     * nothing to draw and setting an empty one would clear a chart nobody is looking at.
+     * Drawn only while Trends is showing: the points are loaded lazily, so on Categories there is
+     * nothing to draw. The graph is handed the points with the scope as their key, so a new scope
+     * opens on the last month again while the same one keeps wherever the graph was.
      */
     private fun renderTrends(trends: TrendsUiState) {
-        val series = trends.balanceSeries
-        val empty = series.isEmpty()
+        val points = trends.points
         btnPickScope.text = "${scopeLabel(trends.scope, trends.accounts)}  \u25BE"
 
-        balanceLine.visibility = if (empty) View.GONE else View.VISIBLE
-        // Hidden here as well as in renderSpeculationNote: the early return below skips that call,
-        // and the note would otherwise sit under an empty card describing the last scope's line.
-        if (empty) tvSpeculationNote.visibility = View.GONE
-        cardFlowTrend.visibility = if (empty) View.GONE else View.VISIBLE
-        tvTrendsEmpty.visibility = if (empty) View.VISIBLE else View.GONE
+        tvTrendsEmpty.visibility = if (points == null) View.VISIBLE else View.GONE
         tvTrendsEmpty.text = when {
             trends.isLoading -> "Loading"
             !trends.hasAccounts -> "No accounts in this scope"
-            else -> "Nothing to chart in this period"
+            else -> "Nothing to chart yet"
         }
+        if (trends.isLoading && points == null) return
 
-        tvBalanceLatest.text = if (empty) "" else formatRupees(trends.latestBalancePaise)
+        balanceGraph.setPoints(points, trends.balanceCertainFromEpoch, trends.loadedAtEpoch, trends.scope.serialise())
+
+        tvBalanceLatest.visibility = if (points == null) View.GONE else View.VISIBLE
+        tvBalanceLatest.text = formatRupees(trends.latestBalancePaise)
         // The headline figure follows the line: brown while it is still a reconstruction.
         tvBalanceLatest.setTextColor(
             tvBalanceLatest.themeColor(
                 if (trends.isLatestSpeculative) ThemeAttr.speculative else ThemeAttr.onSurface
             )
         )
-        if (empty) {
-            tvBalanceChange.text = ""
-            tvBalanceChange.setCompoundDrawablesRelativeWithIntrinsicBounds(0, 0, 0, 0)
-        } else {
-            renderBalanceChange(trends.changePaise)
-        }
-        if (empty) return
-
-        val stride = TrendsBuckets.labelStride(series.size)
-        val format = bucketFormat(trends.bucket)
-        val labels = trends.bucketStarts.mapIndexed { index, start ->
-            if (index % stride == 0) format.format(Date(start)) else null
-        }
-        balanceLine.isPanEnabled = trends.canPan
-        flowChart.isPanEnabled = trends.canPan
-        balanceLine.setSeries(
-            values = series,
-            labels = labels,
-            speculativeCount = trends.speculativePointCount,
-            checkpointFraction = trends.checkpointFraction
-        )
-
         renderSpeculationNote(trends)
-
-        // The same labels on both, because the two charts share a bucket layout so that a peak in
-        // one can be read directly above the peak in the other.
-        flowChart.setSeries(trends.incomeSeries, trends.expenseSeries, labels)
-        tvFlowSummary.text = flowSummary(trends)
     }
 
     /**
@@ -305,35 +264,21 @@ class StatisticsActivity : AppCompatActivity() {
      * "no snapshot yet" is fixable by adding one and "before your first snapshot" is not.
      */
     private fun renderSpeculationNote(trends: TrendsUiState) {
-        val speculative = trends.speculativePointCount
-        if (speculative == 0) {
+        val points = trends.points
+        val certain = trends.balanceCertainFromEpoch
+        // Nothing brown on the graph when there is no line, or every point is after the first snapshot.
+        if (points == null || (certain != null && points.epochs.first() >= certain)) {
             tvSpeculationNote.visibility = View.GONE
             return
         }
         tvSpeculationNote.visibility = View.VISIBLE
         tvSpeculationNote.text = if (trends.balanceCertainFromEpoch == null) {
             "Brown: worked out from transactions alone. Add a balance snapshot on the Accounts " +
-                "screen to anchor these figures."
+                "screen to anchor it."
         } else {
-            "Brown, up to the dashed mark: worked out from transactions alone, before the first " +
-                "balance snapshot in this scope."
+            "Brown, up to the dashed line: worked out from transactions alone, before the first " +
+                "balance snapshot."
         }
-    }
-
-    /**
-     * Both totals and the difference, since the bars and the line answer "which was bigger" only
-     * roughly. Phrased as "kept" or "over" rather than signed, which reads at a glance.
-     */
-    private fun flowSummary(trends: TrendsUiState): String {
-        val income = trends.incomeSeries.sum()
-        val expense = trends.expenseSeries.sum()
-        val net = income - expense
-        val verdict = when {
-            net > 0L -> "kept ${formatRupees(net)}"
-            net < 0L -> "${formatRupees(-net)} over"
-            else -> "level"
-        }
-        return "In ${formatRupees(income)} · Out ${formatRupees(expense)} · $verdict"
     }
 
     /** See [AccountScopePicker]; the transactions list offers the same choice. */
@@ -342,35 +287,6 @@ class StatisticsActivity : AppCompatActivity() {
         AccountScopePicker(this, title = "Balance for")
             .show(state.trends.accounts, state.trends.scope, viewModel::selectScope)
     }
-
-    /**
-     * Movement across the window, not the balance itself. The direction is a real tinted drawable on
-     * the label rather than the black-triangle character it used to be, so it follows the theme and
-     * carries the same positive/negative colours as every other amount in the app.
-     */
-    private fun renderBalanceChange(delta: Long) {
-        if (delta == 0L) {
-            tvBalanceChange.text = "No change this period"
-            tvBalanceChange.setCompoundDrawablesRelativeWithIntrinsicBounds(0, 0, 0, 0)
-            tvBalanceChange.setTextColor(themeColor(ThemeAttr.amountNeutral))
-            return
-        }
-        val up = delta > 0L
-        val tint = themeColor(if (up) ThemeAttr.positive else ThemeAttr.negative)
-        tvBalanceChange.text = formatRupees(kotlin.math.abs(delta))
-        tvBalanceChange.setTextColor(tint)
-        tvBalanceChange.setCompoundDrawablesRelativeWithIntrinsicBounds(
-            if (up) R.drawable.ic_arrow_upward else R.drawable.ic_arrow_downward, 0, 0, 0
-        )
-        TextViewCompat.setCompoundDrawableTintList(tvBalanceChange, ColorStateList.valueOf(tint))
-    }
-
-    private fun bucketFormat(bucket: TrendBucket): SimpleDateFormat = when (bucket) {
-        TrendBucket.HOUR -> SimpleDateFormat("h a", Locale.getDefault())
-        TrendBucket.DAY, TrendBucket.WEEK -> shortFmt
-        TrendBucket.MONTH -> SimpleDateFormat("MMM", Locale.getDefault())
-    }
-
 
     /**
      * While drilled, the bars narrow to that one category using the column already folded for it --
@@ -469,20 +385,7 @@ class StatisticsActivity : AppCompatActivity() {
         )
     }
 
-    /**
-     * On Trends the label names the panned window rather than the period, because that is what is
-     * actually on screen once a drag has moved it -- and the chevrons are hidden there, so nothing
-     * else says where in history the charts are sitting.
-     */
-    private fun rangeLabel(state: StatisticsUiState): String {
-        val trends = state.trends
-        if (state.section == StatsSection.TRENDS && trends.balanceSeries.isNotEmpty()) {
-            val first = shortFmt.format(Date(trends.windowStart))
-            val last = shortFmt.format(Date(trends.windowEndExclusive - 1))
-            return if (first == last) dayFmt.format(Date(trends.windowStart)) else "$first - $last"
-        }
-        return periodRangeLabel(state)
-    }
+    private fun rangeLabel(state: StatisticsUiState): String = periodRangeLabel(state)
 
     private fun periodRangeLabel(state: StatisticsUiState): String = when (state.period) {
         StatsPeriod.ALL_TIME -> "All time"
@@ -533,6 +436,9 @@ class StatisticsActivity : AppCompatActivity() {
 
     private companion object {
         const val DISABLED_ALPHA = 0.3f
+
+        /** How far one press of + or − zooms the graph, both ways at once. */
+        const val ZOOM_STEP = 1.6
 
         /** Menu order, and the source of the button's label. */
         val PERIOD_LABELS = listOf(

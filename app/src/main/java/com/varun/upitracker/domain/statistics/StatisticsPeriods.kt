@@ -153,9 +153,6 @@ object StatisticsPeriods {
     /**
      * Field arithmetic rather than a fixed 86_400_000ms stride: a DST day is 23 or 25 hours long,
      * and a stride would slide every later boundary off midnight.
-     *
-     * Public because [TrendsBuckets] tiles the same calendar and duplicating this is how the two
-     * would drift apart.
      */
     fun addDays(epoch: Long, days: Int): Long =
         calendarAt(epoch).apply { add(Calendar.DAY_OF_MONTH, days) }.timeInMillis

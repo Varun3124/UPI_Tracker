@@ -8,7 +8,6 @@ import com.varun.upitracker.ui.ActorType
 import com.varun.upitracker.ui.LedgerEntry
 import com.varun.upitracker.ui.toBalanceMovements
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -23,122 +22,92 @@ class BalanceTimelineTest {
     private val cash = "acc-cash"
     private val outside = "acc-broker"
 
-    private val starts = listOf(1_000L, 2_000L, 3_000L)
-    private val windowEnd = 4_000L
+    private val spanFrom = 1_000L
 
-    private fun build(
+    /** The points as (epoch, balance) pairs, which reads more plainly in an assertion than two arrays. */
+    private fun points(
         accountIds: Set<String> = setOf(savings, cash),
         opening: Map<String, Long> = emptyMap(),
         movements: List<BalanceMovement> = emptyList(),
         anchors: Map<String, List<BalanceAnchor>> = emptyMap()
-    ): List<Long> = BalanceTimeline.build(
-        bucketStarts = starts,
-        windowEndExclusive = windowEnd,
-        accountIds = accountIds,
-        openingByAccount = opening,
-        movements = movements,
-        anchorsByAccount = anchors
-    )
+    ): List<Pair<Long, Long>> {
+        val result = BalanceTimeline.points(spanFrom, accountIds, opening, movements, anchors)
+        return result.epochs.indices.map { result.epochs[it] to result.balances[it] }
+    }
 
     // --- the shape of the series -----------------------------------------
 
     @Test
-    fun oneBalancePerBucket() {
-        assertEquals(starts.size, build().size)
-    }
-
-    @Test
-    fun noBucketsIsNoSeriesRatherThanACrash() {
-        assertEquals(
-            emptyList<Long>(),
-            BalanceTimeline.build(emptyList(), 0L, setOf(savings), emptyMap(), emptyList())
-        )
-    }
-
-    /** The last bucket needs room to end, or its point would fall before its own start. */
-    @Test
-    fun aWindowEndingInsideTheLastBucketIsRejected() {
-        assertThrows(IllegalArgumentException::class.java) {
-            BalanceTimeline.build(starts, 3_000L, setOf(savings), emptyMap(), emptyList())
-        }
+    fun theOpeningBalanceIsAlwaysTheFirstPoint() {
+        assertEquals(listOf(spanFrom to 12_500L), points(opening = mapOf(savings to 10_000L, cash to 2_500L)))
     }
 
     @Test
     fun anEmptyScopeHoldsNothing() {
-        assertEquals(listOf(0L, 0L, 0L), build(accountIds = emptySet(), opening = mapOf(savings to 500L)))
+        assertEquals(listOf(spanFrom to 0L), points(accountIds = emptySet(), opening = mapOf(savings to 500L)))
     }
 
     @Test
     fun anAccountMissingFromTheOpeningMapStartsAtZero() {
-        assertEquals(listOf(700L, 700L, 700L), build(opening = mapOf(savings to 700L)))
+        assertEquals(listOf(spanFrom to 700L), points(opening = mapOf(savings to 700L)))
     }
 
     // --- movements --------------------------------------------------------
 
     @Test
-    fun noMovementsHoldsTheOpeningBalanceFlat() {
-        val opening = mapOf(savings to 10_000L, cash to 2_500L)
-        assertEquals(listOf(12_500L, 12_500L, 12_500L), build(opening = opening))
-    }
-
-    @Test
-    fun oneExpenseStepsTheLineDownOnce() {
-        val series = build(
-            opening = mapOf(savings to 10_000L),
-            movements = listOf(BalanceMovement(2_400L, savings, -1_500L))
-        )
-        assertEquals(listOf(10_000L, 8_500L, 8_500L), series)
-    }
-
-    /**
-     * The bucket a boundary movement lands in. Statement import stamps rows at midnight, so this is
-     * the ordinary case rather than a corner one.
-     */
-    @Test
-    fun aMovementAtABucketStartLandsInTheBucketItStarts() {
-        val series = build(
-            opening = mapOf(savings to 10_000L),
-            movements = listOf(BalanceMovement(2_000L, savings, -1_000L))
-        )
-        assertEquals(listOf(10_000L, 9_000L, 9_000L), series)
-    }
-
-    @Test
-    fun aMovementAtTheVeryLastMillisecondStillCounts() {
-        val series = build(
-            opening = mapOf(savings to 10_000L),
-            movements = listOf(BalanceMovement(windowEnd - 1, savings, -1_000L))
-        )
-        assertEquals(listOf(10_000L, 10_000L, 9_000L), series)
-    }
-
-    @Test
-    fun movementsOutsideTheWindowAreAlreadyInTheOpeningAndAreNotCountedTwice() {
-        val series = build(
+    fun everyMovementIsAPointAfterIt() {
+        val series = points(
             opening = mapOf(savings to 10_000L),
             movements = listOf(
-                BalanceMovement(500L, savings, -9_999L),      // before the window
-                BalanceMovement(9_000L, savings, -9_999L)     // after it
+                BalanceMovement(2_400L, savings, -1_500L),
+                BalanceMovement(3_100L, cash, 400L)
             )
         )
-        assertEquals(listOf(10_000L, 10_000L, 10_000L), series)
+        assertEquals(listOf(spanFrom to 10_000L, 2_400L to 8_500L, 3_100L to 8_900L), series)
+    }
+
+    @Test
+    fun movementsSharingAnInstantAreOnePoint() {
+        val series = points(
+            opening = mapOf(savings to 10_000L),
+            movements = listOf(BalanceMovement(2_400L, savings, -1_500L), BalanceMovement(2_400L, cash, 300L))
+        )
+        assertEquals(listOf(spanFrom to 10_000L, 2_400L to 8_800L), series)
+    }
+
+    @Test
+    fun aMovementAtTheOpeningInstantIsWhereTheLineOpens() {
+        val series = points(
+            opening = mapOf(savings to 10_000L),
+            movements = listOf(BalanceMovement(spanFrom, savings, -1_000L))
+        )
+        assertEquals(listOf(spanFrom to 9_000L), series)
+    }
+
+    @Test
+    fun movementsBeforeTheSpanAreAlreadyInTheOpeningAndAreNotCountedTwice() {
+        val series = points(
+            opening = mapOf(savings to 10_000L),
+            movements = listOf(BalanceMovement(500L, savings, -9_999L))
+        )
+        assertEquals(listOf(spanFrom to 10_000L), series)
     }
 
     @Test
     fun aMovementOnAnAccountOutsideTheScopeIsIgnored() {
-        val series = build(
+        val series = points(
             opening = mapOf(savings to 10_000L),
             movements = listOf(BalanceMovement(2_400L, outside, -5_000L))
         )
-        assertEquals(listOf(10_000L, 10_000L, 10_000L), series)
+        assertEquals(listOf(spanFrom to 10_000L), series)
     }
 
     // --- anchors ----------------------------------------------------------
 
     /** The property the whole per-account decomposition exists for. */
     @Test
-    fun aMidRangeAnchorReAnchorsOnlyItsOwnAccount() {
-        val series = build(
+    fun anAnchorReAnchorsOnlyItsOwnAccount() {
+        val series = points(
             opening = mapOf(savings to 10_000L, cash to 3_000L),
             movements = listOf(
                 BalanceMovement(1_500L, savings, -1_000L),
@@ -146,71 +115,57 @@ class BalanceTimelineTest {
             ),
             anchors = mapOf(savings to listOf(BalanceAnchor(2_100L, 50_000L)))
         )
-        // Bucket 1: 9_000 + 3_000. Bucket 2: the anchor replaces savings, cash keeps its movement.
-        assertEquals(listOf(12_000L, 52_500L, 52_500L), series)
-    }
-
-    @Test
-    fun movementsAfterAnAnchorAccumulateFromIt() {
-        val series = build(
-            opening = mapOf(savings to 10_000L),
-            movements = listOf(BalanceMovement(2_500L, savings, -400L)),
-            anchors = mapOf(savings to listOf(BalanceAnchor(2_100L, 50_000L)))
+        assertEquals(
+            listOf(spanFrom to 13_000L, 1_500L to 12_000L, 2_100L to 53_000L, 2_500L to 52_500L),
+            series
         )
-        assertEquals(listOf(10_000L, 49_600L, 49_600L), series)
     }
 
     /**
      * `getBalance` sums `(snapshotEpoch, atEpoch]`, so a movement stamped on the snapshot instant is
-     * taken to be already reflected in it. Reproduced here by applying anchors after movements at an
-     * equal epoch.
+     * taken to be already reflected in it. Reproduced by applying anchors after movements at an
+     * equal epoch -- and the two land as one point, where the snapshot says.
      */
     @Test
     fun aMovementStampedExactlyOnAnAnchorIsDiscardedByIt() {
-        val series = build(
+        val series = points(
             opening = mapOf(savings to 10_000L),
             movements = listOf(BalanceMovement(2_100L, savings, -9_000L)),
             anchors = mapOf(savings to listOf(BalanceAnchor(2_100L, 50_000L)))
         )
-        assertEquals(listOf(10_000L, 50_000L, 50_000L), series)
+        assertEquals(listOf(spanFrom to 10_000L, 2_100L to 50_000L), series)
     }
 
     @Test
-    fun anAnchorBeforeTheWindowIsAlreadyInTheOpeningAndIsNotAppliedAgain() {
-        val series = build(
+    fun anAnchorBeforeTheSpanIsAlreadyInTheOpeningAndIsNotAppliedAgain() {
+        val series = points(
             opening = mapOf(savings to 10_000L),
             anchors = mapOf(savings to listOf(BalanceAnchor(500L, 77_777L)))
         )
-        assertEquals(listOf(10_000L, 10_000L, 10_000L), series)
+        assertEquals(listOf(spanFrom to 10_000L), series)
     }
 
     @Test
-    fun successiveAnchorsEachReplaceTheOneBefore() {
-        val series = build(
+    fun anAnchorThatConfirmsTheBalanceAddsNoPoint() {
+        val series = points(
             opening = mapOf(savings to 10_000L),
-            anchors = mapOf(
-                savings to listOf(BalanceAnchor(1_500L, 20_000L), BalanceAnchor(2_500L, 30_000L))
-            )
+            anchors = mapOf(savings to listOf(BalanceAnchor(2_000L, 10_000L)))
         )
-        assertEquals(listOf(20_000L, 30_000L, 30_000L), series)
+        assertEquals(listOf(spanFrom to 10_000L), series)
     }
 
     // --- agreement with getBalance ---------------------------------------
 
     /**
-     * The constraint the feature rests on: the line has to read the same as the Accounts screen.
+     * The constraint the feature rests on: the graph has to read the same as the Accounts screen,
+     * at every point and at every moment between two of them.
      *
      * Asserted against a transcription of `AccountRepository.getBalance` -- all three of its
      * branches, including the backwards one that derives a balance from a *later* snapshot -- rather
-     * than against numbers worked out by hand, which would only re-state whatever this file happens
-     * to do.
-     *
-     * The fixture is built to hit every branch at once: one account reconciled mid-window, one
-     * reconciled only before it, one only after it, movements on both sides of the window, and a
-     * movement stamped on a snapshot.
+     * than against numbers worked out by hand.
      */
     @Test
-    fun everyPointAgreesWithGetBalance() {
+    fun everyMomentAgreesWithGetBalance() {
         val ids = setOf(savings, cash, outside)
         val movements = listOf(
             BalanceMovement(200L, savings, 40_000L),
@@ -221,32 +176,24 @@ class BalanceTimelineTest {
             BalanceMovement(2_200L, outside, 60_000L),
             BalanceMovement(2_600L, cash, -900L),
             BalanceMovement(3_400L, savings, -250L),
-            BalanceMovement(3_900L, outside, -1_000L),
-            BalanceMovement(5_000L, cash, -99_999L)    // after the window
+            BalanceMovement(3_900L, outside, -1_000L)
         )
         val anchors = mapOf(
-            savings to listOf(BalanceAnchor(2_100L, 50_000L)),   // mid-window
+            savings to listOf(BalanceAnchor(2_100L, 50_000L)),   // mid-span
             cash to listOf(BalanceAnchor(600L, 8_000L)),         // before it
             outside to listOf(BalanceAnchor(6_000L, 12_000L))    // after it: the backwards branch
         )
         val oracle = GetBalanceOracle(movements, anchors)
-
-        val series = BalanceTimeline.build(
-            bucketStarts = starts,
-            windowEndExclusive = windowEnd,
+        val result = BalanceTimeline.points(
+            spanFrom = spanFrom,
             accountIds = ids,
-            openingByAccount = ids.associateWith { oracle.balanceAt(it, starts.first() - 1) },
+            openingByAccount = ids.associateWith { oracle.balanceAt(it, spanFrom - 1) },
             movements = movements,
             anchorsByAccount = anchors
         )
 
-        val points = listOf(starts[1] - 1, starts[2] - 1, windowEnd - 1)
-        points.forEachIndexed { index, point ->
-            assertEquals(
-                "point $point",
-                ids.sumOf { oracle.balanceAt(it, point) },
-                series[index]
-            )
+        (spanFrom..4_500L step 50).forEach { moment ->
+            assertEquals("at $moment", ids.sumOf { oracle.balanceAt(it, moment) }, result.balanceAt(moment))
         }
     }
 
@@ -310,33 +257,34 @@ class BalanceTimelineTest {
         assertTrue(movements.all { it.epoch == 1_500L })
     }
 
+    /** No money in the scope moved, so there is nothing to plot. */
     @Test
-    fun anInternalTransferDoesNotMoveTheCombinedLine() {
-        val series = build(
+    fun anInternalTransferAddsNoPoint() {
+        val series = points(
             opening = mapOf(savings to 10_000L, cash to 1_000L),
             movements = listOf(move(savings, cash, 1_500L, 2_000L)).toBalanceMovements(setOf(savings, cash))
         )
-        assertEquals(listOf(11_000L, 11_000L, 11_000L), series)
+        assertEquals(listOf(spanFrom to 11_000L), series)
     }
 
     @Test
-    fun aTransferLeavingTheScopeDoesMoveTheLine() {
-        val series = build(
+    fun aTransferLeavingTheScopeIsAPoint() {
+        val series = points(
             opening = mapOf(savings to 10_000L, cash to 1_000L),
             movements = listOf(move(savings, outside, 1_500L, 2_000L)).toBalanceMovements(setOf(savings, cash))
         )
-        assertEquals(listOf(9_000L, 9_000L, 9_000L), series)
+        assertEquals(listOf(spanFrom to 11_000L, 1_500L to 9_000L), series)
     }
 
     /** A fee is the difference between the legs and has to survive being split in two. */
     @Test
-    fun aTransferFeeLeavesTheCombinedLine() {
-        val series = build(
+    fun aTransferFeeIsAPoint() {
+        val series = points(
             opening = mapOf(savings to 10_000L, cash to 1_000L),
             movements = listOf(move(savings, cash, 1_500L, 2_000L, toPaise = 1_900L))
                 .toBalanceMovements(setOf(savings, cash))
         )
-        assertEquals(listOf(10_900L, 10_900L, 10_900L), series)
+        assertEquals(listOf(spanFrom to 11_000L, 1_500L to 10_900L), series)
     }
 
     @Test
@@ -349,5 +297,15 @@ class BalanceTimelineTest {
     fun aSpendMapsToOneNegativeMovementOnItsOwnAccount() {
         val movements = listOf(spend(savings, 1_500L, 2_500L)).toBalanceMovements(setOf(savings, cash))
         assertEquals(listOf(BalanceMovement(1_500L, savings, -2_500L)), movements)
+    }
+
+    @Test
+    fun theBalanceAtAMomentIsTheLastPointAtOrBeforeIt() {
+        val result = BalancePoints(longArrayOf(10L, 20L, 30L), longArrayOf(100L, 200L, 300L))
+        assertEquals(100L, result.balanceAt(5L))   // before them all: where the line opens
+        assertEquals(100L, result.balanceAt(10L))
+        assertEquals(100L, result.balanceAt(19L))
+        assertEquals(200L, result.balanceAt(20L))
+        assertEquals(300L, result.balanceAt(99L))
     }
 }

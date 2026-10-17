@@ -136,7 +136,7 @@ class TrendsRepositoryTest {
         }
     }
 
-    // --- how far back panning may go --------------------------------------
+    // --- where history begins -------------------------------------------
 
     @Test
     fun theEarliestEpochIsTheOldestOfTheThreeTables() = runBlocking {
@@ -188,22 +188,23 @@ class TrendsRepositoryTest {
         )
         val inputs = repository.loadBalanceInputs(spanFrom, spanTo, scope)
 
-        val series = BalanceTimeline.build(
-            bucketStarts = listOf(1_000L, 2_000L, 3_000L),
-            windowEndExclusive = spanTo,
+        val points = BalanceTimeline.points(
+            spanFrom = spanFrom,
             accountIds = inputs.accountIds,
             openingByAccount = inputs.openingByAccount,
             movements = inputs.movements,
             anchorsByAccount = inputs.anchorsByAccount
         )
 
+        assertEquals(listOf(spanFrom, 1_400L, 2_050L, 2_600L), points.epochs.toList())
         assertEquals(
             listOf(
-                24_000L,  // 19_000 savings + 5_000 cash
-                34_500L,  // savings re-anchored to 30_000, cash down 500
-                34_500L   // the internal transfer nets out
+                25_000L,  // the opening: 20_000 savings + 5_000 cash
+                24_000L,  // savings spends 1_000
+                35_000L,  // savings re-anchored to 30_000
+                34_500L   // cash spends 500; the internal transfer after it nets out, so is no point
             ),
-            series
+            points.balances.toList()
         )
     }
 
