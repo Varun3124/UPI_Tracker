@@ -226,6 +226,76 @@ class AllTransactionsViewModel(context: Context) : ViewModel() {
     private var selectionMode: Boolean = false
     private var selected: Set<String> = emptySet()
 
+    /** What back steps through one change at a time: the month or range, and the balance column. */
+    private data class ListView(val window: ListWindow, val showBalance: Boolean)
+
+    /** Everything that narrows the list. Back treats any change to these as one step. */
+    private data class ListFilters(
+        val pendingOnly: Boolean,
+        val thirdPartyOnly: Boolean,
+        val sharedOnly: Boolean,
+        val scope: AccountScope,
+        val query: String,
+        val minPaise: Long?,
+        val maxPaise: Long?,
+        val payee: PayeeFilter?
+    )
+
+    private val history = PageHistory<ListView>(this)
+
+    /**
+     * The filters the page opened with: none, or the merchant and scope a Statistics slice opened it
+     * on. Back from filtered results returns here. Taken at the first load, after [openOn].
+     */
+    private var openedFilters: ListFilters? = null
+
+    private fun view() = ListView(window, showBalance)
+
+    private fun filters() = ListFilters(pendingOnly, thirdPartyOnly, sharedOnly, scope, query, minPaise, maxPaise, payee)
+
+    /**
+     * Undoes the last change: the month before, the balance column toggled back, or -- from
+     * filtered results -- the list as it opened, every filter taken off at once. False when back
+     * should leave the screen.
+     */
+    fun goBack(): Boolean {
+        when (val step = history.pop(view()) ?: return false) {
+            is BackStep.Restore -> {
+                showBalance = step.snapshot.showBalance
+                if (step.snapshot.window != window) load(step.snapshot.window) else emitState()
+            }
+            BackStep.ClearFilters -> applyFilters(openedFilters ?: return false)
+        }
+        return true
+    }
+
+    private fun applyFilters(target: ListFilters) {
+        val scopeChanged = target.scope != scope
+        pendingOnly = target.pendingOnly
+        thirdPartyOnly = target.thirdPartyOnly
+        sharedOnly = target.sharedOnly
+        scope = target.scope
+        query = target.query
+        minPaise = target.minPaise
+        maxPaise = target.maxPaise
+        payee = target.payee
+        if (scopeChanged) {
+            viewModelScope.launch {
+                withContext(Dispatchers.IO) { loadOpeningBalance() }
+                emitState()
+            }
+        } else {
+            emitState()
+        }
+    }
+
+    /** After any filter changes: one "filters applied" step while they differ from how it opened. */
+    private fun noteFilters() = history.filtersChanged(filters() != openedFilters)
+
+    override fun onCleared() {
+        history.release()
+    }
+
     private var loadedEntries: List<LedgerEntry> = emptyList()
     private var loadedAccountLabels: Map<String, String> = emptyMap()
     private var loadedAccounts: List<Account> = emptyList()
@@ -242,6 +312,13 @@ class AllTransactionsViewModel(context: Context) : ViewModel() {
     /** Reloads whatever window is showing, so a custom range survives returning to the screen. */
     fun reload() = load(window)
 
+    /** A month or range the person picked, as opposed to [reload]ing the one already showing. */
+    fun selectWindow(next: ListWindow) {
+        if (next == window) return
+        history.record(view(), view().copy(window = next))
+        load(next)
+    }
+
     /**
      * Starts the screen somewhere other than this month's liquid accounts -- for arriving from a
      * merchant slice on Statistics. Takes effect on the next [reload], which the screen always runs.
@@ -257,6 +334,7 @@ class AllTransactionsViewModel(context: Context) : ViewModel() {
     }
 
     fun load(next: ListWindow) {
+        if (openedFilters == null) openedFilters = filters()
         window = next
         viewModelScope.launch {
             withContext(Dispatchers.IO) {
@@ -312,27 +390,34 @@ class AllTransactionsViewModel(context: Context) : ViewModel() {
 
     // --- filters, all over what is already loaded ------------------------------------------------
 
-    fun setPendingOnly(enabled: Boolean) = ifChanged(enabled != pendingOnly) { pendingOnly = enabled }
+    fun setPendingOnly(enabled: Boolean) = filterIfChanged(enabled != pendingOnly) { pendingOnly = enabled }
 
-    fun setThirdPartyOnly(enabled: Boolean) = ifChanged(enabled != thirdPartyOnly) { thirdPartyOnly = enabled }
+    fun setThirdPartyOnly(enabled: Boolean) = filterIfChanged(enabled != thirdPartyOnly) { thirdPartyOnly = enabled }
 
-    fun setSharedOnly(enabled: Boolean) = ifChanged(enabled != sharedOnly) { sharedOnly = enabled }
+    fun setSharedOnly(enabled: Boolean) = filterIfChanged(enabled != sharedOnly) { sharedOnly = enabled }
 
-    fun setShowBalance(enabled: Boolean) = ifChanged(enabled != showBalance) { showBalance = enabled }
+    fun setShowBalance(enabled: Boolean) {
+        if (enabled == showBalance) return
+        val before = view()
+        showBalance = enabled
+        history.record(before, view())
+        emitState()
+    }
 
-    fun setQuery(text: String) = ifChanged(text != query) { query = text }
+    fun setQuery(text: String) = filterIfChanged(text != query) { query = text }
 
-    fun clearPayee() = ifChanged(payee != null) { payee = null }
+    fun clearPayee() = filterIfChanged(payee != null) { payee = null }
 
     fun setAmountRange(min: Long?, max: Long?) =
-        ifChanged(min != minPaise || max != maxPaise) {
+        filterIfChanged(min != minPaise || max != maxPaise) {
             minPaise = min
             maxPaise = max
         }
 
-    private inline fun ifChanged(changed: Boolean, apply: () -> Unit) {
+    private inline fun filterIfChanged(changed: Boolean, apply: () -> Unit) {
         if (!changed) return
         apply()
+        noteFilters()
         emitState()
     }
 
@@ -343,6 +428,7 @@ class AllTransactionsViewModel(context: Context) : ViewModel() {
     fun setScope(next: AccountScope) {
         if (next == scope) return
         scope = next
+        noteFilters()
         viewModelScope.launch {
             withContext(Dispatchers.IO) { loadOpeningBalance() }
             emitState()
@@ -787,8 +873,29 @@ class FriendDetailViewModel(context: Context) : ViewModel() {
 
     // --- filters and selection ------------------------------------------------------------------
 
+    /**
+     * Back steps through the months or ranges shown one at a time; the search is a filter, so it
+     * is one step however it was typed, and back from it clears it. See BackHistory.
+     */
+    private val history = PageHistory<ListWindow>(this)
+
+    /** False when there is nothing left to step back through, and back should leave the page. */
+    fun goBack(): Boolean {
+        when (val step = history.pop(window) ?: return false) {
+            is BackStep.Restore -> window = step.snapshot
+            BackStep.ClearFilters -> query = ""
+        }
+        emitState()
+        return true
+    }
+
+    override fun onCleared() {
+        history.release()
+    }
+
     fun setWindow(next: ListWindow) {
         if (next == window) return
+        history.record(window, next)
         window = next
         emitState()
     }
@@ -796,6 +903,7 @@ class FriendDetailViewModel(context: Context) : ViewModel() {
     fun setQuery(text: String) {
         if (text == query) return
         query = text
+        history.filtersChanged(query.isNotBlank())
         emitState()
     }
 

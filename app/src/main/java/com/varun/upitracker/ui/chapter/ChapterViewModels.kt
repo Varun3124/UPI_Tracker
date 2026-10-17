@@ -31,6 +31,7 @@ import com.varun.upitracker.maintenance.ChapterPublishing
 import com.varun.upitracker.ui.AmountPerspective
 import com.varun.upitracker.ui.formatRupees
 import com.varun.upitracker.ui.LedgerEntry
+import com.varun.upitracker.ui.PageHistory
 import com.varun.upitracker.ui.TransactionRowInfo
 import com.varun.upitracker.ui.resolvePrimaryDisplay
 import com.varun.upitracker.ui.resolveTypeLabel
@@ -251,6 +252,17 @@ data class ChapterDetailUiState(
 }
 
 class ChapterDetailViewModel(context: Context) : ViewModel() {
+
+    /**
+     * Which tab the chapter's page showed before each switch, and whether its rows are filtered.
+     * The tab is the page's to draw, so it keeps it; this only remembers it where a rotation cannot
+     * lose it. See BackHistory.
+     */
+    val pageHistory = PageHistory<String>(this)
+
+    override fun onCleared() {
+        pageHistory.release()
+    }
 
     private val appContext = context.applicationContext
     private val db = AppDatabase.getInstance(context)
@@ -539,12 +551,24 @@ class ChapterDetailViewModel(context: Context) : ViewModel() {
     fun setFriendFilter(friendId: Long?) {
         if (friendId == friendFilterId) return
         friendFilterId = friendId
+        noteFilters()
         emitState()
     }
 
     fun setMerchantFilter(merchantId: Long?) {
         if (merchantId == merchantFilterId) return
         merchantFilterId = merchantId
+        noteFilters()
+        emitState()
+    }
+
+    /** One "filters applied" step while either filter is on; see BackHistory. */
+    private fun noteFilters() = pageHistory.filtersChanged(friendFilterId != null || merchantFilterId != null)
+
+    /** Back from filtered rows: both filters off at once. */
+    fun clearFilters() {
+        friendFilterId = null
+        merchantFilterId = null
         emitState()
     }
 

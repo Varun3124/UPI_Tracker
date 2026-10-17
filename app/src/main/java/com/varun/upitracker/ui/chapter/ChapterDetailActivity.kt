@@ -26,6 +26,7 @@ import com.varun.upitracker.R
 import com.varun.upitracker.database.entity.Chapter
 import com.varun.upitracker.database.entity.ChapterShareMode
 import com.varun.upitracker.database.entity.ChapterState
+import com.varun.upitracker.ui.BackStep
 import com.varun.upitracker.ui.LedgerEntry
 import com.varun.upitracker.ui.TransactionListAdapter
 import com.varun.upitracker.ui.colorAttr
@@ -131,13 +132,22 @@ class ChapterDetailActivity : AppCompatActivity() {
         viewModel.publishIfShared()
     }
 
-    /** Leaving a selection is a step back, not a step off the screen. */
+    /**
+     * Leaving a selection is a step back, not a step off the screen; so is going back to the tab
+     * showing before the last switch (see BackHistory). Only with neither left does back leave.
+     */
     private fun onBack() {
-        if (state.selectionMode) viewModel.exitSelection() else finish()
+        if (state.selectionMode) return viewModel.exitSelection()
+        when (val step = viewModel.pageHistory.pop(page.name)) {
+            is BackStep.Restore -> selectPage(Page.valueOf(step.snapshot), remember = false)
+            BackStep.ClearFilters -> viewModel.clearFilters()
+            null -> finish()
+        }
     }
 
-    private fun selectPage(next: Page) {
+    private fun selectPage(next: Page, remember: Boolean = true) {
         if (page == next) return
+        if (remember) viewModel.pageHistory.record(page.name, next.name)
         page = next
         // A selection belongs to the list; carrying it onto the balances page would strand the bar.
         viewModel.exitSelection()

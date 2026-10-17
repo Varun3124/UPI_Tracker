@@ -27,6 +27,8 @@ import com.varun.upitracker.domain.statistics.TransferFlow
 import com.varun.upitracker.domain.statistics.parseAccountScope
 import com.varun.upitracker.domain.statistics.serialise
 import com.varun.upitracker.sms.SmsBacklogScanner
+import com.varun.upitracker.ui.BackStep
+import com.varun.upitracker.ui.PageHistory
 import com.varun.upitracker.domain.statistics.StatsAggregator
 import com.varun.upitracker.domain.statistics.StatsPeriod
 import com.varun.upitracker.domain.statistics.TrendBucket
@@ -187,13 +189,95 @@ class StatisticsViewModel(context: Context) : ViewModel() {
     /** Read once. An account added elsewhere is already invisible to the rest of this screen. */
     private var loadedAccounts: List<Account>? = null
 
-    /** Persisted, so a hand-picked set is still there next time rather than silently reset. */
-    fun selectScope(next: AccountScope) {
-        if (next == accountScope) return
+    /**
+     * What back steps through one change at a time: which section, period, day or range, and pan.
+     * The category drilled into and the account scope are filters, and back treats them apart.
+     */
+    private data class Snapshot(
+        val period: StatsPeriod,
+        val anchor: Long,
+        val customFrom: Long,
+        val customTo: Long,
+        val section: StatsSection,
+        val panWindowStart: Long?
+    )
+
+    /** The filters the screen opened with: no category, and the scope it last kept. */
+    private val openedScope: AccountScope = accountScope
+
+    /**
+     * Two snapshots look the same when they show the same span: the moment a period was opened is
+     * kept to restore it by, but Weekly picked again within the same week draws the same week.
+     */
+    private val history = PageHistory<Snapshot>(this) { a, b -> a.shown() == b.shown() }
+
+    private fun Snapshot.shown() = copy(
+        anchor = StatisticsPeriods.rangeFor(period, anchor, customFrom, customTo).fromExclusive,
+        customFrom = if (period == StatsPeriod.CUSTOM) customFrom else 0L,
+        customTo = if (period == StatsPeriod.CUSTOM) customTo else 0L
+    )
+
+    /** Taken when a drag begins, and kept only if the drag moved the window. */
+    private var beforePan: Snapshot? = null
+
+    private fun snapshot() = Snapshot(period, anchor, customFrom, customTo, section, panWindowStart)
+
+    /** After a filter changes: one "filters applied" step while they differ from how it opened. */
+    private fun noteFilters() = history.filtersChanged(drilled != null || accountScope != openedScope)
+
+    private fun applyScope(next: AccountScope) {
         accountScope = next
         prefs.edit().putString(PREF_TRENDS_SCOPE, next.serialise()).apply()
         // The flow totals are scoped, so what is cached describes the old scope.
         bucketFlows.clear()
+    }
+
+    /**
+     * Wraps every change a person makes here, so back can return to just before it. Nothing is kept
+     * when it changed nothing on screen -- see [PageHistory.record].
+     */
+    private inline fun changing(apply: () -> Unit) {
+        val before = snapshot()
+        apply()
+        history.record(before, snapshot())
+    }
+
+    /**
+     * Puts the screen back as it was before the last change -- the weekly summary a bar was tapped
+     * from, say -- or, from filtered figures, takes the category and scope back to how it opened.
+     * False when there is nothing left to step back through, and back should leave.
+     */
+    fun goBack(): Boolean {
+        when (val step = history.pop(snapshot()) ?: return false) {
+            is BackStep.Restore -> {
+                val previous = step.snapshot
+                period = previous.period
+                anchor = previous.anchor
+                customFrom = previous.customFrom
+                customTo = previous.customTo
+                section = previous.section
+                panWindowStart = previous.panWindowStart
+                _uiState.value = _uiState.value?.copy(section = section)
+            }
+            BackStep.ClearFilters -> {
+                drilled = null
+                if (accountScope != openedScope) applyScope(openedScope)
+            }
+        }
+        // Reloads Trends too when that is the section showing.
+        load()
+        return true
+    }
+
+    override fun onCleared() {
+        history.release()
+    }
+
+    /** Persisted, so a hand-picked set is still there next time rather than silently reset. */
+    fun selectScope(next: AccountScope) {
+        if (next == accountScope) return
+        applyScope(next)
+        noteFilters()
         loadTrends()
     }
 
@@ -203,49 +287,59 @@ class StatisticsViewModel(context: Context) : ViewModel() {
      */
     fun selectSection(next: StatsSection) {
         if (next == section) return
-        section = next
+        changing { section = next }
         _uiState.value = _uiState.value?.copy(section = next)
         if (next == StatsSection.TRENDS) loadTrends()
     }
 
     /** Scopes the screen to one category. Survives period changes and stepping. */
     fun drillInto(slice: CategorySlice) {
+        if (slice == drilled) return
         drilled = slice
+        noteFilters()
         load()
     }
 
     fun clearDrill() {
         if (drilled == null) return
         drilled = null
+        noteFilters()
         load()
     }
 
     fun selectPeriod(next: StatsPeriod) {
-        period = next
-        panWindowStart = null
-        anchor = System.currentTimeMillis()
+        changing {
+            period = next
+            panWindowStart = null
+            anchor = System.currentTimeMillis()
+        }
         load()
     }
 
     /** Opens a single day, used when a bar column is tapped. */
     fun selectDay(dayStartEpoch: Long) {
-        period = StatsPeriod.DAILY
-        panWindowStart = null
-        anchor = dayStartEpoch
+        changing {
+            period = StatsPeriod.DAILY
+            panWindowStart = null
+            anchor = dayStartEpoch
+        }
         load()
     }
 
     fun selectCustomRange(fromEpoch: Long, toEpoch: Long) {
-        period = StatsPeriod.CUSTOM
-        panWindowStart = null
-        customFrom = fromEpoch
-        customTo = toEpoch
+        changing {
+            period = StatsPeriod.CUSTOM
+            panWindowStart = null
+            customFrom = fromEpoch
+            customTo = toEpoch
+        }
         load()
     }
 
     /** The finger has taken the horizontal axis. */
     fun beginPan() {
         panDragOrigin = _uiState.value?.trends?.windowStart ?: return
+        beforePan = snapshot()
     }
 
     /**
@@ -273,14 +367,19 @@ class StatisticsViewModel(context: Context) : ViewModel() {
 
     fun endPan() {
         panDragOrigin = null
+        // One drag is one step back, however far it went; one that went nowhere is none.
+        beforePan?.let { history.record(it, snapshot()) }
+        beforePan = null
     }
 
     /** [delta] is -1 for the previous period, +1 for the next. Guarded against the future. */
     fun step(delta: Int) {
         if (!period.isShiftable) return
         if (delta > 0 && !StatisticsPeriods.canShiftForward(period, anchor, System.currentTimeMillis())) return
-        panWindowStart = null
-        anchor = StatisticsPeriods.shift(period, anchor, delta)
+        changing {
+            panWindowStart = null
+            anchor = StatisticsPeriods.shift(period, anchor, delta)
+        }
         load()
     }
 

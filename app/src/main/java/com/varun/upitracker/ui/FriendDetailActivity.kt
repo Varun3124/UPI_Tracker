@@ -122,9 +122,16 @@ class FriendDetailActivity : AppCompatActivity() {
         if (::viewModel.isInitialized) viewModel.refreshLink(friendId)
     }
 
-    /** Leaving a selection is a step back, not a step off the screen. */
+    /**
+     * Leaving a selection is a step back, not a step off the screen; so is undoing the last month or
+     * search changed here (see BackHistory). Only with neither left does back leave.
+     */
     private fun onBack() {
-        if (viewModel.uiState.value?.selectionMode == true) viewModel.exitSelection() else finish()
+        when {
+            viewModel.uiState.value?.selectionMode == true -> viewModel.exitSelection()
+            viewModel.goBack() -> Unit
+            else -> finish()
+        }
     }
 
     private fun render(state: FriendDetailUiState) {

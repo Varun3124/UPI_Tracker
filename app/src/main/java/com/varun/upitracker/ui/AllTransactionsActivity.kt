@@ -99,7 +99,7 @@ class AllTransactionsActivity : AppCompatActivity() {
         findViewById<ImageButton>(R.id.btnBackAll).setOnClickListener { onBack() }
         onBackPressedDispatcher.addCallback(this) { onBack() }
 
-        monthControl = MonthRangeControl(this, findViewById(R.id.btnPickMonth), viewModel::load)
+        monthControl = MonthRangeControl(this, findViewById(R.id.btnPickMonth), viewModel::selectWindow)
         monthControl.attach()
 
         btnPendingOnly = findViewById(R.id.btnPendingOnly)
@@ -157,9 +157,16 @@ class AllTransactionsActivity : AppCompatActivity() {
         if (::viewModel.isInitialized) viewModel.reload()
     }
 
-    /** Leaving a selection is a step back, not a step off the screen. */
+    /**
+     * Leaving a selection is a step back, not a step off the screen; so is undoing the last month,
+     * filter or search changed here (see BackHistory). Only with neither left does back leave.
+     */
     private fun onBack() {
-        if (viewModel.uiState.value?.selectionMode == true) viewModel.exitSelection() else finish()
+        when {
+            viewModel.uiState.value?.selectionMode == true -> viewModel.exitSelection()
+            viewModel.goBack() -> Unit
+            else -> finish()
+        }
     }
 
     /** What [forPayee] packed. An ordinary launch carries none of it and opens on this month. */

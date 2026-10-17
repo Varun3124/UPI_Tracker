@@ -10,6 +10,7 @@ import android.view.View
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.addCallback
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.ViewModelProvider
@@ -89,6 +90,10 @@ class StatisticsActivity : AppCompatActivity() {
             StatisticsViewModelFactory(applicationContext)
         )[StatisticsViewModel::class.java]
 
+        // Back steps through what changed here first -- the week a day was tapped from, a category
+        // drilled into -- and only leaves once there is nothing left to undo. See BackHistory.
+        onBackPressedDispatcher.addCallback(this) { if (!viewModel.goBack()) finish() }
+
         viewModel.uiState.observe(this) { render(it) }
         viewModel.load()
     }
@@ -151,7 +156,7 @@ class StatisticsActivity : AppCompatActivity() {
         swipeContainer.onSwipe = { direction -> viewModel.step(direction) }
 
         btnPickPeriod.setOnClickListener { showPeriodMenu() }
-        findViewById<ImageButton>(R.id.btnBackStats).setOnClickListener { finish() }
+        findViewById<ImageButton>(R.id.btnBackStats).setOnClickListener { onBackPressedDispatcher.onBackPressed() }
         btnPrevPeriod.setOnClickListener { viewModel.step(-1) }
         btnNextPeriod.setOnClickListener { viewModel.step(1) }
     }
