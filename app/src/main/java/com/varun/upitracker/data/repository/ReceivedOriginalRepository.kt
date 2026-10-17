@@ -7,6 +7,7 @@ import com.varun.upitracker.database.entity.ReceivedOriginal
 import com.varun.upitracker.database.entity.ReceivedOriginalShare
 import com.varun.upitracker.database.entity.Transaction
 import com.varun.upitracker.database.entity.TransactionShare
+import com.varun.upitracker.domain.parcel.ParcelPerspective
 import com.varun.upitracker.domain.parcel.ReceivedOriginalDiff
 import com.varun.upitracker.domain.parcel.overlayOn
 import com.varun.upitracker.domain.parcel.toShare
@@ -79,7 +80,31 @@ class ReceivedOriginalRepository(private val db: AppDatabase) {
         )
     }
 
-    /** Null for a row that never came from a friend, or came before originals were kept. */
+    /**
+     * Gives [tx] an original if it came from a friend before originals were kept: the row as it
+     * stands now counts as how it arrived. So the first change made after this is what "Go to
+     * original" offers to undo, the same as for a row received since.
+     *
+     * Who sent it is known for a mailbox row, by the friend linked to the verified sender. A pasted
+     * row from then says nobody, and reads as from "a friend".
+     */
+    suspend fun captureIfMissingInTransaction(tx: Transaction) {
+        val sharedRefId = tx.sharedRefId ?: return
+        if (db.receivedOriginalDao().get(tx.id) != null) return
+        val senderName = ParcelPerspective.mailboxSenderUidOf(sharedRefId)
+            ?.let { uid -> db.mailboxDao().getLinkByUid(uid)?.friendId }
+            ?.let { friendId -> db.friendDao().getFriendById(friendId)?.name }
+            ?: "a friend"
+        captureInTransaction(tx.id, tx, db.transactionShareDao().getSharesForTransaction(tx.id), senderName)
+    }
+
+    /** [captureIfMissingInTransaction] in a database transaction of its own. */
+    suspend fun captureIfMissing(tx: Transaction) {
+        if (tx.sharedRefId == null) return
+        db.withTransaction { captureIfMissingInTransaction(tx) }
+    }
+
+    /** Null for a row that never came from a friend. */
     suspend fun load(transactionId: Long): ReceivedOriginalView? {
         val original = db.receivedOriginalDao().get(transactionId) ?: return null
         val tx = db.transactionDao().getTransactionById(transactionId) ?: return null

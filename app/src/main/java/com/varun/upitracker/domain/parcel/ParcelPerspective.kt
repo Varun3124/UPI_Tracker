@@ -221,6 +221,13 @@ object ParcelPerspective {
     /** The start every [mailboxRefIdFor] from [senderUid] shares. */
     fun mailboxRefPrefixFor(senderUid: String): String = "$MAILBOX_REF_PREFIX$senderUid:"
 
+    /** The verified sender a row's [mailboxRefIdFor] names, or null for a row that was pasted. */
+    fun mailboxSenderUidOf(sharedRefId: String): String? =
+        sharedRefId.takeIf { it.startsWith(MAILBOX_REF_PREFIX) }
+            ?.removePrefix(MAILBOX_REF_PREFIX)
+            ?.substringBefore(':', "")
+            ?.takeIf { it.isNotEmpty() }
+
     /**
      * False when a mailbox parcel names its own sender or its reader as a [ParcelActor.Linked]. Both
      * already have a role -- [ParcelActor.Sender] and [ParcelActor.Me] -- and a second copy of either

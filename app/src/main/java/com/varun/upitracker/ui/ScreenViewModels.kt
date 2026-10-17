@@ -111,8 +111,11 @@ class TransactionEntryViewModel(context: Context) : ViewModel() {
         viewModelScope.launch {
             _referenceData.value = withContext(Dispatchers.IO) {
                 val transaction = transactionId?.let { db.transactionDao().getTransactionById(it) }
-                val original = transaction?.takeIf { it.sharedRefId != null }
-                    ?.let { ReceivedOriginalRepository(db).load(it.id) }
+                val originals = ReceivedOriginalRepository(db)
+                // Before anything on this screen can change it: a row received before originals were
+                // kept gets one now, if the launch backfill has not already given it one.
+                transaction?.let { originals.captureIfMissing(it) }
+                val original = transaction?.takeIf { it.sharedRefId != null }?.let { originals.load(it.id) }
                 val asSent = original?.takeIf { showOriginal }
                 TransactionEntryReferenceData(
                     friends = db.friendDao().getAllFriendsByFrequency(),

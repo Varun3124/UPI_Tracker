@@ -11,6 +11,7 @@ import com.varun.upitracker.maintenance.MailboxCollection
 import com.varun.upitracker.maintenance.MailboxSchedule
 import com.varun.upitracker.maintenance.MerchantCreditReviewBackfill
 import com.varun.upitracker.maintenance.OpportunisticBackup
+import com.varun.upitracker.maintenance.ReceivedOriginalBackfill
 import com.varun.upitracker.ui.dashboard.DashboardActivity
 import com.varun.upitracker.ui.onboarding.OnboardingActivity
 import kotlinx.coroutines.CoroutineScope
@@ -38,6 +39,9 @@ class MainActivity : AppCompatActivity() {
             MerchantCreditReviewBackfill(applicationContext).run()
             FixedDepositSnapshotBackfill(applicationContext).run()
             IouRecoveryBackfill(applicationContext).run()
+            // After the IOU backfill, so an original taken from an old row records the side it now
+            // recovers from rather than none.
+            ReceivedOriginalBackfill(applicationContext).run()
             // Last, and deliberately so: the backfills above write to the database, and a backup taken
             // while they were still running would capture a half-migrated state.
             OpportunisticBackup(applicationContext).run()

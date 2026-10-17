@@ -174,4 +174,13 @@ class ParcelPerspectiveMailboxTest {
         assertTrue(PendingReviewRules.sharesAreValid(local.transaction, local.shares))
         assertEquals(IouRecovery.FROM_SECONDARY_PAYERS, local.transaction.iouRecovery)
     }
+
+    @Test
+    fun `the sender a mailbox row came from can be read back off its reference`() {
+        val ref = ParcelPerspective.mailboxRefIdFor("uidA1b2", "ref-9")
+        assertEquals("uidA1b2", ParcelPerspective.mailboxSenderUidOf(ref))
+        // A pasted row's reference names nobody.
+        assertNull(ParcelPerspective.mailboxSenderUidOf(ParcelPerspective.sharedRefIdFor("tok3n", 41L)))
+        assertNull(ParcelPerspective.mailboxSenderUidOf("mbx::ref-9"))
+    }
 }

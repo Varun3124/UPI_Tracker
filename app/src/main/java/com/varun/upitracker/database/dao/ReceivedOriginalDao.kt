@@ -6,10 +6,13 @@ import androidx.room.OnConflictStrategy
 import androidx.room.Query
 import com.varun.upitracker.database.entity.ReceivedOriginal
 import com.varun.upitracker.database.entity.ReceivedOriginalShare
+import com.varun.upitracker.database.entity.Transaction
 
 /**
- * Received transactions as they arrived. Written once, at import, and otherwise only ever read --
- * except by a merge, which has to keep the people and shops it names pointing at whoever survived.
+ * Received transactions as they arrived. Written once -- at import, or for a row received before
+ * originals were kept, by [com.varun.upitracker.maintenance.ReceivedOriginalBackfill] -- and otherwise
+ * only ever read, except by a merge, which has to keep the people and shops it names pointing at
+ * whoever survived.
  */
 @Dao
 interface ReceivedOriginalDao {
@@ -26,6 +29,13 @@ interface ReceivedOriginalDao {
 
     @Query("SELECT * FROM received_original_shares WHERE transactionId = :transactionId ORDER BY id")
     suspend fun getShares(transactionId: Long): List<ReceivedOriginalShare>
+
+    /** Rows from a friend with no original: received before originals were kept. */
+    @Query(
+        "SELECT * FROM transactions WHERE sharedRefId IS NOT NULL " +
+            "AND id NOT IN (SELECT transactionId FROM received_originals) ORDER BY id"
+    )
+    suspend fun getReceivedWithoutOriginal(): List<Transaction>
 
     @Query("UPDATE received_originals SET payerFriendId = :targetId WHERE payerFriendId = :sourceId")
     suspend fun reassignPayerFriend(sourceId: Long, targetId: Long)
