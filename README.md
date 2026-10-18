@@ -7,11 +7,11 @@ other without handing over their whole history.
 Your data lives on your phone. Everything works offline; the only things that touch the network are two
 opt-in features that stay off until you sign in with Google (see [Privacy](#privacy)).
 
-**Current version: 1.4** · Android 10 or later
+**Current version: 1.5** · Android 10 or later
 
 ## Download
 
-**[Download the latest APK](https://github.com/Varun3124/UPI_Tracker/releases/latest/download/DhanMoney-1.4.apk)**
+**[Download the latest APK](https://github.com/Varun3124/UPI_Tracker/releases/latest/download/DhanMoney-1.5.apk)**
 (or see [all releases](https://github.com/Varun3124/UPI_Tracker/releases)).
 
 1. Open the APK on your phone. Android asks you to allow installs from your browser or file manager the
@@ -25,37 +25,47 @@ opt-in features that stay off until you sign in with Google (see [Privacy](#priv
 **Recording money**
 
 1. Track income and expenses, split across categories, with refunds linked to the purchase they reverse.
+   Amounts show to the paisa everywhere.
 2. Record UPI payments automatically from bank SMS: HDFC (credit and debit), ICICI (credit and debit) and
    Axis (debit). Axis alerts forwarded to Gmail are read from the notification as well. Anything the app is
-   unsure about waits as *pending* for you to confirm, from the notification or the app.
-3. Import transactions from a bank statement (HDFC, `.xls`), with duplicates found for you.
-4. Track balances for pools of money: cash, savings, FDs, investments, and transfers between them.
+   unsure about waits as *pending* for you to confirm, from the notification or the app. A shop you always
+   file under one category is categorised for you, and can be saved straight from the notification.
+3. Import transactions from a bank statement (HDFC, `.xls`), with likely duplicates offered for you to
+   tick. How loosely it matches (days either side, how far the amount may differ, and more) is set in
+   Settings.
+4. **Pend** a half-finished entry: it is kept exactly as you left it, as a pending transaction, until you
+   come back to finish it.
+5. Track balances for pools of money: cash, savings, FDs, investments, and transfers between them.
    Balances from before your first recorded balance are marked as estimates.
 
 **Friends and groups**
 
-5. IOUs with friends, exactly like Splitwise: split any transaction between any people, on either side.
-6. **Chapters** (group IOUs): put a trip or a flat's expenses in a chapter, see who owes whom, and the
-   fewest payments that settle everyone up. A chapter's result feeds each friend's balance.
-7. **Share transactions** with friends: as a parcel pasted into any chat, or straight to linked friends,
+6. IOUs with friends, exactly like Splitwise: split any transaction between any people, on either side.
+7. **Route a debt through you**: when a friend pays for you and someone they don't deal with, that person
+   owes you and you owe the friend, instead of the two of them owing each other.
+8. **Chapters** (group IOUs): put a trip or a flat's expenses in a chapter, see who owes whom, and how the
+   fewest payments settle everyone up. A chapter's result feeds each friend's balance, and each friend's
+   page lists the chapter transactions they are in. New entries can start with the chapter's members filled
+   in, and someone who isn't a member can be kept outside the chapter.
+9. **Share transactions** with friends: as a parcel pasted into any chat, or straight to linked friends,
    several at once, through the end-to-end encrypted friends mailbox.
-8. **Agreed balances**: agree on what you owe each other with a linked friend without sharing your whole
-   history. Either of you proposes, the other accepts, and both books carry on from that checkpoint. Older
-   transactions found later only count if you both agree to add them.
-9. **Shared chapters**: share a chapter with its members so everyone sees the same plan. Linked members get
-   a copy that follows your changes; anyone else can be sent a copy to paste. Only the chapter's creator
-   can change it.
+10. **Agreed balances**: agree on what you owe each other with a linked friend without sharing your whole
+    history. Either of you proposes, the other accepts, and both books carry on from that checkpoint. Older
+    transactions found later only count if you both agree to add them.
+11. **Shared chapters**: share a chapter with its members so everyone sees the same plan. Linked members get
+    a copy that follows your changes; anyone else can be sent a copy to paste. Only the chapter's creator
+    can change it.
 
 **Seeing where it goes**
 
-10. Dashboard with today's, this week's and this month's net cash flow, recent transactions, IOUs and open
+12. Dashboard with today's, this week's and this month's net cash flow, recent transactions, IOUs and open
     chapters.
-11. Statistics: spending by category (pie and stacked bars) with drill-down to who was paid, and trends of
+13. Statistics: spending by category (pie and stacked bars) with drill-down to who was paid, and trends of
     income against expense and your balance over time.
 
 **Keeping it safe**
 
-12. Back up to, and restore from, a private folder in your own Google Drive.
+14. Back up to, and restore from, a private folder in your own Google Drive.
 
 How agreed balances and shared chapters work is written up in
 [docs/declarations-design.md](docs/declarations-design.md); chapters in
