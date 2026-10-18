@@ -10,6 +10,8 @@ import androidx.room.withTransaction
 import com.varun.upitracker.data.repository.AccountMutationException
 import com.varun.upitracker.data.repository.AccountRepository
 import com.varun.upitracker.data.repository.ChapterRepository
+import com.varun.upitracker.data.repository.EntryDraftRepository
+import com.varun.upitracker.data.repository.EntryDraftSnapshot
 import com.varun.upitracker.data.repository.LedgerRepository
 import com.varun.upitracker.data.repository.ParcelExportRepository
 import com.varun.upitracker.data.repository.ReceivedOriginalRepository
@@ -64,7 +66,9 @@ data class TransactionEntryReferenceData(
      * Set only when showing that original: its shares, which the screen shows in place of the row's
      * own. [transaction] is then the row with the original laid over it.
      */
-    val originalShares: List<TransactionShare>? = null
+    val originalShares: List<TransactionShare>? = null,
+    /** The form pended for a pending [transaction], which the screen reopens as instead of the row. */
+    val draft: EntryDraftSnapshot? = null
 )
 
 class TransactionEntryViewModel(context: Context) : ViewModel() {
@@ -126,7 +130,9 @@ class TransactionEntryViewModel(context: Context) : ViewModel() {
                     transaction = if (asSent != null && transaction != null) asSent.original.overlayOn(transaction) else transaction,
                     transfer = transferId?.let { db.accountTransferDao().getById(it) },
                     original = original,
-                    originalShares = asSent?.shares?.map { it.toShare() }
+                    originalShares = asSent?.shares?.map { it.toShare() },
+                    // Only onto a row still pending: once confirmed, by any path, the row is the truth.
+                    draft = transaction?.takeIf { it.isPending && asSent == null }?.let { EntryDraftRepository(db).load(it.id) }
                 )
             }
         }

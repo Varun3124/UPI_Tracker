@@ -21,6 +21,8 @@ sealed interface TransactionEntryAction {
     data class IouRecoverySelected(val recovery: IouRecovery) : TransactionEntryAction
     data class IouLineToggled(val debtor: IouParty, val creditor: IouParty) : TransactionEntryAction
     data object SaveClicked : TransactionEntryAction
+    /** Keep the form exactly as it is, as a pending row, to finish later. */
+    data object PendClicked : TransactionEntryAction
     data object CloseClicked : TransactionEntryAction
 }
 

@@ -2,6 +2,7 @@ package com.varun.upitracker.domain.transactionentry.persistence
 
 import com.varun.upitracker.data.declaration.CheckpointStore
 import com.varun.upitracker.database.AppDatabase
+import com.varun.upitracker.database.dao.clearDraft
 import com.varun.upitracker.database.entity.IouRecovery
 import com.varun.upitracker.database.entity.LedgerEffect
 import com.varun.upitracker.database.entity.Transaction
@@ -23,7 +24,17 @@ data class PersistTransactionRequest(
     val refundsTransactionId: Long? = null,
 
     /** The chapter this transaction should end up in, or null for the base ledger. */
-    val chapterId: Long? = null
+    val chapterId: Long? = null,
+
+    /**
+     * A saved transfer this new transaction replaces: deleted in the same database transaction. The
+     * three fields after it are what a new row carries over from it, so the importers that dedupe on
+     * those references still find the payment recorded.
+     */
+    val replacesTransferId: String? = null,
+    val upiRefId: String? = null,
+    val statementRefNo: String? = null,
+    val source: String = "MANUAL"
 )
 
 class TransactionPersistenceService(
@@ -72,12 +83,16 @@ class TransactionPersistenceService(
                 val friendsBefore = chapterSync.prepare(db, tx, shares, chapterId)
 
                 val base = buildTransactionEntity(tx, request, payer, payee, ledgerEffect, iouRecovery)
+                // Before the insert, which takes over the transfer's UPI reference.
+                request.replacesTransferId?.let { db.accountTransferDao().deleteById(it) }
                 val transactionId = if (tx == null) {
                     db.transactionDao().insert(base)
                 } else {
                     db.transactionDao().update(base)
                     tx.id
                 }
+                // Confirmed as it now stands, so whatever form was pended for it is done with.
+                db.entryDraftDao().clearDraft(transactionId)
 
                 db.categorySplitDao().deleteForTransaction(transactionId)
                 db.transactionShareDao().deleteForTransaction(transactionId)
@@ -137,7 +152,9 @@ class TransactionPersistenceService(
             payeeRawLabel = payee.rawLabel,
             myAccountId = request.selectedAccountId,
             dateEpoch = request.dateEpoch,
-            source = "MANUAL",
+            source = request.source,
+            upiRefId = request.upiRefId,
+            statementRefNo = request.statementRefNo,
             isPending = false,
             refundsTransactionId = request.refundsTransactionId,
             ledgerEffect = ledgerEffect,

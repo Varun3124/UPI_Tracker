@@ -249,6 +249,9 @@ class SettingsRepository(private val context: Context) {
             }
             db.categorySplitDao().delete(split)
         }
+        // A pended form that had both checked keeps the target's amount; the source's row then goes
+        // with the category.
+        db.entryDraftDao().reassignCategory(sourceId, targetId)
         db.categoryDao().getCategoryById(sourceId)?.let { db.categoryDao().deleteCategory(it) }
     }
 
@@ -282,6 +285,9 @@ class SettingsRepository(private val context: Context) {
         db.receivedOriginalDao().reassignPayerFriend(source.id, target.id)
         db.receivedOriginalDao().reassignPayeeFriend(source.id, target.id)
         db.receivedOriginalDao().reassignShareFriend(source.id, target.id)
+        db.entryDraftDao().reassignPayerFriend(source.id, target.id)
+        db.entryDraftDao().reassignPayeeFriend(source.id, target.id)
+        db.entryDraftDao().reassignRowFriend(source.id, target.id)
         db.iouDao().reassignFriend(source.id, target.id)
         // `chapter_members` is keyed on (chapterId, friendId), so a plain UPDATE would collide
         // wherever both friends are already in the same chapter. Drop the source's duplicates first
@@ -318,6 +324,8 @@ class SettingsRepository(private val context: Context) {
         db.transactionDao().reassignPayeeMerchant(source.id, target.id)
         db.receivedOriginalDao().reassignPayerMerchant(source.id, target.id)
         db.receivedOriginalDao().reassignPayeeMerchant(source.id, target.id)
+        db.entryDraftDao().reassignPayerMerchant(source.id, target.id)
+        db.entryDraftDao().reassignPayeeMerchant(source.id, target.id)
         db.merchantDao().moveAllRawNames(source.id, target.id)
         db.merchantDao().moveAllUpiIds(source.id, target.id)
         db.categoryDao().getCategoriesForMerchant(source.id).forEach { category ->

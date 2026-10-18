@@ -1,6 +1,7 @@
 package com.varun.upitracker.data.repository
 
 import com.varun.upitracker.database.AppDatabase
+import com.varun.upitracker.database.dao.clearDraft
 
 /**
  * Deleting a transaction, and putting right everything the books built on it. The one way it is
@@ -32,6 +33,7 @@ class TransactionRemoval(private val db: AppDatabase) {
         val before = chapters.contributionsOf(chapterIds)
 
         db.transactionShareDao().deleteForTransaction(transactionId)
+        db.entryDraftDao().clearDraft(transactionId)
         db.transactionDao().deleteById(transactionId)
 
         val absorbed = chapters.recomputeAbsorbingInTransaction(chapterIds, before, listOf(tx.dateEpoch))

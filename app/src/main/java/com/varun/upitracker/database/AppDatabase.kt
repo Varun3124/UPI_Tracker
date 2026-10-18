@@ -14,6 +14,7 @@ import com.varun.upitracker.database.dao.BudgetDao
 import com.varun.upitracker.database.dao.CategoryDao
 import com.varun.upitracker.database.dao.ChapterDao
 import com.varun.upitracker.database.dao.DeclarationDao
+import com.varun.upitracker.database.dao.EntryDraftDao
 import com.varun.upitracker.database.dao.FixedDepositDao
 import com.varun.upitracker.database.dao.FriendDao
 import com.varun.upitracker.database.dao.IouDao
@@ -35,6 +36,9 @@ import com.varun.upitracker.database.entity.ChapterPerson
 import com.varun.upitracker.database.entity.ChapterShare
 import com.varun.upitracker.database.entity.CategoryKind
 import com.varun.upitracker.database.entity.DeclarationPart
+import com.varun.upitracker.database.entity.EntryDraft
+import com.varun.upitracker.database.entity.EntryDraftCategory
+import com.varun.upitracker.database.entity.EntryDraftRow
 import com.varun.upitracker.database.entity.FixedDepositDetail
 import com.varun.upitracker.database.entity.Friend
 import com.varun.upitracker.database.entity.FriendLink
@@ -89,9 +93,12 @@ import kotlinx.coroutines.launch
         ChapterShare::class,
         ChapterPerson::class,
         ReceivedOriginal::class,
-        ReceivedOriginalShare::class
+        ReceivedOriginalShare::class,
+        EntryDraft::class,
+        EntryDraftRow::class,
+        EntryDraftCategory::class
     ],
-    version = 23,
+    version = 24,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -104,6 +111,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun categoryDao(): CategoryDao
     abstract fun chapterDao(): ChapterDao
     abstract fun declarationDao(): DeclarationDao
+    abstract fun entryDraftDao(): EntryDraftDao
     abstract fun fixedDepositDao(): FixedDepositDao
     abstract fun friendDao(): FriendDao
     abstract fun iouDao(): IouDao
@@ -743,6 +751,64 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Unfinished entry forms saved with Pend: three new tables beside `transactions`, modelled on
+         * `received_originals`. Nothing existing changes, and no row has a draft until one is pended.
+         */
+        private val MIGRATION_23_24 = object : Migration(23, 24) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `entry_drafts` (`transactionId` INTEGER NOT NULL, " +
+                        "`savedEpoch` INTEGER NOT NULL, `payerActorType` TEXT NOT NULL, `payerFriendId` INTEGER, " +
+                        "`payerMerchantId` INTEGER, `payeeActorType` TEXT NOT NULL, `payeeFriendId` INTEGER, " +
+                        "`payeeMerchantId` INTEGER, `payerAccountId` TEXT, `payeeAccountId` TEXT, " +
+                        "`amountText` TEXT NOT NULL, `dateEpoch` INTEGER NOT NULL, `description` TEXT, " +
+                        "`chapterId` INTEGER, `refundsTransactionId` INTEGER, `iouRecoveryOverride` TEXT, " +
+                        "`categoryKind` TEXT NOT NULL, `trackedCategoryId` INTEGER, " +
+                        "PRIMARY KEY(`transactionId`), " +
+                        "FOREIGN KEY(`transactionId`) REFERENCES `transactions`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE , " +
+                        "FOREIGN KEY(`payerFriendId`) REFERENCES `friends`(`id`) ON UPDATE NO ACTION ON DELETE SET NULL , " +
+                        "FOREIGN KEY(`payerMerchantId`) REFERENCES `merchants`(`id`) ON UPDATE NO ACTION ON DELETE SET NULL , " +
+                        "FOREIGN KEY(`payeeFriendId`) REFERENCES `friends`(`id`) ON UPDATE NO ACTION ON DELETE SET NULL , " +
+                        "FOREIGN KEY(`payeeMerchantId`) REFERENCES `merchants`(`id`) ON UPDATE NO ACTION ON DELETE SET NULL , " +
+                        "FOREIGN KEY(`chapterId`) REFERENCES `chapters`(`id`) ON UPDATE NO ACTION ON DELETE SET NULL , " +
+                        "FOREIGN KEY(`refundsTransactionId`) REFERENCES `transactions`(`id`) ON UPDATE NO ACTION ON DELETE SET NULL )"
+                )
+                listOf(
+                    "payerFriendId", "payerMerchantId", "payeeFriendId", "payeeMerchantId", "chapterId", "refundsTransactionId"
+                ).forEach { column ->
+                    db.execSQL("CREATE INDEX IF NOT EXISTS `index_entry_drafts_$column` ON `entry_drafts` (`$column`)")
+                }
+
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `entry_draft_rows` (" +
+                        "`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `transactionId` INTEGER NOT NULL, " +
+                        "`side` TEXT NOT NULL, `position` INTEGER NOT NULL, `participantType` TEXT NOT NULL, " +
+                        "`friendId` INTEGER, `label` TEXT NOT NULL, `initials` TEXT NOT NULL, " +
+                        "`amountPaise` INTEGER NOT NULL, `keepPayeeLeg` INTEGER NOT NULL, `keepPayerLeg` INTEGER NOT NULL, " +
+                        "FOREIGN KEY(`transactionId`) REFERENCES `entry_drafts`(`transactionId`) ON UPDATE NO ACTION ON DELETE CASCADE , " +
+                        "FOREIGN KEY(`friendId`) REFERENCES `friends`(`id`) ON UPDATE NO ACTION ON DELETE SET NULL )"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_entry_draft_rows_transactionId` ON `entry_draft_rows` (`transactionId`)"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_entry_draft_rows_friendId` ON `entry_draft_rows` (`friendId`)"
+                )
+
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `entry_draft_categories` (`transactionId` INTEGER NOT NULL, " +
+                        "`categoryId` INTEGER NOT NULL, `myAmountPaise` INTEGER NOT NULL, " +
+                        "PRIMARY KEY(`transactionId`, `categoryId`), " +
+                        "FOREIGN KEY(`transactionId`) REFERENCES `entry_drafts`(`transactionId`) ON UPDATE NO ACTION ON DELETE CASCADE , " +
+                        "FOREIGN KEY(`categoryId`) REFERENCES `categories`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_entry_draft_categories_categoryId` ON `entry_draft_categories` (`categoryId`)"
+                )
+            }
+        }
+
         private fun hasColumn(db: SupportSQLiteDatabase, table: String, column: String): Boolean {
             db.query("PRAGMA table_info(`$table`)").use { cursor ->
                 val nameColumnIndex = cursor.getColumnIndex("name")
@@ -776,7 +842,7 @@ abstract class AppDatabase : RoomDatabase() {
                         MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16,
                         MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19,
                         MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22,
-                        MIGRATION_22_23
+                        MIGRATION_22_23, MIGRATION_23_24
                     )
                     .addCallback(object : Callback() {
                         override fun onCreate(db: SupportSQLiteDatabase) {

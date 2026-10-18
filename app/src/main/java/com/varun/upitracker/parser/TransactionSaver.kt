@@ -9,6 +9,7 @@ import com.varun.upitracker.database.entity.Transaction
 import com.varun.upitracker.domain.ImportedTransferMatcher
 import com.varun.upitracker.resolver.AliasResolver
 import com.varun.upitracker.resolver.ResolvedAs
+import com.varun.upitracker.sms.receiver.PendingTransactionReviewer
 import com.varun.upitracker.sms.receiver.TransactionNotificationHelper
 import com.varun.upitracker.ui.ActorType
 import java.util.concurrent.TimeUnit
@@ -85,12 +86,16 @@ object TransactionSaver {
                 is ResolvedAs.AsMerchant -> resolution.name
                 is ResolvedAs.Unknown -> parsed.payeeRaw
             }
+            val saved = transaction.copy(id = id)
             TransactionNotificationHelper.showPendingTransactionNotification(
                 context = context,
                 transactionId = id,
                 amountPaise = parsed.amountPaise,
                 displayLabel = displayLabel,
-                needsReview = true
+                needsReview = true,
+                // A merchant always filed under one category can be saved from here in one tap.
+                category = PendingTransactionReviewer.suggestedCategory(db, saved),
+                canConfirm = PendingTransactionReviewer.canReview(db, saved)
             )
         }
 

@@ -39,7 +39,6 @@ import com.varun.upitracker.data.declaration.DeclarationRepository
 import com.varun.upitracker.database.AppDatabase
 import com.varun.upitracker.data.repository.AccountMutationException
 import com.varun.upitracker.data.repository.AccountRepository
-import com.varun.upitracker.data.repository.StatementImportRepository
 import com.varun.upitracker.database.entity.Account
 import com.varun.upitracker.database.entity.AccountTransfer
 import com.varun.upitracker.database.entity.AccountType
@@ -55,7 +54,18 @@ import com.varun.upitracker.database.entity.MerchantCategory
 import com.varun.upitracker.database.entity.MerchantRawName
 import com.varun.upitracker.database.entity.MerchantUpiId
 import com.varun.upitracker.data.prefs.SelfIdentity
+import com.varun.upitracker.data.repository.ChapterException
 import com.varun.upitracker.data.repository.ChapterRepository
+import com.varun.upitracker.data.repository.EntryDraftRepository
+import com.varun.upitracker.data.repository.EntryDraftSnapshot
+import com.varun.upitracker.data.repository.PendException
+import com.varun.upitracker.database.entity.AccountTransferType
+import com.varun.upitracker.database.entity.EntryDraft
+import com.varun.upitracker.database.entity.EntryDraftCategory
+import com.varun.upitracker.database.entity.EntryDraftRow
+import com.varun.upitracker.domain.entrySource
+import com.varun.upitracker.domain.transactionSource
+import com.varun.upitracker.domain.transactionentry.category.MerchantCategoryHistory
 import com.varun.upitracker.data.repository.ReceivedOriginalRepository
 import com.varun.upitracker.data.repository.ReceivedOriginalView
 import com.varun.upitracker.data.repository.RevertException
@@ -316,6 +326,27 @@ class TransactionEntryActivity : AppCompatActivity() {
     private var smsPayeeAliasFallback = ""
     private var isCategorySectionVisible = false
 
+    /** What each merchant has only ever been filed under, by merchant and direction. Read once per screen. */
+    private var merchantCategories: Map<Pair<Long, CategoryKind>, Long> = emptyMap()
+    /** Set once the user checks, unchecks or types into a pill: from then on the categories are theirs. */
+    private var userTouchedCategories = false
+    /** The pill [maybePrefillCategory] checked by itself, so a different merchant can swap it out. */
+    private var prefilledCategoryId: Long? = null
+
+    /** The form pended for this row, which it reopens as. Pending rows only. */
+    private var draftSnapshot: EntryDraftSnapshot? = null
+    /** The form was put back from [draftSnapshot]: nothing may relabel, reseed or clear what it holds. */
+    private var restoredFromDraft = false
+
+    /**
+     * Each side's rows as the chapter template last left them, for a new entry. A side still equal to
+     * its snapshot is untouched, and follows the chapter picker; once edited, it is the user's.
+     */
+    private val templateSnapshot = mutableMapOf<Boolean, List<ShareRow>>()
+
+    private lateinit var btnPend: Button
+    private lateinit var formContent: View
+
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
@@ -341,6 +372,7 @@ class TransactionEntryActivity : AppCompatActivity() {
             currentTransfer = referenceData.transfer
             originalView = referenceData.original
             originalShares = referenceData.originalShares
+            draftSnapshot = referenceData.draft
             viewModel.launchTask {
                 setupUi(db)
             }
@@ -424,6 +456,13 @@ class TransactionEntryActivity : AppCompatActivity() {
         tvAgreementNotice = findViewById(R.id.tvAgreementNotice)
         btnAgreementAdd = findViewById(R.id.btnAgreementAdd)
         btnAgreementAdd.setOnClickListener { askToAddSavedRow() }
+        btnPend = findViewById(R.id.btnPend)
+        formContent = findViewById(R.id.formContent)
+        // The keyboard going away by itself leaves the field focused; leaving it is what finishes an
+        // edit (a blank alias refilled, a typed name committed), so let go of it here too.
+        KeyboardAwareScroll(formScroll, formContent) {
+            (currentFocus as? EditText)?.clearFocus()
+        }.attach()
     }
 
     private suspend fun setupUi(db: AppDatabase) {
@@ -449,9 +488,14 @@ class TransactionEntryActivity : AppCompatActivity() {
         initializeSelectedAccounts(tx)
         setupCategories()
         loadRefundCandidates(db)
+        merchantCategories = withContext(Dispatchers.IO) {
+            MerchantCategoryHistory.singleCategories(db.categorySplitDao().getMerchantCategoryUses(null))
+        }
 
+        val draft = draftSnapshot
         when {
             transfer != null -> populateExistingTransfer(transfer)
+            tx != null && draft != null -> restoreDraft(tx, draft, db)
             tx != null -> populateExistingTransaction(tx, db)
             else -> seedDefaultState()
         }
@@ -459,12 +503,19 @@ class TransactionEntryActivity : AppCompatActivity() {
         // An original is only read: nothing it shows can be added to an agreement from here.
         if (!isOriginalView) loadAgreements(db)
         ensureBaseShareRows()
-        enforceTransferModeRows()
-        updatePrimaryRowLabel(true)
-        updatePrimaryRowLabel(false)
+        enforceTransferModeRows(seedLegs = !restoredFromDraft)
+        if (!restoredFromDraft) {
+            updatePrimaryRowLabel(true)
+            updatePrimaryRowLabel(false)
+        }
+        applyChapterTemplate(true)
+        applyChapterTemplate(false)
 
         findViewById<Button>(R.id.btnDone).setOnClickListener {
             viewModel.onAction(TransactionEntryAction.SaveClicked)
+        }
+        btnPend.setOnClickListener {
+            viewModel.onAction(TransactionEntryAction.PendClicked)
         }
 
         updateActorTileStyles()
@@ -496,6 +547,8 @@ class TransactionEntryActivity : AppCompatActivity() {
         }
         if (!isOriginalView) return
 
+        // An original is only read, never kept as anything.
+        btnPend.visibility = View.GONE
         findViewById<Button>(R.id.btnDone).apply {
             text = "Revert"
             backgroundTintList = ColorStateList.valueOf(themeColor(ThemeAttr.revert))
@@ -697,6 +750,7 @@ class TransactionEntryActivity : AppCompatActivity() {
     private fun onActorTypeSelected(isPayer: Boolean, selectedType: String) {
         if (isSmsLockedMeEndpoint(isPayer) && selectedType != ActorType.ME) return
         if (!canSwitchTransferMode(isPayer, selectedType)) return
+        val wasTransfer = isTransferMode()
 
         val transition = actorSelectionService.onActorTypeSelected(
             selectedType = selectedType,
@@ -720,48 +774,87 @@ class TransactionEntryActivity : AppCompatActivity() {
         }
         if (transition.shouldSeedBaseShare) {
             rowsFor(isPayer).add(buildPrimaryRow(isPayer))
+            applyChapterTemplate(isPayer)
         }
+        if (!wasTransfer && isTransferMode()) enterTransferMode()
+        if (wasTransfer && !isTransferMode()) leaveTransferMode(isPayer)
 
         enforceTransferModeRows()
         updateActorTileStyles()
         applyTransferModeUi()
+        // A transfer is never in a chapter; a transaction it turns into may be.
+        renderChapterField()
         buildShareSection(true)
         buildShareSection(false)
         updateCategoryVisibility()
         updateLiveCalc()
     }
 
+    /**
+     * Into a transfer from a transaction: both legs start at the amount it moved -- not at whatever
+     * share of a split ME's row happened to hold -- before the amount field is cleared for transfer mode.
+     */
+    private fun enterTransferMode() {
+        val amount = getCurrentAmountPaise()
+        if (amount <= 0L) return
+        listOf(payerShareRows, payeeShareRows).forEach { rows -> rows.firstOrNull()?.amountPaise = amount }
+    }
+
+    /**
+     * Back from a transfer to a transaction: the amount comes from the leg that stayed ME, and that
+     * side, cut to one row while it was a transfer, gets its chapter template back.
+     */
+    private fun leaveTransferMode(switchedIsPayer: Boolean) {
+        val kept = rowsFor(!switchedIsPayer).firstOrNull()?.amountPaise ?: 0L
+        if (etAmount.text.isNullOrBlank() && kept > 0L) {
+            etAmount.setText(AmountFormat.forInput(kept))
+            rowsFor(switchedIsPayer).firstOrNull()?.takeIf { it.amountPaise == 0L }?.amountPaise = kept
+        }
+        if (rowsFor(!switchedIsPayer).size <= 1) applyChapterTemplate(!switchedIsPayer)
+    }
+
     private fun isTransferMode(): Boolean =
         payerActorType == ActorType.ME && payeeActorType == ActorType.ME
 
     /**
-     * A settled record cannot change kind: it would insert an `AccountTransfer` and leave the
-     * original `Transaction` row orphaned, and vice versa.
+     * Any record can change kind, saved or not. [handleDoneTransfer] turns a transaction into a
+     * transfer the way a delete removes it -- its friends rebuilt, its chapter worked out again -- and
+     * [handleDone] writes a transfer turned transaction in the same database transaction that deletes
+     * the transfer, carrying the references the importers dedupe on.
      *
-     * A *pending* transaction is the exception. SMS and bank-statement rows arrive with no shares,
-     * splits or IOU entries, and some of them are genuinely transfers (interest credits, self-UPI,
-     * ATM withdrawals), so classifying one as a transfer is the whole point of reviewing it.
-     * [handleDoneTransfer] deletes the source row as it writes the transfer.
+     * What still cannot: a row a chapter holds on to (closed, R8; or a friend's, S6), since becoming a
+     * transfer takes it out of the chapter; and an FD return, which only the Accounts screen undoes.
      */
     private fun canSwitchTransferMode(isPayer: Boolean, selectedType: String): Boolean {
         val wouldBeTransfer = selectedType == ActorType.ME && otherSideActorType(isPayer) == ActorType.ME
-        if (wouldBeTransfer && currentTransaction?.isPending == false) {
-            toast("Can't convert a saved transaction into a transfer")
-            return false
-        }
-        if (!wouldBeTransfer && currentTransfer != null) {
-            toast("Can't convert a saved transfer into a transaction")
+        if (wouldBeTransfer == isTransferMode()) return true
+        if (wouldBeTransfer) {
+            if (chapterLocked) {
+                toast("This is in a closed chapter. Reopen it to make changes.")
+                return false
+            }
+            chapterOptions.firstOrNull { it.chapter.id == currentTransaction?.chapterId && !it.chapter.isOwn }?.let { copy ->
+                val who = chapterOwnerNames[copy.chapter.id] ?: "its owner"
+                toast("In $who's ${copy.chapter.name}. It stays there until $who takes it out.")
+                return false
+            }
+        } else if (currentTransfer?.type == AccountTransferType.FD_RETURN) {
+            toast("Edit FD returns from the Accounts screen.")
             return false
         }
         return true
     }
 
-    /** A transfer has exactly one endpoint per side: the source account and the destination. */
-    private fun enforceTransferModeRows() {
+    /**
+     * A transfer has exactly one endpoint per side: the source account and the destination.
+     *
+     * [seedLegs] false keeps an empty leg empty: a pended form comes back exactly as it was left.
+     */
+    private fun enforceTransferModeRows(seedLegs: Boolean = true) {
         if (!isTransferMode()) return
-        // A pending transaction carries no shares, so seed both legs from the amount the bank
-        // already told us rather than making the reviewer retype it.
-        val seed = currentTransaction?.takeIf { it.isPending }?.amountPaise ?: 0L
+        // Seed an empty leg from the transaction being turned into a transfer, rather than making
+        // the user retype the amount it already has.
+        val seed = if (seedLegs) currentTransaction?.amountPaise ?: 0L else 0L
         listOf(payerShareRows, payeeShareRows).forEach { rows ->
             while (rows.size > 1) rows.removeAt(rows.lastIndex)
             rows.firstOrNull()?.let { row ->
@@ -944,20 +1037,14 @@ class TransactionEntryActivity : AppCompatActivity() {
     private fun isSmsLockedMeEndpoint(isPayer: Boolean): Boolean {
         if (!isSmsSource) return false
         val tx = currentTransaction ?: return false
+        // Stored as ME -> ME -- pended while it was a transfer -- nothing says which end the bank's
+        // message was about, so neither is pinned.
+        if (tx.payerActorType == ActorType.ME && tx.payeeActorType == ActorType.ME) return false
         return if (isPayer) tx.payerActorType == ActorType.ME else tx.payeeActorType == ActorType.ME
     }
 
     private fun smsAliasFallback(isPayer: Boolean): String {
         return if (isPayer) smsPayerAliasFallback else smsPayeeAliasFallback
-    }
-
-    private fun restoreRequiredSmsAliasIfNeeded(field: AutoCompleteTextView, isPayer: Boolean) {
-        if (!isSmsSource) return
-        if (actorTypeFor(isPayer) == ActorType.ME) return
-        if (field.text.isNullOrBlank()) {
-            val refill = smsAliasFallback(isPayer)
-            if (refill.isNotBlank()) field.setText(refill, false)
-        }
     }
 
     private fun updateActorTileStyles() {
@@ -1018,9 +1105,17 @@ class TransactionEntryActivity : AppCompatActivity() {
         }
     }
 
+    /**
+     * How an endpoint reads in its field: its name, or blank when nobody was ever named. Never the
+     * "Friend" / "Merchant" a list shows for one -- in a field, saving would take that for a name.
+     */
     private suspend fun resolveInitialEndpointLabel(db: AppDatabase, isPayer: Boolean, tx: Transaction): String {
         val actor = if (isPayer) tx.payerActorRef() else tx.payeeActorRef()
-        return resolveActorDisplayName(db, actor)
+        val unnamed = actor.rawLabel.isNullOrBlank() && (
+            (actor.actorType == ActorType.FRIEND && actor.friendId == null) ||
+                (actor.actorType == ActorType.MERCHANT && actor.merchantId == null)
+            )
+        return if (unnamed) "" else resolveActorDisplayName(db, actor)
     }
 
     private fun buildMeShareRow(): ShareRow = ShareRow(
@@ -1181,14 +1276,10 @@ class TransactionEntryActivity : AppCompatActivity() {
                     }
                 }
 
-                etName.setAdapter(
-                    ArrayAdapter(
-                        this,
-                        android.R.layout.simple_dropdown_item_1line,
-                        suggestions
-                    )
-                )
+                etName.setAdapter(NameSuggestionAdapter(this, suggestions, meLabel))
                 etName.setText(row.label, false)
+                // A tap selects the name, so typing replaces it rather than adding to it.
+                etName.setSelectAllOnFocus(true)
                 etName.isEnabled = !isLockedPrimaryMe
                 etName.alpha = if (isLockedPrimaryMe) 0.5f else 1f
                 etName.setOnItemClickListener { _, _, position, _ ->
@@ -1204,12 +1295,22 @@ class TransactionEntryActivity : AppCompatActivity() {
                             text = etName.text.toString()
                         )
                     )
-                    if (isPrimary) {
-                        restoreRequiredSmsAliasIfNeeded(etName, isPayer)
-                    }
                 })
+                // Clearing the field to retype it leaves it blank for as long as it is being edited.
+                // Left blank, it gets back what it had: the name it loaded with on an endpoint (the
+                // alias, or the raw name the bank gave), else whatever it showed when the edit began.
+                var labelOnFocus = row.label
                 etName.setOnFocusChangeListener { _, hasFocus ->
-                    if (!hasFocus && !isPrimary && rows[index].key.isBlank()) {
+                    if (hasFocus) {
+                        labelOnFocus = etName.text.toString()
+                        return@setOnFocusChangeListener
+                    }
+                    if (etName.text.isNullOrBlank()) {
+                        val refill = if (isPrimary) smsAliasFallback(isPayer).ifBlank { labelOnFocus } else labelOnFocus
+                        if (refill.isNotBlank()) etName.setText(refill, false)
+                    }
+                    // Rebuilt rows lose focus after the list has changed under them.
+                    if (!isPrimary && rows.getOrNull(index)?.key?.isBlank() == true) {
                         viewModel.onAction(TransactionEntryAction.ShareNameCommitted(side, index))
                     }
                 }
@@ -1354,6 +1455,9 @@ class TransactionEntryActivity : AppCompatActivity() {
             TransactionEntryAction.SaveClicked -> {
                 if (isOriginalView) confirmRevert() else viewModel.launchTask { handleDone() }
             }
+            TransactionEntryAction.PendClicked -> {
+                if (!isOriginalView) viewModel.launchTask { handlePend() }
+            }
 
             TransactionEntryAction.CloseClicked -> finish()
             is TransactionEntryAction.ScreenLoaded -> Unit
@@ -1378,6 +1482,7 @@ class TransactionEntryActivity : AppCompatActivity() {
             val merchant = allMerchants.firstOrNull { it.name.equals(trimmed, ignoreCase = true) }
             if (isPayer) payerMerchantId = merchant?.id else payeeMerchantId = merchant?.id
             refreshRefundCandidatesIfNeeded()
+            if (isCategorySectionVisible) maybePrefillCategory()
         }
 
         // The same for a friend at either end, for the same reason: the endpoint's id is what saving
@@ -1847,7 +1952,9 @@ class TransactionEntryActivity : AppCompatActivity() {
         val wasVisible = isCategorySectionVisible
         isCategorySectionVisible = visibilityDecision.showCategories
         categoryContainer.visibility = if (visibilityDecision.showCategories) View.VISIBLE else View.GONE
-        if (visibilityDecision.shouldClearSelections) {
+        // A pended form keeps the pills it had even while there is nothing to categorise: hidden, and
+        // never saved that way, but there again once there is.
+        if (visibilityDecision.shouldClearSelections && !restoredFromDraft) {
             categoryEntries.forEach {
                 it.isChecked = false
                 it.myAmountPaise = 0L
@@ -1862,6 +1969,46 @@ class TransactionEntryActivity : AppCompatActivity() {
                 formScroll.smoothScrollTo(0, categoryScrollView.top)
             }
         }
+        if (visibilityDecision.showCategories) maybePrefillCategory()
+    }
+
+    /**
+     * Checks the category this merchant has only ever been filed under, in this direction, so a
+     * routine purchase needs no tap on the pills at all. It then tracks ME's share like any pill
+     * checked last.
+     *
+     * Only until the user does anything to the categories themselves. Before that, a different
+     * merchant swaps the pick this made for its own suggestion, or clears it when it has none.
+     */
+    private fun maybePrefillCategory() {
+        if (userTouchedCategories || isOriginalView || refundsTransactionId != null || isTransferMode()) return
+        val suggestion = suggestedCategoryId()
+        val checked = categoryEntries.filter { it.isChecked }
+        val onlyOurPick = checked.size == 1 && checked[0].category.id == prefilledCategoryId
+        if (checked.isNotEmpty() && !onlyOurPick) return
+        if (onlyOurPick && checked[0].category.id == suggestion) return
+
+        if (onlyOurPick) {
+            checked[0].isChecked = false
+            checked[0].myAmountPaise = 0L
+            if (trackedCategoryId == checked[0].category.id) trackedCategoryId = null
+            prefilledCategoryId = null
+        }
+        val entry = suggestion?.let { id -> categoryEntries.firstOrNull { it.category.id == id } }
+        if (entry != null) {
+            entry.isChecked = true
+            trackedCategoryId = entry.category.id
+            applyRemainderAmount(entry)
+            prefilledCategoryId = entry.category.id
+        }
+        if (entry != null || onlyOurPick) renderCategories()
+    }
+
+    private fun suggestedCategoryId(): Long? {
+        val side = MerchantCategoryHistory.merchantSide(payerActorType, payeeActorType, payerMerchantId, payeeMerchantId)
+            ?: return null
+        if (side.second != categoryKind) return null
+        return merchantCategories[side]
     }
 
     private suspend fun handleDone() {
@@ -1941,6 +2088,7 @@ class TransactionEntryActivity : AppCompatActivity() {
      * [transactionPersistenceService], so no `Transaction` row is written.
      */
     private suspend fun handleDoneTransfer() {
+        if (chapterLocked) return toast("This is in a closed chapter. Reopen it to make changes.")
         val fromId = payerAccountId
         val toId = payeeAccountId
         val amountFrom = payerShareRows.firstOrNull()?.amountPaise ?: 0L
@@ -1987,7 +2135,8 @@ class TransactionEntryActivity : AppCompatActivity() {
             upiRefId = existing?.upiRefId ?: convertedFrom?.upiRefId
         )
 
-        val repository = AccountRepository(AppDatabase.Companion.getInstance(applicationContext))
+        val db = AppDatabase.Companion.getInstance(applicationContext)
+        val repository = AccountRepository(db)
         try {
             withContext(Dispatchers.IO) {
                 if (convertedFrom != null) {
@@ -1999,15 +2148,12 @@ class TransactionEntryActivity : AppCompatActivity() {
         } catch (e: AccountMutationException) {
             return toast(e.message ?: "Could not save transfer")
         }
+        if (convertedFrom != null) {
+            // Leaving a shared chapter changes what its members' copies show.
+            publishIfShared(db, setOfNotNull(convertedFrom.chapterId))
+            TransactionNotificationHelper.cancel(applicationContext, convertedFrom.id.toInt())
+        }
         finish()
-    }
-
-    /** `Transaction.source` is a free string; `AccountTransfer.source` is the typed enum. */
-    private fun Transaction.entrySource(): EntrySource = when (source) {
-        "SMS" -> EntrySource.SMS
-        "NOTIFICATION" -> EntrySource.NOTIFICATION
-        StatementImportRepository.SOURCE_BANK_STATEMENT -> EntrySource.BANK_STATEMENT
-        else -> EntrySource.MANUAL
     }
 
     /**
@@ -2065,6 +2211,241 @@ class TransactionEntryActivity : AppCompatActivity() {
         )
     }
 
+    // --- pend ----------------------------------------------------------------------------------
+
+    /**
+     * Keeps the form exactly as it is against a pending row, however unfinished, and closes. Nothing
+     * is checked and nobody is created from a name: see [EntryDraftRepository.pend]. Only a row a
+     * closed chapter holds is refused, as it is for Done (R8).
+     */
+    private suspend fun handlePend() {
+        if (chapterLocked) {
+            val name = chapterOptions.firstOrNull { it.chapter.id == selectedChapterId }?.chapter?.name
+            return toast("In ${name ?: "a closed chapter"} (closed). Reopen it to edit.")
+        }
+        val db = AppDatabase.Companion.getInstance(applicationContext)
+        val existing = currentTransaction
+        // Read off the screen here, on the main thread.
+        val shell = pendingShell()
+        val form = currentForm()
+        try {
+            withContext(Dispatchers.IO) { EntryDraftRepository(db).pend(existing, currentTransfer, shell, form) }
+        } catch (e: PendException) {
+            return toast(e.message ?: "Could not save as pending")
+        } catch (e: ChapterException) {
+            return toast(e.message ?: "Could not save as pending")
+        }
+        // A confirmed row taken out of a shared chapter changes what its members' copies show.
+        if (existing?.isPending == false) publishIfShared(db, setOfNotNull(existing.chapterId))
+        existing?.let { TransactionNotificationHelper.cancel(applicationContext, it.id.toInt()) }
+        toast("Saved as pending")
+        finish()
+    }
+
+    /**
+     * What stands in the lists for a new entry pended before it was ever saved: the figures as typed,
+     * the ends as far as they are named, and no shares or splits -- those are only written by a save
+     * that passed every check. A name that matches nobody yet stays a raw label; nobody is created.
+     */
+    private fun pendingShell(): Transaction {
+        val amount = if (isTransferMode()) {
+            payerShareRows.firstOrNull()?.amountPaise?.takeIf { it > 0L } ?: payeeShareRows.firstOrNull()?.amountPaise ?: 0L
+        } else {
+            getCurrentAmountPaise()
+        }
+        val payer = draftActorRef(true)
+        val payee = draftActorRef(false)
+        fun rawLabel(isPayer: Boolean) = primaryLabel(isPayer).takeIf { it.isNotBlank() && actorTypeFor(isPayer) != ActorType.ME }
+        return Transaction(
+            amountPaise = amount,
+            payerActorType = payerActorType,
+            payerFriendId = payer.friendId,
+            payerMerchantId = payer.merchantId,
+            payerRawLabel = rawLabel(true),
+            payeeActorType = payeeActorType,
+            payeeFriendId = payee.friendId,
+            payeeMerchantId = payee.merchantId,
+            payeeRawLabel = rawLabel(false),
+            reason = etDescription.text.toString().trim().ifEmpty { null },
+            myAccountId = accountIdForPersistence(),
+            dateEpoch = selectedDateEpoch,
+            source = "MANUAL",
+            isPending = true
+        )
+    }
+
+    /** Everything on the form, character for character, for [restoreDraft] to put back. */
+    private fun currentForm(): EntryDraftSnapshot {
+        val draft = EntryDraft(
+            transactionId = 0L,
+            savedEpoch = System.currentTimeMillis(),
+            payerActorType = payerActorType,
+            payerFriendId = payerFriendId,
+            payerMerchantId = payerMerchantId,
+            payeeActorType = payeeActorType,
+            payeeFriendId = payeeFriendId,
+            payeeMerchantId = payeeMerchantId,
+            payerAccountId = payerAccountId,
+            payeeAccountId = payeeAccountId,
+            amountText = etAmount.text.toString(),
+            dateEpoch = selectedDateEpoch,
+            description = etDescription.text.toString().ifEmpty { null },
+            chapterId = selectedChapterId,
+            refundsTransactionId = refundsTransactionId,
+            iouRecoveryOverride = iouRecoveryOverride,
+            categoryKind = categoryKind,
+            trackedCategoryId = trackedCategoryId
+        )
+        val rows = listOf("PAYER" to payerShareRows, "PAYEE" to payeeShareRows).flatMap { (side, sideRows) ->
+            sideRows.mapIndexed { position, row ->
+                EntryDraftRow(
+                    transactionId = 0L,
+                    side = side,
+                    position = position,
+                    participantType = row.participantType,
+                    friendId = row.friendId,
+                    label = row.label,
+                    initials = row.initials,
+                    amountPaise = row.amountPaise,
+                    keepPayeeLeg = row.keepPayeeLeg,
+                    keepPayerLeg = row.keepPayerLeg
+                )
+            }
+        }
+        val categories = categoryEntries.filter { it.isChecked }.map {
+            EntryDraftCategory(transactionId = 0L, categoryId = it.category.id, myAmountPaise = it.myAmountPaise)
+        }
+        return EntryDraftSnapshot(draft, rows, categories)
+    }
+
+    /**
+     * Puts the pended form back, in place of [populateExistingTransaction]. The row itself only
+     * supplies what an endpoint falls back to when its field is left blank.
+     *
+     * A friend, merchant, category or chapter that has gone since is let go of: its row keeps the
+     * name typed and reads as not yet matched, a category is dropped, a chapter no longer offered.
+     */
+    private suspend fun restoreDraft(tx: Transaction, snapshot: EntryDraftSnapshot, db: AppDatabase) {
+        val draft = snapshot.draft
+        restoredFromDraft = true
+        // The categories on it are the user's, even where none were picked.
+        userTouchedCategories = true
+
+        payerActorType = draft.payerActorType
+        payeeActorType = draft.payeeActorType
+        payerFriendId = draft.payerFriendId
+        payerMerchantId = draft.payerMerchantId
+        payeeFriendId = draft.payeeFriendId
+        payeeMerchantId = draft.payeeMerchantId
+        draft.payerAccountId?.let { payerAccountId = it }
+        draft.payeeAccountId?.let { payeeAccountId = it }
+        selectedDateEpoch = draft.dateEpoch
+        tvDateValue.text = fmtDateTime(selectedDateEpoch)
+        etAmount.setText(draft.amountText)
+        etDescription.setText(draft.description ?: "")
+        iouRecoveryOverride = draft.iouRecoveryOverride
+
+        refundsTransactionId = draft.refundsTransactionId
+        refundAllowedCategoryIds = draft.refundsTransactionId?.let { originalId ->
+            withContext(Dispatchers.IO) {
+                db.categorySplitDao().getForTransaction(originalId).map { it.categoryId }.toSet()
+            }
+        }
+
+        smsPayerAliasFallback = resolveInitialEndpointLabel(db, true, tx)
+        smsPayeeAliasFallback = resolveInitialEndpointLabel(db, false, tx)
+
+        payerShareRows.clear()
+        payeeShareRows.clear()
+        snapshot.rows.sortedBy { it.position }.forEach { row ->
+            val isPayer = row.side == "PAYER"
+            rowsFor(isPayer).add(shareRowFromDraft(row, isPayer, isPrimary = row.position == 0))
+        }
+
+        categoryKind = draft.categoryKind
+        rebuildCategoryEntries()
+        snapshot.categories.forEach { checked ->
+            categoryEntries.firstOrNull { it.category.id == checked.categoryId }?.let { entry ->
+                entry.isChecked = true
+                entry.myAmountPaise = checked.myAmountPaise
+            }
+        }
+        trackedCategoryId = draft.trackedCategoryId?.takeIf { id ->
+            categoryEntries.any { it.category.id == id && it.isChecked }
+        }
+    }
+
+    /** A pended row back as it was; its key is worked out again from who it names now. */
+    private fun shareRowFromDraft(row: EntryDraftRow, isPayer: Boolean, isPrimary: Boolean): ShareRow {
+        val friend = row.friendId?.let { id -> allFriends.firstOrNull { it.id == id } }
+        val key = when (row.participantType) {
+            ActorType.ME -> "ME"
+            ActorType.MERCHANT -> (if (isPayer) payerMerchantId else payeeMerchantId)?.let { "M:$it" } ?: ""
+            else -> when {
+                friend != null -> "F:${friend.id}"
+                isPrimary -> UNRESOLVED_PRIMARY_KEY
+                else -> ""
+            }
+        }
+        return ShareRow(
+            key = key,
+            participantType = row.participantType,
+            friendId = friend?.id,
+            label = if (row.participantType == ActorType.ME) meLabel else row.label,
+            initials = row.initials,
+            amountPaise = row.amountPaise,
+            keepPayeeLeg = row.keepPayeeLeg,
+            keepPayerLeg = row.keepPayerLeg
+        )
+    }
+
+    // --- chapter template --------------------------------------------------------------------
+
+    private fun isNewManualEntry(): Boolean =
+        currentTransaction == null && currentTransfer == null && !isOriginalView
+
+    /**
+     * Fills a side of a new entry with the selected chapter's members, so adding everyone is never
+     * typing and dropping someone is one tap: see [ShareManager.withChapterMembers]. With no chapter
+     * selected the side is just its primary row. Duplicates are left for Done to point out.
+     */
+    private fun applyChapterTemplate(isPayer: Boolean) {
+        if (!isNewManualEntry() || isTransferMode()) return
+        val rows = rowsFor(isPayer)
+        val primary = rows.firstOrNull() ?: return
+        val chapter = chapterOptions.firstOrNull { it.chapter.id == selectedChapterId }
+        if (chapter == null) {
+            rows.clear()
+            rows.add(primary)
+        } else {
+            rows.replaceFromShareRowModels(
+                shareManager.withChapterMembers(
+                    primary = listOf(primary).toShareRowModels().single(),
+                    actorType = actorTypeFor(isPayer),
+                    memberIds = chapter.memberIds,
+                    friends = allFriends,
+                    meLabel = meLabel
+                )
+            )
+        }
+        // Copies: rows are changed in place as amounts are typed, and that is what marks them touched.
+        templateSnapshot[isPayer] = rows.map { it.copy() }
+    }
+
+    /** A different chapter picked: each side still exactly as its template left it takes the new one. */
+    private fun refollowChapterTemplate() {
+        if (!isNewManualEntry()) return
+        var changed = false
+        listOf(true, false).forEach { isPayer ->
+            val snapshot = templateSnapshot[isPayer] ?: return@forEach
+            if (rowsFor(isPayer) != snapshot) return@forEach
+            applyChapterTemplate(isPayer)
+            buildShareSection(isPayer)
+            changed = true
+        }
+        if (changed) updateLiveCalc()
+    }
+
     /** [categoryAmountPaise] is the figure the categories were just validated against. */
     // --- chapters -------------------------------------------------------------------------------
 
@@ -2076,10 +2457,7 @@ class TransactionEntryActivity : AppCompatActivity() {
      * could take it and would not have to grow to do so (R19).
      */
     private suspend fun setupChapterField(db: AppDatabase) {
-        if (isTransferMode()) {
-            chapterCard.visibility = View.GONE
-            return
-        }
+        // Loaded in transfer mode too: a transfer switched to a transaction can then be put in one.
         chapterOptions = withContext(Dispatchers.IO) {
             val repository = ChapterRepository(db)
             db.chapterDao().getAll().map { chapter ->
@@ -2102,7 +2480,14 @@ class TransactionEntryActivity : AppCompatActivity() {
         // R8 is about the user's own chapters: a friend closing theirs locks nothing here (S6).
         chapterLocked = current?.chapter?.isOwn == true && current.chapter.state == ChapterState.CLOSED
 
+        val pended = draftSnapshot?.draft
         selectedChapterId = when {
+            // The pick the form was pended with, while it can still be made: the chapter the row is
+            // already in, or one of the user's own that is still open.
+            pended != null -> pended.chapterId?.takeIf { id ->
+                id == tx?.chapterId ||
+                    chapterOptions.any { it.chapter.id == id && it.chapter.isOwn && it.chapter.state == ChapterState.OPEN }
+            }
             tx?.chapterId != null -> tx.chapterId
             tx != null -> {
                 val original = withContext(Dispatchers.IO) {
@@ -2111,6 +2496,8 @@ class TransactionEntryActivity : AppCompatActivity() {
                 val shares = withContext(Dispatchers.IO) { db.transactionShareDao().getSharesForTransaction(tx.id) }
                 ChapterPrompt.preselect(tx, shares, chapterOptions, original)?.chapter?.id
             }
+            // A transfer switched to a transaction is not new to the books: nothing picks one for it.
+            currentTransfer != null -> null
             // A blank manual entry names nobody yet, so the active chapter can only be right.
             else -> chapterOptions.firstOrNull { it.chapter.isActive && it.chapter.state == ChapterState.OPEN }
                 ?.chapter?.id
@@ -2170,6 +2557,7 @@ class TransactionEntryActivity : AppCompatActivity() {
             .setTitle("Chapter")
             .setItems(labels) { _, which ->
                 selectedChapterId = if (which == 0) null else open[which - 1].chapter.id
+                refollowChapterTemplate()
                 renderChapterField()
             }
             .setNegativeButton("Cancel", null)
@@ -2291,7 +2679,13 @@ class TransactionEntryActivity : AppCompatActivity() {
                 dateEpoch = selectedDateEpoch,
                 description = etDescription.text.toString().trim().ifEmpty { null },
                 refundsTransactionId = refundsTransactionId,
-                chapterId = selectedChapterId
+                chapterId = selectedChapterId,
+                // A saved transfer switched to a transaction: replaced in the same database
+                // transaction, keeping what the importers dedupe on and where it came from.
+                replacesTransferId = currentTransfer?.id,
+                upiRefId = currentTransfer?.upiRefId,
+                statementRefNo = currentTransfer?.statementRefNo,
+                source = currentTransfer?.source?.transactionSource() ?: "MANUAL"
             ),
             resolveActors = {
                 val payer = resolveActor(db, true, payerActorType, payerLabel)
@@ -2713,6 +3107,7 @@ class TransactionEntryActivity : AppCompatActivity() {
 
             val watcher = simpleWatcher {
                 entry.myAmountPaise = ((etMyAmount.text.toString().toDoubleOrNull() ?: 0.0) * 100).toLong()
+                userTouchedCategories = true
                 // A manual edit is an explicit override; stop auto-following ME's share for this one.
                 if (trackedCategoryId == entry.category.id) {
                     trackedCategoryId = null
@@ -2731,6 +3126,7 @@ class TransactionEntryActivity : AppCompatActivity() {
             // No native Checkable widget anymore (a real Chip can't host the inline
             // EditText) — toggle manually on the whole pill row instead.
             rowView.setOnClickListener {
+                userTouchedCategories = true
                 val checked = !entry.isChecked
                 entry.isChecked = checked
                 if (checked) {

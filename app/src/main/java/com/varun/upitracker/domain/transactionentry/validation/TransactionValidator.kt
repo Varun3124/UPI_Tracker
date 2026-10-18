@@ -22,6 +22,11 @@ data class ShareValidationRow(
 
 class TransactionValidator {
 
+    private companion object {
+        /** "F:12", but not the placeholders an unnamed primary row carries ("F:0", "F:?"). */
+        val RESOLVED_FRIEND_KEY = Regex("F:[1-9][0-9]*")
+    }
+
     fun validateActors(
         payerActorType: String,
         payeeActorType: String,
@@ -62,6 +67,10 @@ class TransactionValidator {
                     return ValidationResult.invalid("Select a person for every extra $sideLabel row")
                 }
             }
+            duplicateOnSide(rows)?.let { row ->
+                val who = if (row.key == ActorType.ME) "You are" else "${row.label.trim()} is"
+                return ValidationResult.invalid("$who on the $sideLabel side twice")
+            }
             val summed = rows.sumOf { it.amountPaise }
             if (summed != amountPaise) {
                 return ValidationResult.invalid("$sideLabel shares don't match total")
@@ -71,6 +80,26 @@ class TransactionValidator {
 
         return validateSide(payerRows, "payer").takeIf { !it.isValid }
             ?: validateSide(payeeRows, "payee")
+    }
+
+    /**
+     * The first row naming someone an earlier row on the same side already names, or null.
+     *
+     * Nothing on the form removes a repeat by itself -- a chapter's members are filled in as a
+     * template, and picking one of them as the primary leaves their own row in place -- so this is
+     * where it is caught. Matched by who a row resolved to and by the name typed, since a primary
+     * named by hand has no friend behind it until saving finds or adds one.
+     */
+    private fun duplicateOnSide(rows: List<ShareValidationRow>): ShareValidationRow? {
+        val seenKeys = mutableSetOf<String>()
+        val seenNames = mutableSetOf<String>()
+        rows.forEach { row ->
+            val key = row.key.takeIf { it == ActorType.ME || RESOLVED_FRIEND_KEY.matches(it) }
+            val name = row.label.trim().lowercase().takeIf { it.isNotEmpty() && row.key != ActorType.ME }
+            if (key != null && !seenKeys.add(key)) return row
+            if (name != null && !seenNames.add(name)) return row
+        }
+        return null
     }
 
     fun validateCategories(

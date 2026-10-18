@@ -13,6 +13,9 @@ class PendingTransactionReviewReceiver : BroadcastReceiver() {
         const val ACTION_MARK_REVIEWED = "com.varun.upitracker.action.MARK_REVIEWED"
         const val EXTRA_TRANSACTION_ID = "transaction_id"
         const val EXTRA_NOTIFICATION_ID = "notification_id"
+
+        /** Set by "Save as ...": the category the row is filed under as it is confirmed. */
+        const val EXTRA_CATEGORY_ID = "category_id"
     }
 
     override fun onReceive(context: Context, intent: Intent) {
@@ -21,11 +24,12 @@ class PendingTransactionReviewReceiver : BroadcastReceiver() {
         val transactionId = intent.getLongExtra(EXTRA_TRANSACTION_ID, -1L)
         val notificationId = intent.getIntExtra(EXTRA_NOTIFICATION_ID, -1)
         if (transactionId == -1L || notificationId == -1) return
+        val categoryId = intent.getLongExtra(EXTRA_CATEGORY_ID, -1L).takeIf { it != -1L }
 
         val pendingResult = goAsync()
         CoroutineScope(Dispatchers.IO).launch {
             try {
-                val reviewed = PendingTransactionReviewer.review(context.applicationContext, transactionId)
+                val reviewed = PendingTransactionReviewer.review(context.applicationContext, transactionId, categoryId)
                 if (reviewed) {
                     TransactionNotificationHelper.cancel(context.applicationContext, notificationId)
                 }

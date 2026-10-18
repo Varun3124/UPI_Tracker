@@ -580,11 +580,25 @@
         android:orientation="horizontal"
         android:padding="@dimen/space_m">
 
+        <!-- Keeps the form as it is, unfinished or not, as a pending row. Coloured like the PENDING
+             badge in item_transaction_card.xml. -->
+        <com.google.android.material.button.MaterialButton
+            android:id="@+id/btnPend"
+            style="@style/Widget.UPI.Button"
+            android:layout_width="0dp"
+            android:layout_height="wrap_content"
+            android:layout_marginEnd="@dimen/space_s"
+            android:layout_weight="1"
+            app:backgroundTint="?attr/appWarning"
+            android:text="Pend"
+            android:textColor="?attr/colorOnPrimary" />
+
         <com.google.android.material.button.MaterialButton
             android:id="@+id/btnDone"
             style="@style/Widget.UPI.Button"
-            android:layout_width="match_parent"
+            android:layout_width="0dp"
             android:layout_height="wrap_content"
+            android:layout_weight="3"
             android:text="Done" />
     </LinearLayout>
 
