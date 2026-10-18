@@ -10,8 +10,15 @@ import com.varun.upitracker.ui.ActorType
 import com.varun.upitracker.ui.payeeActorRef
 import com.varun.upitracker.ui.payerActorRef
 
-/** A transaction tagged to a chapter, with the share rows that describe its split. */
-data class TaggedTx(val transaction: Transaction, val shares: List<TransactionShare>)
+/**
+ * A transaction tagged to a chapter, with the share rows that describe its split and the friends it
+ * keeps outside the chapter (see [com.varun.upitracker.database.entity.ChapterOutsider]).
+ */
+data class TaggedTx(
+    val transaction: Transaction,
+    val shares: List<TransactionShare>,
+    val outsiders: Set<Long> = emptySet()
+)
 
 /** [debtor] owes [creditor], between two people a chapter can hold a balance for. */
 data class ChapterLeg(val debtor: ChapterParty, val creditor: ChapterParty, val amountPaise: Long)
@@ -116,7 +123,8 @@ object ChapterMath {
     }
 
     /**
-     * Every friend a transaction names: either end, or a sided share row.
+     * Every friend a transaction names: either end, a sided share row, or someone a debt on it runs
+     * through.
      *
      * Feeds R5's "add everyone in it to the chapter" and the set of friends whose base ledger a
      * tag or untag has to replay. Sided rows only -- a legacy sideless share produces no legs, so
@@ -131,8 +139,12 @@ object ChapterMath {
                 if (share.participantType == ActorType.FRIEND) share.friendId?.let { friends += it }
             }
         }
+        friends += IouLegs.viaFriendIds(shares.filter { it.side == PAYER || it.side == PAYEE })
         return friends
     }
+
+    private fun touchesOutsider(leg: IouLeg, outsiders: Set<Long>): Boolean =
+        listOf(leg.debtor, leg.creditor).any { it is IouParty.Friend && it.friendId in outsiders }
 
     /**
      * R12 and R13: the legs one tagged transaction contributes, still in [IouParty].
@@ -142,8 +154,14 @@ object ChapterMath {
      * nothing about, so its single leg is written here; for ME and a friend that reproduces what
      * `applyRepayment` / `applyOutgoingSettlement` do to the net, and for two friends it is the
      * genuinely new case a chapter exists to record.
+     *
+     * A leg naming someone kept outside the chapter is not the chapter's at all: it stays in the base
+     * ledger, which the replay posts for the outsiders alone (see `LedgerReplayer`).
      */
-    private fun rawLegsFor(tagged: TaggedTx): List<IouLeg> {
+    private fun rawLegsFor(tagged: TaggedTx): List<IouLeg> =
+        allLegs(tagged).filterNot { leg -> touchesOutsider(leg, tagged.outsiders) }
+
+    private fun allLegs(tagged: TaggedTx): List<IouLeg> {
         val tx = tagged.transaction
         if (tx.isPending || tx.ledgerEffect == LedgerEffect.NONE) return emptyList()
 

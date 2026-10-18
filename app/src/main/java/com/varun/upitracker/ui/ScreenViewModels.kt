@@ -13,6 +13,7 @@ import com.varun.upitracker.data.repository.ChapterRepository
 import com.varun.upitracker.data.repository.EntryDraftRepository
 import com.varun.upitracker.data.repository.EntryDraftSnapshot
 import com.varun.upitracker.data.repository.LedgerRepository
+import com.varun.upitracker.data.repository.OutsiderCandidate
 import com.varun.upitracker.data.repository.ParcelExportRepository
 import com.varun.upitracker.data.repository.ReceivedOriginalRepository
 import com.varun.upitracker.data.repository.ReceivedOriginalView
@@ -478,8 +479,16 @@ class AllTransactionsViewModel(context: Context) : ViewModel() {
             .sortedByDescending { it.isActive }
     }
 
-    fun addSelectedToChapter(chapterId: Long, onDone: (ChapterTagOutcome) -> Unit) =
-        tagSelection(onDone) { chapterId }
+    fun addSelectedToChapter(chapterId: Long, keepOutside: Set<Long>, onDone: (ChapterTagOutcome) -> Unit) =
+        tagSelection(onDone, keepOutside) { chapterId }
+
+    /** Who adding the selection to [chapterId] would have to ask about, and what the chapter is called. */
+    suspend fun outsiderQuestionForSelection(chapterId: Long): Pair<String, List<OutsiderCandidate>> {
+        val ids = _uiState.value?.selectedTransactionIds.orEmpty()
+        return withContext(Dispatchers.IO) {
+            db.chapterDao().getById(chapterId)?.name.orEmpty() to ChapterRepository(db).outsiderCandidates(chapterId, ids)
+        }
+    }
 
     /** Made with nobody in it: tagging brings in whoever the transactions name (R5). */
     fun addSelectedToNewChapter(name: String, onDone: (ChapterTagOutcome) -> Unit) =
@@ -490,13 +499,17 @@ class AllTransactionsViewModel(context: Context) : ViewModel() {
      * selection are passed over: a chapter holds transactions, and money moved between your own
      * accounts is nobody's share of anything.
      */
-    private fun tagSelection(onDone: (ChapterTagOutcome) -> Unit, chapterId: suspend () -> Long) {
+    private fun tagSelection(
+        onDone: (ChapterTagOutcome) -> Unit,
+        keepOutside: Set<Long> = emptySet(),
+        chapterId: suspend () -> Long
+    ) {
         val ids = _uiState.value?.selectedTransactionIds.orEmpty()
         if (ids.isEmpty()) return
         viewModelScope.launch {
             val outcome = withContext(Dispatchers.IO) {
                 val target = chapterId()
-                val result = ChapterRepository(db).tagAll(target, ids)
+                val result = ChapterRepository(db).tagAll(target, ids, keepOutside)
                 // Moved into a shared chapter, or out of one: its members' copies are behind now.
                 if (db.chapterDao().sharedByMe().isNotEmpty()) ChapterPublishing.soon(appContext)
                 ChapterTagOutcome(
@@ -776,8 +789,18 @@ class FriendDetailViewModel(context: Context) : ViewModel() {
      * round trip, exactly as the pending and account filters already work on All Transactions.
      */
     private suspend fun read(friendId: Long): FriendLoad {
-        val transactions = db.transactionDao().getUntaggedTransactionsForFriendSync(friendId)
+        val transactions = db.transactionDao().getTransactionsForFriendSync(friendId)
         val eligibility = exportRepository.eligibility(transactions)
+        // Where each tagged row's part of the balance went. A friend's chapter names its owner.
+        val chapterNames = db.chapterDao().getAll().associate { chapter ->
+            val owner = chapter.ownerFriendId?.let { db.friendDao().getFriendById(it)?.name }
+            chapter.id to if (owner != null) "$owner's ${chapter.name}" else chapter.name
+        }
+        // A row kept outside its chapter for this friend counts in the base ledger, like any other.
+        val outsideFor = db.chapterOutsiderDao().forTransactions(transactions.filter { it.chapterId != null }.map { it.id })
+            .filter { it.friendId == friendId }
+            .map { it.transactionId }
+            .toSet()
         val friendNames = db.friendDao().getAllFriendsSync().associate { it.id to it.name }
         val merchantNames = db.merchantDao().getAllMerchantsSync().associate { it.id to it.name }
 
@@ -801,6 +824,7 @@ class FriendDetailViewModel(context: Context) : ViewModel() {
             val key = LedgerEntry.Tx(tx).stableId()
             rows[key] = friendRow(
                 tx = tx,
+                chapterName = tx.chapterId?.takeIf { tx.id !in outsideFor }?.let { chapterNames[it] ?: "a chapter" },
                 title = tx.resolvePrimaryDisplay(friendNames, merchantNames),
                 iouEntries = iouByTransaction[tx.id].orEmpty(),
                 shares = sharesByTransaction[tx.id].orEmpty(),
@@ -831,9 +855,13 @@ class FriendDetailViewModel(context: Context) : ViewModel() {
      *
      * The blocked reason wins: while a selection is running that is more use than the IOU state, and
      * out of one it still explains a row the share button will not take.
+     *
+     * A row in a chapter -- [chapterName] -- did nothing to it directly: what it means between the two
+     * of you is in that chapter's plan, so the row says which chapter rather than who owes what.
      */
     private fun friendRow(
         tx: Transaction,
+        chapterName: String?,
         title: String,
         iouEntries: List<com.varun.upitracker.database.entity.IouEntry>,
         shares: List<com.varun.upitracker.database.entity.TransactionShare>,
@@ -842,6 +870,13 @@ class FriendDetailViewModel(context: Context) : ViewModel() {
     ): TransactionRowInfo {
         val share = shares.firstOrNull { it.participantType == ActorType.FRIEND && it.friendId == friendId }
         return when {
+            chapterName != null -> TransactionRowInfo(
+                title = title,
+                note = if (tx.isPending) "Awaiting review" else tx.resolveTypeLabel(),
+                noteWhenSelecting = blockedReason,
+                trailing = "In $chapterName",
+                trailingAttr = ThemeAttr.textMuted
+            )
             coveredUntil != null && tx.dateEpoch <= coveredUntil -> TransactionRowInfo(
                 title = title,
                 note = "Covered by the agreement of " +

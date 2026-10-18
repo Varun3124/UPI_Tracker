@@ -119,5 +119,10 @@ data class ReceivedOriginalShare(
     val rawLabel: String? = null,
     val amountPaise: Long,
     val keepPayeeLeg: Boolean = true,
-    val keepPayerLeg: Boolean = true
+    val keepPayerLeg: Boolean = true,
+    /** Who each IOU ran through as sent. See [TransactionShare.payeeLegVia]. */
+    val payeeLegVia: String? = null,
+    val payeeLegViaFriendId: Long? = null,
+    val payerLegVia: String? = null,
+    val payerLegViaFriendId: Long? = null
 )

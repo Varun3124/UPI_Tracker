@@ -7,6 +7,12 @@ import com.varun.upitracker.domain.mailbox.MailboxIds
 /**
  * The plaintext a parcel compresses down from, and the only place its grammar is written.
  *
+ * A parcel with any IOU routed through a go-between is written as version 5 when pasted and 6 by
+ * mailbox: versions 4 and 2 with two more fields on every `S` line, `<payeeVia>|<payerVia>`, each an
+ * actor or empty for straight. Anything without a route is still written as 4 or 2, so a friend whose
+ * app predates routing can read it; one that cannot read 5 or 6 says to update. Both read back with
+ * [Parcel.version] 4 and 2 -- the route and its grammar -- since that is all a reader needs to know.
+ *
  * Line-based and pipe-delimited rather than JSON, for the same reason
  * [com.varun.upitracker.domain.statistics.serialise] is: there is no serialization library in this
  * project, so the alternative is a hand-rolled JSON writer -- more code, for a format that would
@@ -50,6 +56,12 @@ object ParcelFormat {
     /** Inside a mailbox envelope only, whose verified sender is what says who wrote it. */
     const val MAILBOX_VERSION = 2
 
+    /** [VERSION] carrying routed IOUs. Written only when a row needs it. */
+    const val ROUTED_VERSION = 5
+
+    /** [MAILBOX_VERSION] carrying routed IOUs. Written only when a row needs it. */
+    const val MAILBOX_ROUTED_VERSION = 6
+
     private const val FIELD = '|'
     private const val ESCAPE = '\\'
 
@@ -70,8 +82,14 @@ object ParcelFormat {
             MAILBOX_VERSION -> true
             else -> throw IllegalArgumentException("There is no parcel version ${parcel.version} to write.")
         }
+        val routed = parcel.transactions.any { tx -> tx.shares.any { it.payeeLegVia != null || it.payerLegVia != null } }
+        val wireVersion = when {
+            !routed -> parcel.version
+            mailbox -> MAILBOX_ROUTED_VERSION
+            else -> ROUTED_VERSION
+        }
         val out = StringBuilder()
-        out.append("V").append(FIELD).append(parcel.version)
+        out.append("V").append(FIELD).append(wireVersion)
         if (!mailbox) {
             val token = requireNotNull(parcel.originToken) { "A pasted parcel needs an origin token." }
             val alias = requireNotNull(SenderIdentity.normaliseAlias(parcel.senderAlias)) {
@@ -104,6 +122,10 @@ object ParcelFormat {
                     .append(FIELD).append(share.amountPaise)
                     .append(FIELD).append(if (share.keepPayeeLeg) '1' else '0')
                     .append(if (share.keepPayerLeg) '1' else '0')
+                if (routed) {
+                    out.append(FIELD).append(share.payeeLegVia?.let { formatActor(it, mailbox) }.orEmpty())
+                        .append(FIELD).append(share.payerLegVia?.let { formatActor(it, mailbox) }.orEmpty())
+                }
             }
         }
         return out.toString()
@@ -124,18 +146,26 @@ object ParcelFormat {
         }
         val version = header[1].toIntOrNull()
             ?: return ParcelDecodeResult.Failed("Line 1 has an unreadable version.")
-        if (version > expectedVersion) {
+        val newestReadable = when (expectedVersion) {
+            VERSION -> ROUTED_VERSION
+            MAILBOX_VERSION -> MAILBOX_ROUTED_VERSION
+            else -> expectedVersion
+        }
+        if (version > newestReadable) {
             return ParcelDecodeResult.Failed(
                 "This parcel was made by a newer version of the app. Update, then try again."
             )
         }
         val legacy = expectedVersion == VERSION && version == LEGACY_VERSION
         val preAlias = expectedVersion == VERSION && version == PRE_ALIAS_VERSION
-        if (version != expectedVersion && !legacy && !preAlias) {
+        val routed = (expectedVersion == VERSION && version == ROUTED_VERSION) ||
+            (expectedVersion == MAILBOX_VERSION && version == MAILBOX_ROUTED_VERSION)
+        if (version != expectedVersion && !legacy && !preAlias && !routed) {
             return ParcelDecodeResult.Failed("This parcel is not in a form this screen can read.")
         }
-        val mailbox = version == MAILBOX_VERSION
-        val carriesSender = version == VERSION
+        val family = if (routed) expectedVersion else version
+        val mailbox = family == MAILBOX_VERSION
+        val carriesSender = family == VERSION
         val headerFields = when {
             mailbox -> 3
             carriesSender -> 6
@@ -186,7 +216,7 @@ object ParcelFormat {
                             "Line $lineNumber: a split with no transaction above it."
                         )
                     }
-                    when (val row = parseShare(fields, lineNumber, mailbox, legacy)) {
+                    when (val row = parseShare(fields, lineNumber, mailbox, legacy, routed)) {
                         is Parsed.Failure -> return ParcelDecodeResult.Failed(row.reason)
                         is Parsed.Success -> shares.add(row.value)
                     }
@@ -204,7 +234,7 @@ object ParcelFormat {
                     "${transactions.size}. It was probably cut short somewhere."
             )
         }
-        return ParcelDecodeResult.Ok(Parcel(version, originToken, transactions, senderAlias, senderUpiId))
+        return ParcelDecodeResult.Ok(Parcel(family, originToken, transactions, senderAlias, senderUpiId))
     }
 
     private fun parseTransaction(
@@ -284,9 +314,15 @@ object ParcelFormat {
         fields: List<String>,
         lineNumber: Int,
         mailbox: Boolean,
-        legacy: Boolean
+        legacy: Boolean,
+        routed: Boolean
     ): Parsed<ParcelShare> {
-        if (fields.size != (if (legacy) 4 else 5)) {
+        val expectedFields = when {
+            legacy -> 4
+            routed -> 7
+            else -> 5
+        }
+        if (fields.size != expectedFields) {
             return Parsed.Failure("Line $lineNumber: a split with the wrong number of fields.")
         }
         val side = fields[1]
@@ -308,16 +344,38 @@ object ParcelFormat {
         if (!KEPT_LEGS.matches(keptLegs)) {
             return Parsed.Failure("Line $lineNumber: a split that does not say which debts it keeps.")
         }
+        var payeeVia: ParcelActor? = null
+        var payerVia: ParcelActor? = null
+        if (routed) {
+            payeeVia = parseVia(fields[5], mailbox)
+                ?: return Parsed.Failure("Line $lineNumber: a split routed through someone unreadable.")
+            payerVia = parseVia(fields[6], mailbox)
+                ?: return Parsed.Failure("Line $lineNumber: a split routed through someone unreadable.")
+        }
         return Parsed.Success(
             ParcelShare(
                 side = side,
                 participant = participant,
                 amountPaise = amountPaise,
                 keepPayeeLeg = keptLegs[0] == '1',
-                keepPayerLeg = keptLegs[1] == '1'
+                keepPayerLeg = keptLegs[1] == '1',
+                payeeLegVia = payeeVia.takeUnless { it == STRAIGHT },
+                payerLegVia = payerVia.takeUnless { it == STRAIGHT }
             )
         )
     }
+
+    /** An empty field runs straight, read as [STRAIGHT]; null is a field that is neither straight nor a person. */
+    private fun parseVia(field: String, mailbox: Boolean): ParcelActor? {
+        if (field.isEmpty()) return STRAIGHT
+        return when (val actor = parseActor(field, mailbox)) {
+            ParcelActor.Me, ParcelActor.Sender, is ParcelActor.Person, is ParcelActor.Linked -> actor
+            else -> null
+        }
+    }
+
+    /** Stands for "no go-between" while a via field is read, so null can still mean unreadable. */
+    private val STRAIGHT = ParcelActor.Unnamed("")
 
     private fun requireRef(ref: String?, what: String): String {
         require(ref != null && REF.matches(ref)) { "A version 2 row needs a well-formed $what, not '$ref'." }

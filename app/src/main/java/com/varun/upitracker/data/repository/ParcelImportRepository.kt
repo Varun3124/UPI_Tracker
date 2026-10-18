@@ -4,6 +4,9 @@ import android.content.Context
 import android.database.sqlite.SQLiteConstraintException
 import android.util.Log
 import com.varun.upitracker.data.prefs.AppPrefs
+import com.varun.upitracker.data.prefs.DuplicateRulePrefs
+import com.varun.upitracker.domain.dedup.DuplicateMatching
+import com.varun.upitracker.domain.dedup.DuplicateRules
 import com.varun.upitracker.database.AppDatabase
 import com.varun.upitracker.database.entity.Friend
 import com.varun.upitracker.database.entity.FriendUpiId
@@ -28,7 +31,6 @@ import com.varun.upitracker.ui.payeeActorRef
 import com.varun.upitracker.ui.payerActorRef
 import com.varun.upitracker.util.initialsOf
 import kotlinx.coroutines.runBlocking
-import java.util.concurrent.TimeUnit
 
 /** What a row does to one friend's balance with you: positive means they end up owing you. */
 data class BalanceEffect(val friendName: String, val deltaPaise: Long)
@@ -156,6 +158,7 @@ class ParcelImportRepository(private val db: AppDatabase, context: Context) {
     private val ledgerPostingService = LedgerPostingService()
     private val prefs = AppPrefs.of(context)
     private val originals = ReceivedOriginalRepository(db)
+    private val duplicateRules = DuplicateRulePrefs(context)
 
     companion object {
         private const val TAG = "ParcelImport"
@@ -167,13 +170,6 @@ class ParcelImportRepository(private val db: AppDatabase, context: Context) {
          * `parcel_origin_` tokens, and backed up with them.
          */
         private const val SENDER_KEY_PREFIX = "parcel_sender_"
-
-        /**
-         * The same tolerance the statement importer uses, and for a related reason: two phones
-         * record the same payment from two different SMS, whose timestamps rarely agree to the
-         * minute and can fall either side of midnight.
-         */
-        private val DATE_TOLERANCE_MILLIS = TimeUnit.DAYS.toMillis(1)
     }
 
     /**
@@ -305,6 +301,7 @@ class ParcelImportRepository(private val db: AppDatabase, context: Context) {
         landForPreview: (ParcelTransaction) -> LocalParcelRow
     ): ParcelImportPlan {
         val accountIds = db.accountDao().getAllSync().map { it.id }
+        val rules = duplicateRules.get()
         val friendNames = db.friendDao().getAllFriendsSync().associate { it.id to it.name }
         val senderFriendId = (sender as? SenderChoice.Existing)?.friendId ?: ParcelImportPlan.PREVIEW_SENDER_ID
 
@@ -318,16 +315,17 @@ class ParcelImportRepository(private val db: AppDatabase, context: Context) {
             }
 
             val certainDuplicateId = row.upiRefId?.let { db.transactionDao().findByRefId(it)?.id }
+            val landed = landForPreview(row)
             val candidates = if (certainDuplicateId != null) {
                 emptyList()
             } else {
-                findCandidates(row, senderFriendId, accountIds, sameSenderPrefixes)
+                findCandidates(row, landed, senderFriendId, accountIds, sameSenderPrefixes, rules)
             }
 
             entries.add(
                 ParcelEntry(
                     row = row,
-                    preview = previewOf(row, senderName, senderFriendId, landForPreview(row), friendNames, linkedFriendIds),
+                    preview = previewOf(row, senderName, senderFriendId, landed, friendNames, linkedFriendIds),
                     candidates = candidates,
                     certainDuplicateId = certainDuplicateId
                 )
@@ -353,22 +351,35 @@ class ParcelImportRepository(private val db: AppDatabase, context: Context) {
      *
      * Only this sender's own earlier rows are left out. Those carry references of their own, so a
      * match among them is a different transaction of theirs, never a copy of this one.
+     *
+     * Otherwise as loosely as [rules] say, except that ME has to be on the same side of a candidate as
+     * of the row as it would land: paying, or being paid, never one for the other.
      */
     private suspend fun findCandidates(
         row: ParcelTransaction,
+        landed: LocalParcelRow,
         senderFriendId: Long,
         accountIds: List<String>,
-        sameSenderPrefixes: List<String>
-    ): List<ParcelMatchCandidate> =
-        db.transactionDao().findParcelMatchCandidates(
-            amountPaise = row.amountPaise,
-            fromEpoch = row.dateEpoch - DATE_TOLERANCE_MILLIS,
-            toEpoch = row.dateEpoch + DATE_TOLERANCE_MILLIS,
+        sameSenderPrefixes: List<String>,
+        rules: DuplicateRules
+    ): List<ParcelMatchCandidate> {
+        val amounts = rules.amountRange(row.amountPaise)
+        val dates = rules.dateRange(row.dateEpoch)
+        val found = db.transactionDao().findParcelMatchCandidates(
+            minAmountPaise = amounts.first,
+            maxAmountPaise = amounts.last,
+            fromEpoch = dates.first,
+            toEpoch = dates.last,
             savingsAccountIds = accountIds
-        )
-            .filter { candidate ->
-                sameSenderPrefixes.none { prefix -> candidate.sharedRefId?.startsWith(prefix) == true }
-            }
+        ).filter { candidate ->
+            sameSenderPrefixes.none { prefix -> candidate.sharedRefId?.startsWith(prefix) == true }
+        }.filterNot { rules.skipOtherReferences && DuplicateMatching.carriesOtherReference(row.upiRefId, null, it) }
+        if (found.isEmpty()) return emptyList()
+
+        val rowSides = DuplicateMatching.meSides(landed.transaction, landed.shares)
+        val shares = db.transactionShareDao().getSharesForTransactions(found.map { it.id }).groupBy { it.transactionId }
+        return found
+            .filter { candidate -> DuplicateMatching.meSides(candidate, shares[candidate.id].orEmpty()).any { it in rowSides } }
             .map { transaction ->
                 ParcelMatchCandidate(
                     transaction = transaction,
@@ -376,10 +387,11 @@ class ParcelImportRepository(private val db: AppDatabase, context: Context) {
                         transaction.payeeFriendId == senderFriendId
                 )
             }
+            .filter { !rules.sameCounterpartyOnly || it.counterpartyMatch }
             .sortedWith(
-                compareByDescending<ParcelMatchCandidate> { it.counterpartyMatch }
-                    .thenBy { it.transaction.dateEpoch }
+                DuplicateMatching.closestFirst(row.amountPaise, row.dateEpoch, { it.transaction }, { it.counterpartyMatch })
             )
+    }
 
     /**
      * Built from the row as it would land with nobody mapped by hand, so what the screen previews

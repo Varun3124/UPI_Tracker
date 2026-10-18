@@ -84,7 +84,16 @@ data class ParcelShare(
      * version 1 parcel, which predates the choice.
      */
     val keepPayeeLeg: Boolean = true,
-    val keepPayerLeg: Boolean = true
+    val keepPayerLeg: Boolean = true,
+    /**
+     * Who each of this share's IOUs runs through, as the writer routed them, or null for straight --
+     * see [com.varun.upitracker.database.entity.TransactionShare.payeeLegVia]. Named from the reader's
+     * side like everyone else: a debt the writer ran through themselves arrives running through
+     * [ParcelActor.Sender]. Only [ParcelActor.Me], [ParcelActor.Sender], [ParcelActor.Person] and
+     * [ParcelActor.Linked] mean anything here.
+     */
+    val payeeLegVia: ParcelActor? = null,
+    val payerLegVia: ParcelActor? = null
 )
 
 data class ParcelTransaction(

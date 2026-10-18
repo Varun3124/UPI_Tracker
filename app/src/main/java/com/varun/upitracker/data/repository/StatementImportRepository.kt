@@ -11,6 +11,8 @@ import com.varun.upitracker.database.entity.MerchantRawName
 import com.varun.upitracker.database.entity.MerchantUpiId
 import com.varun.upitracker.database.entity.Transaction
 import com.varun.upitracker.domain.ImportedTransferMatcher
+import com.varun.upitracker.domain.dedup.DuplicateMatching
+import com.varun.upitracker.domain.dedup.DuplicateRules
 import com.varun.upitracker.resolver.AliasResolver
 import com.varun.upitracker.resolver.ResolvedAs
 import com.varun.upitracker.statement.StatementRow
@@ -93,7 +95,8 @@ class StatementImportRepository(private val db: AppDatabase) {
         rows: List<StatementRow>,
         accountId: String,
         fromEpoch: Long,
-        toEpoch: Long
+        toEpoch: Long,
+        rules: DuplicateRules = DuplicateRules()
     ): ImportPlan {
         val savingsAccountIds = db.accountDao().getByType(AccountType.SAVINGS).map { it.id }
         val inRange = rows.filter { it.dateEpoch in fromEpoch..toEpoch }
@@ -127,7 +130,7 @@ class StatementImportRepository(private val db: AppDatabase) {
                 continue
             }
 
-            unresolved += UnresolvedGroup(row, findCandidates(row, savingsAccountIds))
+            unresolved += UnresolvedGroup(row, findCandidates(row, accountId, savingsAccountIds, rules))
         }
 
         return ImportPlan(
@@ -175,21 +178,34 @@ class StatementImportRepository(private val db: AppDatabase) {
         )
     }
 
+    /**
+     * What this row may already be recorded as, as loosely as [rules] say -- the same side of it as ME,
+     * always -- nearest first.
+     */
     private suspend fun findCandidates(
         row: StatementRow,
-        savingsAccountIds: List<String>
+        accountId: String,
+        savingsAccountIds: List<String>,
+        rules: DuplicateRules
     ): List<MatchCandidate> {
+        val amounts = rules.amountRange(row.amountPaise)
+        val dates = rules.dateRange(row.dateEpoch)
         val candidates = db.transactionDao().findMatchCandidates(
-            amountPaise = row.amountPaise,
-            fromEpoch = row.dateEpoch - DATE_TOLERANCE_MILLIS,
-            // dateEpoch is start-of-day, so the window must span the tolerant day itself.
-            toEpoch = row.dateEpoch + DATE_TOLERANCE_MILLIS + DAY_MILLIS - 1,
-            savingsAccountIds = savingsAccountIds
+            minAmountPaise = amounts.first,
+            maxAmountPaise = amounts.last,
+            fromEpoch = dates.first,
+            toEpoch = dates.last,
+            mePays = row.direction == "DEBIT",
+            accountIds = if (rules.sameAccountOnly) listOf(accountId) else savingsAccountIds
         )
         return candidates
+            .filterNot { rules.skipOtherReferences && DuplicateMatching.carriesOtherReference(row.upiRefId, row.statementRefNo, it) }
             .map { MatchCandidate(it, aliasMatches(row, it)) }
+            .filter { !rules.sameCounterpartyOnly || it.aliasMatch }
             // Alias matches are near-certainly the same payment; float them to the top.
-            .sortedWith(compareByDescending<MatchCandidate> { it.aliasMatch }.thenBy { it.transaction.dateEpoch })
+            .sortedWith(
+                DuplicateMatching.closestFirst(row.amountPaise, row.dateEpoch, { it.transaction }, { it.aliasMatch })
+            )
     }
 
     private suspend fun aliasMatches(row: StatementRow, transaction: Transaction): Boolean {

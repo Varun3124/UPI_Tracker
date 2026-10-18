@@ -136,7 +136,7 @@ class EntryDraftRepository(private val db: AppDatabase) {
     private suspend fun takeOutOfBooks(tx: Transaction) {
         val chapters = ChapterRepository(db)
         // Read while the row and its entries are still here: they are how we know who to rebuild.
-        val friends = if (tx.chapterId == null) chapters.affectedFriends(listOf(tx)) else emptySet()
+        val friends = chapters.baseLedgerFriendsOf(tx)
         val chapterIds = setOfNotNull(tx.chapterId)
         val before = chapters.contributionsOf(chapterIds)
 

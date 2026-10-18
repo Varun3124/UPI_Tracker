@@ -19,7 +19,15 @@ sealed interface TransactionEntryAction {
     data class CategoryToggled(val categoryId: Long, val selected: Boolean) : TransactionEntryAction
     data class CategoryAmountChanged(val categoryId: Long, val rawAmount: String) : TransactionEntryAction
     data class IouRecoverySelected(val recovery: IouRecovery) : TransactionEntryAction
-    data class IouLineToggled(val debtor: IouParty, val creditor: IouParty) : TransactionEntryAction
+    /** [passedOn] tells apart a line run through a go-between from the straight one between the same two. */
+    data class IouLineToggled(val debtor: IouParty, val creditor: IouParty, val passedOn: Boolean) : TransactionEntryAction
+    /** Run a line through ME instead of straight between its two people, or straight again. */
+    data class IouLineRouted(
+        val debtor: IouParty,
+        val creditor: IouParty,
+        val passedOn: Boolean,
+        val throughMe: Boolean
+    ) : TransactionEntryAction
     data object SaveClicked : TransactionEntryAction
     /** Keep the form exactly as it is, as a pending row, to finish later. */
     data object PendClicked : TransactionEntryAction

@@ -74,7 +74,11 @@ class ReceivedOriginalRepository(private val db: AppDatabase) {
                     rawLabel = share.rawLabel ?: share.friendId?.let { db.friendDao().getFriendById(it)?.name },
                     amountPaise = share.amountPaise,
                     keepPayeeLeg = share.keepPayeeLeg,
-                    keepPayerLeg = share.keepPayerLeg
+                    keepPayerLeg = share.keepPayerLeg,
+                    payeeLegVia = share.payeeLegVia,
+                    payeeLegViaFriendId = share.payeeLegViaFriendId,
+                    payerLegVia = share.payerLegVia,
+                    payerLegViaFriendId = share.payerLegViaFriendId
                 )
             }
         )
@@ -145,13 +149,15 @@ class ReceivedOriginalRepository(private val db: AppDatabase) {
             ?.let { throw RevertException("In ${it.name} (closed). Reopen it to change this transaction.") }
 
         val chapters = ChapterRepository(db)
-        val friends = if (tx.chapterId == null) chapters.affectedFriends(listOf(tx)) else emptySet()
+        val friends = chapters.baseLedgerFriendsOf(tx)
         val chapterIds = setOfNotNull(tx.chapterId)
         val before = chapters.contributionsOf(chapterIds)
 
         db.transactionDao().update(original.overlayOn(tx))
         db.categorySplitDao().deleteForTransaction(transactionId)
         db.iouDao().deleteForTransaction(transactionId)
+        // Out of its chapter, as the original never was in one: nobody is outside it any more.
+        db.chapterOutsiderDao().clear(transactionId)
         db.transactionShareDao().deleteForTransaction(transactionId)
         val shares = db.receivedOriginalDao().getShares(transactionId).map { it.toShare() }
         if (shares.isNotEmpty()) db.transactionShareDao().insertAll(shares)

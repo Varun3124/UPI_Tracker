@@ -142,7 +142,23 @@ object ParcelPerspective {
                 linkedUidOf
             )
         }
-        return ParcelShare(side, participant, share.amountPaise, share.keepPayeeLeg, share.keepPayerLeg)
+        // A debt the writer ran through themselves runs through the sender on the reader's side.
+        fun flipVia(via: IouParty?): ParcelActor? = when (via) {
+            IouParty.Me -> ParcelActor.Sender
+            is IouParty.Friend ->
+                if (via.friendId == recipientFriendId) ParcelActor.Me
+                else thirdParty(via.friendId, friendName(via.friendId) ?: "Someone", linkedUidOf)
+            else -> null
+        }
+        return ParcelShare(
+            side,
+            participant,
+            share.amountPaise,
+            share.keepPayeeLeg,
+            share.keepPayerLeg,
+            payeeLegVia = flipVia(IouLegs.viaOf(share, owesPayer = false)),
+            payerLegVia = flipVia(IouLegs.viaOf(share, owesPayer = true))
+        )
     }
 
     private fun thirdParty(friendId: Long?, name: String, linkedUidOf: (Long) -> String?): ParcelActor =
@@ -307,8 +323,22 @@ object ParcelPerspective {
                     )
                 }
             }
-            // Which IOUs the writer kept travels with the share, like the side it recovers from.
-            landed.copy(keepPayeeLeg = share.keepPayeeLeg, keepPayerLeg = share.keepPayerLeg)
+            // Which IOUs the writer kept travels with the share, like the side it recovers from, and so
+            // does who each runs through. A go-between the reader cannot place leaves it straight:
+            // nothing here could be posted against someone this database does not know.
+            fun landVia(via: ParcelActor?): IouParty? = when (via) {
+                ParcelActor.Me -> IouParty.Me
+                ParcelActor.Sender -> IouParty.Friend(senderFriendId)
+                is ParcelActor.Linked -> (resolveLinked(via.uid) ?: mapPerson(via.name))?.let { IouParty.Friend(it) }
+                is ParcelActor.Person -> mapPerson(via.name)?.let { IouParty.Friend(it) }
+                else -> null
+            }
+            val kept = landed.copy(keepPayeeLeg = share.keepPayeeLeg, keepPayerLeg = share.keepPayerLeg)
+            IouLegs.withVia(
+                IouLegs.withVia(kept, owesPayer = false, via = landVia(share.payeeLegVia)),
+                owesPayer = true,
+                via = landVia(share.payerLegVia)
+            )
         }
         // Applied as the writer chose, never re-derived here: a copy recovering from the other side
         // would disagree with theirs about who owes what. A version 1 parcel never said, and reads as

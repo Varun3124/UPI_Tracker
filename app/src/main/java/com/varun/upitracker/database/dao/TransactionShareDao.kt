@@ -24,9 +24,21 @@ interface TransactionShareDao {
     @Query("DELETE FROM transaction_shares WHERE transactionId = :transactionId")
     suspend fun deleteForTransaction(transactionId: Long)
 
-    @Query("SELECT COUNT(*) FROM transaction_shares WHERE friendId = :friendId")
+    /** Holding a share, or being the one a share's IOU runs through: either is history. */
+    @Query(
+        """
+        SELECT COUNT(*) FROM transaction_shares
+        WHERE friendId = :friendId OR payeeLegViaFriendId = :friendId OR payerLegViaFriendId = :friendId
+        """
+    )
     suspend fun countForFriend(friendId: Long): Int
 
     @Query("UPDATE transaction_shares SET friendId = :targetId WHERE friendId = :sourceId")
     suspend fun reassignFriend(sourceId: Long, targetId: Long)
+
+    @Query("UPDATE transaction_shares SET payeeLegViaFriendId = :targetId WHERE payeeLegViaFriendId = :sourceId")
+    suspend fun reassignPayeeVia(sourceId: Long, targetId: Long)
+
+    @Query("UPDATE transaction_shares SET payerLegViaFriendId = :targetId WHERE payerLegViaFriendId = :sourceId")
+    suspend fun reassignPayerVia(sourceId: Long, targetId: Long)
 }

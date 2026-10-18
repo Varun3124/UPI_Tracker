@@ -46,6 +46,16 @@ interface ReceivedOriginalDao {
     @Query("UPDATE received_original_shares SET friendId = :targetId WHERE friendId = :sourceId")
     suspend fun reassignShareFriend(sourceId: Long, targetId: Long)
 
+    @Query(
+        """
+        UPDATE received_original_shares SET
+            payeeLegViaFriendId = CASE WHEN payeeLegViaFriendId = :sourceId THEN :targetId ELSE payeeLegViaFriendId END,
+            payerLegViaFriendId = CASE WHEN payerLegViaFriendId = :sourceId THEN :targetId ELSE payerLegViaFriendId END
+        WHERE payeeLegViaFriendId = :sourceId OR payerLegViaFriendId = :sourceId
+        """
+    )
+    suspend fun reassignShareVia(sourceId: Long, targetId: Long)
+
     @Query("UPDATE received_originals SET payerMerchantId = :targetId WHERE payerMerchantId = :sourceId")
     suspend fun reassignPayerMerchant(sourceId: Long, targetId: Long)
 

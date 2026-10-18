@@ -84,7 +84,7 @@ interface TransactionDao {
     @Query(
         """
         SELECT t.* FROM transactions t
-        WHERE t.amountPaise = :amountPaise
+        WHERE t.amountPaise BETWEEN :minAmountPaise AND :maxAmountPaise
           AND t.dateEpoch BETWEEN :fromEpoch AND :toEpoch
           AND (t.payerActorType = 'ME'
                OR t.payeeActorType = 'ME'
@@ -97,7 +97,8 @@ interface TransactionDao {
         """
     )
     suspend fun findParcelMatchCandidates(
-        amountPaise: Long,
+        minAmountPaise: Long,
+        maxAmountPaise: Long,
         fromEpoch: Long,
         toEpoch: Long,
         savingsAccountIds: List<String>
@@ -111,25 +112,28 @@ interface TransactionDao {
     suspend fun findByStatementRefNo(refNo: String, accountId: String): Transaction?
 
     /**
-     * Existing transactions a bank-statement row could plausibly already be recorded as: I am on
-     * one side of it, it sits on one of my savings accounts (or none yet), the amount is exact and
-     * the date is within the caller's tolerance window.
+     * Existing transactions a bank-statement row could plausibly already be recorded as: I am on the
+     * same side of it as the row says -- paying for a debit, paid for a credit -- it sits on one of
+     * [accountIds] (or none yet), and the amount and date are within the caller's tolerances. See
+     * [com.varun.upitracker.domain.dedup.DuplicateRules].
      */
     @Query(
         """
         SELECT * FROM transactions
-        WHERE amountPaise = :amountPaise
+        WHERE amountPaise BETWEEN :minAmountPaise AND :maxAmountPaise
           AND dateEpoch BETWEEN :fromEpoch AND :toEpoch
-          AND (payerActorType = 'ME' OR payeeActorType = 'ME')
-          AND (myAccountId IS NULL OR myAccountId IN (:savingsAccountIds))
+          AND ((:mePays AND payerActorType = 'ME') OR (NOT :mePays AND payeeActorType = 'ME'))
+          AND (myAccountId IS NULL OR myAccountId IN (:accountIds))
         ORDER BY dateEpoch ASC, id ASC
         """
     )
     suspend fun findMatchCandidates(
-        amountPaise: Long,
+        minAmountPaise: Long,
+        maxAmountPaise: Long,
         fromEpoch: Long,
         toEpoch: Long,
-        savingsAccountIds: List<String>
+        mePays: Boolean,
+        accountIds: List<String>
     ): List<Transaction>
 
     /**
@@ -330,9 +334,10 @@ interface TransactionDao {
      * Everything the base ledger should hold for these friends, oldest first.
      *
      * Tagged rows are excluded because their effect reaches a balance through `chapter_balances`
-     * instead (R15). "Involves" means either end, a sided share, or an existing entry -- the last of
+     * instead (R15) -- except where one keeps a friend outside its chapter, whose part of it stays
+     * here (see [com.varun.upitracker.database.entity.ChapterOutsider]). "Involves" means either end, a sided share, or an existing entry -- the last of
      * which catches a friend whose only trace is an entry an edit has since orphaned.
-     * [getUntaggedTransactionsForFriendSync] asks the same question for the friend page.
+     * [getTransactionsForFriendSync] asks the same question for the friend page, chapters and all.
      *
      * The `isPending = 0 OR EXISTS(...)` is load-bearing, not caution. CategorySplitBackfill and
      * MerchantCreditReviewBackfill both flip already-reviewed rows back to pending *without*
@@ -345,7 +350,11 @@ interface TransactionDao {
     @Query(
         """
         SELECT t.* FROM transactions t
-        WHERE t.chapterId IS NULL
+        WHERE (
+            t.chapterId IS NULL
+            OR EXISTS (SELECT 1 FROM chapter_outsiders o
+                        WHERE o.transactionId = t.id AND o.friendId IN (:friendIds))
+          )
           AND t.dateEpoch > :afterEpoch
           AND (
             t.isPending = 0
@@ -357,7 +366,9 @@ interface TransactionDao {
             OR t.payeeFriendId IN (:friendIds)
             OR EXISTS (SELECT 1 FROM transaction_shares s
                         WHERE s.transactionId = t.id AND s.side IS NOT NULL
-                          AND s.friendId IN (:friendIds))
+                          AND (s.friendId IN (:friendIds)
+                            OR s.payeeLegViaFriendId IN (:friendIds)
+                            OR s.payerLegViaFriendId IN (:friendIds)))
             OR EXISTS (SELECT 1 FROM iou_entries e2
                         WHERE e2.transactionId = t.id AND e2.friendId IN (:friendIds))
           )
@@ -387,7 +398,10 @@ interface TransactionDao {
     )
     suspend fun countPendingForFriendUntil(friendId: Long, atOrBeforeEpoch: Long): Int
 
-    /** The friend page lists only what the base ledger still holds; the rest lives in its chapter. */
+    /**
+     * Everything a friend is in, for their page: the base ledger's rows and every chapter's. The page
+     * says which chapter a tagged row's part of the balance went to, rather than what it owes.
+     */
     @Query(
         """
         SELECT DISTINCT t.* FROM transactions t
@@ -396,16 +410,15 @@ interface TransactionDao {
            AND i.friendId = :friendId
         LEFT JOIN transaction_shares s
             ON t.id = s.transactionId
-           AND s.friendId = :friendId
-        WHERE t.chapterId IS NULL
-          AND (t.payerFriendId = :friendId
+           AND (s.friendId = :friendId OR s.payeeLegViaFriendId = :friendId OR s.payerLegViaFriendId = :friendId)
+        WHERE t.payerFriendId = :friendId
            OR t.payeeFriendId = :friendId
            OR i.friendId = :friendId
-           OR s.friendId = :friendId)
+           OR s.id IS NOT NULL
         ORDER BY t.dateEpoch DESC, t.id DESC
         """
     )
-    suspend fun getUntaggedTransactionsForFriendSync(friendId: Long): List<com.varun.upitracker.database.entity.Transaction>
+    suspend fun getTransactionsForFriendSync(friendId: Long): List<com.varun.upitracker.database.entity.Transaction>
 
     @Query(
         """

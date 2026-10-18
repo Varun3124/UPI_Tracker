@@ -10,6 +10,7 @@ import com.varun.upitracker.data.chapter.SharedChapterException
 import com.varun.upitracker.data.chapter.SharedChapterRepository
 import com.varun.upitracker.data.repository.ChapterException
 import com.varun.upitracker.data.repository.ChapterRepository
+import com.varun.upitracker.data.repository.OutsiderCandidate
 import com.varun.upitracker.database.AppDatabase
 import com.varun.upitracker.database.entity.Chapter
 import com.varun.upitracker.database.entity.ChapterShareMode
@@ -235,6 +236,8 @@ data class ChapterDetailUiState(
     val pendingCount: Int = 0,
     /** Who still owes whom, as sentences, for the warning on closing an unsettled chapter. */
     val outstanding: List<String> = emptyList(),
+    /** How the balances settle: the plan's payments, for the user's own chapter. A copy carries its owner's. */
+    val plan: List<ChapterPlanLine> = emptyList(),
     val selectionMode: Boolean = false,
     val selected: Set<String> = emptySet(),
     /** Rows that can be passed on to someone; see [ParcelExportRepository.eligibility]. */
@@ -296,6 +299,7 @@ class ChapterDetailViewModel(context: Context) : ViewModel() {
         val settled: Boolean,
         val pendingCount: Int,
         val outstanding: List<String>,
+        val plan: List<ChapterPlanLine> = emptyList(),
         val copy: CopyInfo? = null
     )
 
@@ -381,6 +385,20 @@ class ChapterDetailViewModel(context: Context) : ViewModel() {
             pendingCount = result.pendingCount,
             outstanding = result.plan.map {
                 "${label(it.debtor)} owes ${label(it.creditor)} ${formatRupees(it.amountPaise)}"
+            },
+            plan = result.plan.map { payment ->
+                when {
+                    payment.debtor is ChapterParty.Me ->
+                        ChapterPlanLine("You pay ${label(payment.creditor)}", payment.amountPaise, AmountPerspective.OUTGOING)
+                    payment.creditor is ChapterParty.Me ->
+                        ChapterPlanLine("${label(payment.debtor)} pays you", payment.amountPaise, AmountPerspective.INCOMING)
+                    else ->
+                        ChapterPlanLine(
+                            "${label(payment.debtor)} pays ${label(payment.creditor)}",
+                            payment.amountPaise,
+                            AmountPerspective.NEUTRAL
+                        )
+                }
             }
         )
     }
@@ -626,6 +644,7 @@ class ChapterDetailViewModel(context: Context) : ViewModel() {
             settled = load.settled,
             pendingCount = load.pendingCount,
             outstanding = load.outstanding,
+            plan = load.plan,
             selectionMode = selectionMode,
             // A filter can hide a ticked row; dropping it keeps the count honest about what an
             // action would actually touch.
@@ -878,9 +897,24 @@ class ChapterAddViewModel(context: Context) : ViewModel() {
     /**
      * Tags everything selected, reporting who had to be added to the chapter to make it work (R5).
      */
+    /** Who tagging [transactionIds] would have to ask about, and what the chapter is called. */
+    fun outsiderQuestion(
+        chapterId: Long,
+        transactionIds: Set<Long>,
+        onResult: (chapterName: String, candidates: List<OutsiderCandidate>) -> Unit
+    ) {
+        viewModelScope.launch {
+            val (name, candidates) = withContext(Dispatchers.IO) {
+                db.chapterDao().getById(chapterId)?.name.orEmpty() to repository.outsiderCandidates(chapterId, transactionIds)
+            }
+            onResult(name, candidates)
+        }
+    }
+
     fun tagAll(
         chapterId: Long,
         transactionIds: Set<Long>,
+        keepOutside: Set<Long>,
         onDone: (added: List<String>) -> Unit,
         onError: (String) -> Unit
     ) {
@@ -888,7 +922,7 @@ class ChapterAddViewModel(context: Context) : ViewModel() {
             val added = try {
                 withContext(Dispatchers.IO) {
                     val before = db.chapterDao().memberIds(chapterId).toSet()
-                    transactionIds.forEach { repository.setChapterFor(it, chapterId) }
+                    transactionIds.forEach { repository.setChapterFor(it, chapterId, keepOutside) }
                     val after = db.chapterDao().memberIds(chapterId).toSet()
                     (after - before).mapNotNull { db.friendDao().getFriendById(it)?.name }
                 }

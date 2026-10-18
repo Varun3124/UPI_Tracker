@@ -61,5 +61,24 @@ data class TransactionShare(
 
     /** Whether the IOU in which this participant owes the payer their share is recorded. See [keepPayeeLeg]. */
     @ColumnInfo(defaultValue = "1")
-    val keepPayerLeg: Boolean = true
+    val keepPayerLeg: Boolean = true,
+
+    /**
+     * Who the IOU in [keepPayeeLeg] runs through instead of going straight between its two people:
+     * null for straight, "ME" or "FRIEND" (with [payeeLegViaFriendId]) otherwise. Routed, "the payee owes
+     * this person" becomes the payee owing the go-between and the go-between owing this person, so
+     * the two never owe each other -- see [com.varun.upitracker.domain.iou.IouLegs].
+     *
+     * Only ever "ME" when set on this phone. "FRIEND" arrives on a row a friend routed through
+     * themselves and shared: on this phone the go-between is them.
+     *
+     * Not a foreign key -- SQLite cannot add one to an existing table -- so a friend named here counts
+     * as history that stops them being deleted, and a merge moves it like every other reference.
+     */
+    val payeeLegVia: String? = null,
+    val payeeLegViaFriendId: Long? = null,
+
+    /** Who the IOU in [keepPayerLeg] runs through. See [payeeLegVia]. */
+    val payerLegVia: String? = null,
+    val payerLegViaFriendId: Long? = null
 )

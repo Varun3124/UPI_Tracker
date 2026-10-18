@@ -28,12 +28,13 @@ class TransactionRemoval(private val db: AppDatabase) {
         val chapters = ChapterRepository(db)
 
         // Read while the row and its entries are still here: they are how we know who to rebuild.
-        val friends = if (tx.chapterId == null) chapters.affectedFriends(listOf(tx)) else emptySet()
+        val friends = chapters.baseLedgerFriendsOf(tx)
         val chapterIds = setOfNotNull(tx.chapterId)
         val before = chapters.contributionsOf(chapterIds)
 
         db.transactionShareDao().deleteForTransaction(transactionId)
         db.entryDraftDao().clearDraft(transactionId)
+        db.chapterOutsiderDao().clear(transactionId)
         db.transactionDao().deleteById(transactionId)
 
         val absorbed = chapters.recomputeAbsorbingInTransaction(chapterIds, before, listOf(tx.dateEpoch))

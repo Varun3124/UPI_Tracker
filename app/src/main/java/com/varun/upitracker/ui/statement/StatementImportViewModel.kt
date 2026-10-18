@@ -10,6 +10,7 @@ import androidx.lifecycle.viewModelScope
 import com.varun.upitracker.data.repository.AccountRepository
 import com.varun.upitracker.data.repository.ImportPlan
 import com.varun.upitracker.data.repository.ImportResult
+import com.varun.upitracker.data.prefs.DuplicateRulePrefs
 import com.varun.upitracker.data.repository.StatementImportRepository
 import com.varun.upitracker.database.AppDatabase
 import com.varun.upitracker.database.entity.Account
@@ -140,7 +141,7 @@ class StatementImportViewModel(context: Context) : ViewModel() {
         viewModelScope.launch {
             try {
                 val plan = withContext(Dispatchers.IO) {
-                    repository.buildPlan(rows, accountId, from, to)
+                    repository.buildPlan(rows, accountId, from, to, DuplicateRulePrefs(appContext).get())
                 }
                 _uiState.value = current.copy(plan = plan, selections = emptyMap(), busy = false)
             } catch (error: Exception) {

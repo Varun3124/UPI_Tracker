@@ -417,7 +417,8 @@ class BalanceGraphView @JvmOverloads constructor(
         values.forEach { value ->
             val y = view.yToPx(value, h)
             if (y < labelPaint.textSize + pad || y > h - pad) return@forEach
-            val text = AmountFormat.axis(value.toLong())
+            // Rounded, not truncated: a tick a hair under a round value would read a paisa short.
+            val text = AmountFormat.axis(Math.round(value))
             val textWidth = labelPaint.measureText(text)
             val left = dpF(4f)
             canvas.drawRect(left - pad, y - labelPaint.textSize - pad, left + textWidth + pad, y - pad / 2, labelBackPaint)

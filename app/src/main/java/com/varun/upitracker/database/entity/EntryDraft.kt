@@ -140,7 +140,12 @@ data class EntryDraftRow(
     val initials: String,
     val amountPaise: Long,
     val keepPayeeLeg: Boolean = true,
-    val keepPayerLeg: Boolean = true
+    val keepPayerLeg: Boolean = true,
+    /** Who each IOU ran through on the form. See [TransactionShare.payeeLegVia]. */
+    val payeeLegVia: String? = null,
+    val payeeLegViaFriendId: Long? = null,
+    val payerLegVia: String? = null,
+    val payerLegViaFriendId: Long? = null
 )
 
 /** A category pill checked on an [EntryDraft], with what was in its amount box (zero included). */

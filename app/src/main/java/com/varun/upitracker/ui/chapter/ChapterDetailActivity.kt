@@ -53,6 +53,12 @@ class ChapterDetailActivity : AppCompatActivity() {
 
     companion object {
         const val EXTRA_CHAPTER_ID = "chapter_id"
+
+        /** What `ChapterMath.simplify` does, said plainly, under every chapter's plan. */
+        private const val PLAN_STRATEGY =
+            "The fewest payments that leave everyone even. Two people whose amounts cancel out are " +
+                "paired first, then the biggest debts are cleared first, preferring people who have " +
+                "already paid each other."
     }
 
     /** Which of the two sub-pages is showing. */
@@ -232,15 +238,14 @@ class ChapterDetailActivity : AppCompatActivity() {
                 addLine(container, balance.label, "-${formatRupees(-balance.amountPaise)}", ThemeAttr.negative)
             }
         }
-        val copy = ui.copy ?: return
+        val copy = ui.copy
+        if (copy == null) {
+            renderPlan(container, "How it settles", ui.plan)
+            return
+        }
 
         // The owner's plan, never one worked out here: it is what everyone's copy counts (S3).
-        if (copy.plan.isNotEmpty()) {
-            container.addView(sectionHeader("${copy.ownerName}'s plan"))
-            copy.plan.forEach { line ->
-                addLine(container, line.text, formatRupees(line.amountPaise), line.direction.colorAttr())
-            }
-        }
+        renderPlan(container, "How ${copy.ownerName}'s plan settles it", copy.plan)
         if (copy.unplaced.isNotEmpty()) {
             container.addView(sectionHeader("Not counted yet"))
             copy.unplaced.forEach { line ->
@@ -260,6 +265,24 @@ class ChapterDetailActivity : AppCompatActivity() {
                 val attr = if (person.friendId == null) ThemeAttr.primary else ThemeAttr.textMuted
                 addLine(container, person.name, here, attr) { choosePerson(person) }
             }
+        }
+    }
+
+    /**
+     * The payments that settle the balances above, and how they were arrived at: what a balance on
+     * its own does not say is who pays whom. Nothing at all once everyone is even.
+     */
+    private fun renderPlan(container: LinearLayout, title: String, plan: List<ChapterPlanLine>) {
+        if (plan.isEmpty()) return
+        container.addView(sectionHeader(title))
+        container.addView(TextView(this).apply {
+            text = PLAN_STRATEGY
+            setTextAppearance(R.style.TextAppearance_UPI_Caption)
+            setTextColor(themeColor(ThemeAttr.textMuted))
+            setPadding(0, 0, 0, resources.getDimensionPixelSize(R.dimen.space_xs))
+        })
+        plan.forEach { line ->
+            addLine(container, line.text, formatRupees(line.amountPaise), line.direction.colorAttr())
         }
     }
 

@@ -105,7 +105,10 @@ class LedgerReplayer(
         /** Each friend's checkpoint, for those that have one. */
         suspend fun openingsFor(friendIds: Set<Long>): Map<Long, Opening>
 
-        /** Untagged, reviewed rows naming any of them, dated after [afterEpoch] when it is set. */
+        /**
+         * Untagged, reviewed rows naming any of them, dated after [afterEpoch] when it is set -- and
+         * tagged ones keeping any of them outside their chapter, with [TaggedTx.outsiders] filled in.
+         */
         suspend fun rowsFor(friendIds: Set<Long>, afterEpoch: Long?): List<TaggedTx>
 
         suspend fun clearEntriesFor(friendIds: Set<Long>)
@@ -125,8 +128,11 @@ class LedgerReplayer(
             ledger.recordOpening(it.declarationId, it.friendId, it.amountPaise)
         }
 
-        rows.forEach { (tx, shares) ->
+        rows.forEach { (tx, shares, outsiders) ->
+            // A tagged row is the chapter's, all but what it keeps outside: only the outsiders' part
+            // of it is the base ledger's to post.
             val postFor = Checkpoints.unsealed(friendIds, tx.dateEpoch, asOf)
+                .let { if (tx.chapterId == null) it else it intersect outsiders }
             if (postFor.isEmpty()) return@forEach
             postingService.postLedger(
                 ScopedLedgerPort(ledger, postFor),
@@ -165,10 +171,13 @@ class RoomReplaySource(private val db: AppDatabase) : LedgerReplayer.Source {
         val ids = friendIds.toList()
         val transactions = db.transactionDao().getUntaggedPostedForFriends(ids, afterEpoch ?: Long.MIN_VALUE)
         if (transactions.isEmpty()) return emptyList()
-        val sharesByTransaction = db.transactionShareDao()
-            .getSharesForTransactions(transactions.map { it.id })
-            .groupBy { it.transactionId }
-        return transactions.map { TaggedTx(it, sharesByTransaction[it.id].orEmpty()) }
+        val rowIds = transactions.map { it.id }
+        val sharesByTransaction = db.transactionShareDao().getSharesForTransactions(rowIds).groupBy { it.transactionId }
+        val outsidersByTransaction = db.chapterOutsiderDao().forTransactions(rowIds)
+            .groupBy({ it.transactionId }, { it.friendId })
+        return transactions.map {
+            TaggedTx(it, sharesByTransaction[it.id].orEmpty(), outsidersByTransaction[it.id].orEmpty().toSet())
+        }
     }
 
     override suspend fun clearEntriesFor(friendIds: Set<Long>) {

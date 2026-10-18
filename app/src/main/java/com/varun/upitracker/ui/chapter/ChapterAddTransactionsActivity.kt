@@ -128,9 +128,20 @@ class ChapterAddTransactionsActivity : AppCompatActivity() {
             Toast.makeText(this, "Nothing picked", Toast.LENGTH_SHORT).show()
             return
         }
+        val ids = selected.toSet()
+        viewModel.outsiderQuestion(chapterId, ids) { chapterName, candidates ->
+            if (candidates.isEmpty()) return@outsiderQuestion tag(ids, emptySet())
+            OutsiderPrompt.ask(this, chapterName, candidates) { keepOutside ->
+                if (keepOutside != null) tag(ids, keepOutside)
+            }
+        }
+    }
+
+    private fun tag(ids: Set<Long>, keepOutside: Set<Long>) {
         viewModel.tagAll(
             chapterId = chapterId,
-            transactionIds = selected.toSet(),
+            transactionIds = ids,
+            keepOutside = keepOutside,
             onDone = { added ->
                 // R5: tagging pulls everyone in a transaction into the chapter. Say so rather than
                 // letting the membership quietly grow.

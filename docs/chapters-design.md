@@ -135,7 +135,7 @@ base ledger would hold R +3,000 and P +2,000, and the friend↔friend debts woul
   - it is a refund whose original is in a different chapter, or in none: "Follows its original purchase".
 
   Pending transactions **may** be tagged, but they count for nothing until reviewed (R12). Gifts (`ledgerEffect = NONE`) may be tagged and count for nothing, as in the base ledger.
-- **R5. Non-members are added automatically on tag.** Every friend in an eligible transaction who isn't a member is added in the same database transaction. The UI then says so: "Added Dan to Goa trip".
+- **R5. Non-members are added on tag, unless kept outside.** Before tagging, the user is asked about every friend in the transaction who isn't a member: "Add to chapter" or "Keep outside" (R22). Everyone added joins in the same database transaction, and the UI then says so: "Added Dan to Goa trip". The question is asked every time and never remembered per person. A new chapter made from a selection asks nothing, since it is made of whoever the selection names.
 - **R6. Refunds follow their original.** Tagging, untagging or moving a purchase does the same to every refund linked to it through `refundsTransactionId`. A refund can't be tagged on its own.
 - **R7. A member can be removed only if no tagged transaction involves them.** Otherwise say "Dan is in 3 transactions here".
 
@@ -159,7 +159,7 @@ base ledger would hold R +3,000 and P +2,000, and the friend↔friend debts woul
 - **R14. Simplify to fewest payments, deterministically.** See section 6. Changing the order of the input must never change the plan.
 
 ### Feeding the base ledger
-- **R15. Tagged transactions post nothing to `iou_entries`.** Their effect reaches the base ledger only through `chapter_balances`. Whenever a transaction enters or leaves the base ledger (tag, untag, move, chapter delete), **replay the base ledger for the friends involved** (section 7.2). Never just delete the transaction's entries: that breaks the settle-oldest-first bookkeeping.
+- **R15. Tagged transactions post nothing to `iou_entries`, except for people kept outside (R22).** Their effect reaches the base ledger only through `chapter_balances`. Whenever a transaction enters or leaves the base ledger (tag, untag, move, chapter delete), **replay the base ledger for the friends involved** (section 7.2). Never just delete the transaction's entries: that breaks the settle-oldest-first bookkeeping.
 - **R16. Friend balance = personal balance + Σ contributions.** It's live, including for closed chapters.
 - **R17. `chapter_balances` is derived and rebuildable.** Recompute a chapter's rows after any change that could affect it (section 7.1). The rows can always be rebuilt from `transactions` and shares.
 
@@ -170,6 +170,10 @@ base ledger would hold R +3,000 and P +2,000, and the friend↔friend debts woul
   - every friend in it is already a member. Don't pre-select into auto-adding people.
 
   The user can clear it. The one-tap notification confirm must also refuse a transaction the active chapter would pre-select. When a chapter is pre-selected, the prompt in R18 doesn't appear.
+
+### Routing and people outside a chapter
+- **R21. A debt can run through ME.** Any IOU on a share row can be routed through a go-between (`transaction_shares.payeeLegVia` / `payerLegVia`): Bob owing Asha 500 becomes Bob owing ME 500 and ME owing Asha 500. Everyone's overall position is unchanged, so what ME categorises doesn't move. Only "through me" is offered on the entry screen ("Through me" / "Directly" beside the line). A shared row carries its routing; the reader sees it running through the sender (parcel versions 5 and 6, written only when a row is routed).
+- **R22. Keeping a friend outside a chapter.** Chosen per transaction and stored in `chapter_outsiders`. An outsider is not made a member. Their legs with ME stay in the base ledger, posted by the replay for the outsiders alone. Only the members' legs feed the chapter (R13). An outsider may only owe or be owed by ME, so keeping them out routes their debts with other members through ME (R21). When that can't be done, because the whole amount is paid straight between them and a member, keeping them out isn't offered. Outsiders are cleared when the transaction leaves its chapter or moves to another.
 
 ### Privacy and sharing
 - **R20. A chapter stays on the device unless its owner shares it.** Parcel and mailbox sharing of a tagged transaction work as today, and `chapterId` is never written into a parcel. Parcel import lands transactions untagged (they're pending anyway, and R19 applies when they're reviewed). Sharing a whole chapter with its members is specified in [declarations-design.md](declarations-design.md) (rules S1–S10). It supersedes the v1 rule that chapters never leave the device.

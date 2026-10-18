@@ -1,6 +1,7 @@
 package com.varun.upitracker.domain.transactionentry.share
 
 import com.varun.upitracker.database.entity.Friend
+import com.varun.upitracker.domain.iou.IouParty
 import com.varun.upitracker.ui.ActorType
 
 data class ShareRowModel(
@@ -11,14 +12,17 @@ data class ShareRowModel(
     val initials: String,
     val amountPaise: Long,
     val keepPayeeLeg: Boolean = true,
-    val keepPayerLeg: Boolean = true
+    val keepPayerLeg: Boolean = true,
+    /** Who each of the row's IOUs runs through, or null for straight. See [com.varun.upitracker.domain.iou.IouLegs]. */
+    val payeeVia: IouParty? = null,
+    val payerVia: IouParty? = null
 )
 
 class ShareManager {
 
     /**
      * The row's IOU choices survive only while it names the same person: someone new starts with
-     * every IOU kept, as a fresh row does.
+     * every IOU kept and running straight, as a fresh row does.
      */
     fun updateParticipant(
         rows: List<ShareRowModel>,
@@ -42,7 +46,9 @@ class ShareManager {
                 initials = initials,
                 amountPaise = old.amountPaise,
                 keepPayeeLeg = !samePerson || old.keepPayeeLeg,
-                keepPayerLeg = !samePerson || old.keepPayerLeg
+                keepPayerLeg = !samePerson || old.keepPayerLeg,
+                payeeVia = old.payeeVia.takeIf { samePerson },
+                payerVia = old.payerVia.takeIf { samePerson }
             )
         }
     }

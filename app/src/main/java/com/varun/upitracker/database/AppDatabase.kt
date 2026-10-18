@@ -13,6 +13,7 @@ import com.varun.upitracker.database.dao.BalanceSnapshotDao
 import com.varun.upitracker.database.dao.BudgetDao
 import com.varun.upitracker.database.dao.CategoryDao
 import com.varun.upitracker.database.dao.ChapterDao
+import com.varun.upitracker.database.dao.ChapterOutsiderDao
 import com.varun.upitracker.database.dao.DeclarationDao
 import com.varun.upitracker.database.dao.EntryDraftDao
 import com.varun.upitracker.database.dao.FixedDepositDao
@@ -32,6 +33,7 @@ import com.varun.upitracker.database.entity.Category
 import com.varun.upitracker.database.entity.Chapter
 import com.varun.upitracker.database.entity.ChapterBalance
 import com.varun.upitracker.database.entity.ChapterMember
+import com.varun.upitracker.database.entity.ChapterOutsider
 import com.varun.upitracker.database.entity.ChapterPerson
 import com.varun.upitracker.database.entity.ChapterShare
 import com.varun.upitracker.database.entity.CategoryKind
@@ -96,9 +98,10 @@ import kotlinx.coroutines.launch
         ReceivedOriginalShare::class,
         EntryDraft::class,
         EntryDraftRow::class,
-        EntryDraftCategory::class
+        EntryDraftCategory::class,
+        ChapterOutsider::class
     ],
-    version = 24,
+    version = 25,
     exportSchema = true
 )
 @TypeConverters(Converters::class)
@@ -110,6 +113,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun budgetDao(): BudgetDao
     abstract fun categoryDao(): CategoryDao
     abstract fun chapterDao(): ChapterDao
+    abstract fun chapterOutsiderDao(): ChapterOutsiderDao
     abstract fun declarationDao(): DeclarationDao
     abstract fun entryDraftDao(): EntryDraftDao
     abstract fun fixedDepositDao(): FixedDepositDao
@@ -809,6 +813,35 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        /**
+         * Routing a debt through someone, and keeping people outside a chapter: who each share's two
+         * IOUs run through, on every table that holds a share, and one new table. Every existing IOU
+         * keeps running straight, which is what a null means.
+         */
+        private val MIGRATION_24_25 = object : Migration(24, 25) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                listOf("transaction_shares", "received_original_shares", "entry_draft_rows").forEach { table ->
+                    listOf(
+                        "payeeLegVia" to "TEXT",
+                        "payeeLegViaFriendId" to "INTEGER",
+                        "payerLegVia" to "TEXT",
+                        "payerLegViaFriendId" to "INTEGER"
+                    ).forEach { (column, type) ->
+                        if (!hasColumn(db, table, column)) db.execSQL("ALTER TABLE `$table` ADD COLUMN `$column` $type")
+                    }
+                }
+                db.execSQL(
+                    "CREATE TABLE IF NOT EXISTS `chapter_outsiders` (`transactionId` INTEGER NOT NULL, " +
+                        "`friendId` INTEGER NOT NULL, PRIMARY KEY(`transactionId`, `friendId`), " +
+                        "FOREIGN KEY(`transactionId`) REFERENCES `transactions`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE , " +
+                        "FOREIGN KEY(`friendId`) REFERENCES `friends`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )"
+                )
+                db.execSQL(
+                    "CREATE INDEX IF NOT EXISTS `index_chapter_outsiders_friendId` ON `chapter_outsiders` (`friendId`)"
+                )
+            }
+        }
+
         private fun hasColumn(db: SupportSQLiteDatabase, table: String, column: String): Boolean {
             db.query("PRAGMA table_info(`$table`)").use { cursor ->
                 val nameColumnIndex = cursor.getColumnIndex("name")
@@ -842,7 +875,8 @@ abstract class AppDatabase : RoomDatabase() {
                         MIGRATION_12_13, MIGRATION_13_14, MIGRATION_14_15, MIGRATION_15_16,
                         MIGRATION_16_17, MIGRATION_17_18, MIGRATION_18_19,
                         MIGRATION_19_20, MIGRATION_20_21, MIGRATION_21_22,
-                        MIGRATION_22_23, MIGRATION_23_24
+                        MIGRATION_22_23, MIGRATION_23_24,
+                        MIGRATION_24_25
                     )
                     .addCallback(object : Callback() {
                         override fun onCreate(db: SupportSQLiteDatabase) {

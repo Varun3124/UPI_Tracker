@@ -18,6 +18,7 @@ import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.lifecycleScope
+import com.varun.upitracker.ui.chapter.OutsiderPrompt
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.varun.upitracker.R
@@ -446,11 +447,28 @@ class AllTransactionsActivity : AppCompatActivity() {
                     if (which == chapters.size) {
                         askNewChapterName()
                     } else {
-                        viewModel.addSelectedToChapter(chapters[which].id, ::reportChapterOutcome)
+                        addSelectionTo(chapters[which].id)
                     }
                 }
                 .setNegativeButton("Cancel", null)
                 .show()
+        }
+    }
+
+    /**
+     * Into an existing chapter: anyone the selection names that it does not hold is asked about first --
+     * added, or kept outside it. A new chapter is made from whoever the selection names, so it never asks.
+     */
+    private fun addSelectionTo(chapterId: Long) {
+        lifecycleScope.launch {
+            val (chapterName, candidates) = viewModel.outsiderQuestionForSelection(chapterId)
+            if (candidates.isEmpty()) {
+                viewModel.addSelectedToChapter(chapterId, emptySet(), ::reportChapterOutcome)
+                return@launch
+            }
+            OutsiderPrompt.ask(this@AllTransactionsActivity, chapterName, candidates) { keepOutside ->
+                if (keepOutside != null) viewModel.addSelectedToChapter(chapterId, keepOutside, ::reportChapterOutcome)
+            }
         }
     }
 

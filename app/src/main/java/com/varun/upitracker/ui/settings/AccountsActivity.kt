@@ -316,7 +316,7 @@ class AccountsActivity : AppCompatActivity() {
         var snapshotEpoch = snapshot?.snapshotEpoch ?: System.currentTimeMillis()
         val amountInput = amountInput("Amount").apply {
             snapshot?.let {
-                setText((it.balancePaise / 100.0).toString())
+                setText(AmountFormat.forInput(it.balancePaise).let { text -> if (it.balancePaise < 0) "-$text" else text })
                 setSelection(text.length)
             }
         }

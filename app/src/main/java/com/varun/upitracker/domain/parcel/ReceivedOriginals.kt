@@ -44,7 +44,11 @@ fun ReceivedOriginalShare.toShare(): TransactionShare = TransactionShare(
     amountPaise = amountPaise,
     rawLabel = rawLabel,
     keepPayeeLeg = keepPayeeLeg,
-    keepPayerLeg = keepPayerLeg
+    keepPayerLeg = keepPayerLeg,
+    payeeLegVia = payeeLegVia,
+    payeeLegViaFriendId = payeeLegViaFriendId,
+    payerLegVia = payerLegVia,
+    payerLegViaFriendId = payerLegViaFriendId
 )
 
 /**
@@ -121,7 +125,9 @@ object ReceivedOriginalDiff {
             // A row that moves nobody's balance keeps no IOU line, whatever its legs were left at.
             val kept = ledgerEffect != LedgerEffect.NONE
             val legs = "${kept && share.keepPayeeLeg}/${kept && share.keepPayerLeg}"
-            "${share.side}|$who|${share.amountPaise}|$legs"
+            // Rerouting a debt is an edit: the same people end up owing different ones.
+            val via = "${IouLegs.viaOf(share, owesPayer = false)}/${IouLegs.viaOf(share, owesPayer = true)}"
+            "${share.side}|$who|${share.amountPaise}|$legs|$via"
         }.sorted()
 
     private fun name(label: String?): String = label?.trim()?.lowercase().orEmpty()

@@ -4,7 +4,11 @@ import com.varun.upitracker.database.entity.Chapter
 import com.varun.upitracker.database.entity.ChapterState
 import com.varun.upitracker.database.entity.Transaction
 import com.varun.upitracker.database.entity.TransactionShare
+import com.varun.upitracker.domain.iou.IouLegs
+import com.varun.upitracker.domain.iou.IouParty
 import com.varun.upitracker.ui.ActorType
+import com.varun.upitracker.ui.payeeActorRef
+import com.varun.upitracker.ui.payerActorRef
 
 /**
  * Whether a transaction can go into a chapter, and if not, what to say about it.
@@ -64,8 +68,34 @@ object ChapterEligibility {
     fun missingMembers(
         tx: Transaction,
         shares: List<TransactionShare>,
-        memberIds: Set<Long>
-    ): Set<Long> = ChapterMath.friendsIn(tx, shares) - memberIds
+        memberIds: Set<Long>,
+        outsiders: Set<Long> = emptySet()
+    ): Set<Long> = ChapterMath.friendsIn(tx, shares) - memberIds - outsiders
+
+    /**
+     * Why [outsiders] cannot be kept out of a chapter on [tx], or null when they can: one of them
+     * still owes, or is owed by, someone in it other than ME. The fix is to route that through ME.
+     */
+    fun outsiderConflict(
+        tx: Transaction,
+        shares: List<TransactionShare>,
+        outsiders: Set<Long>,
+        nameOf: (Long) -> String?
+    ): String? {
+        if (outsiders.isEmpty()) return null
+        val owing = IouLegs.outsidersOwingInside(
+            tx.payerActorRef(),
+            tx.payeeActorRef(),
+            shares,
+            tx.amountPaise,
+            tx.ledgerEffect,
+            IouLegs.resolve(tx, shares),
+            outsiders.map { IouParty.Friend(it) }.toSet()
+        )
+        val first = owing.filterIsInstance<IouParty.Friend>().firstOrNull() ?: return null
+        val name = nameOf(first.friendId) ?: "Someone"
+        return "$name is kept outside the chapter but owes someone in it directly. Route it through you first."
+    }
 
     /**
      * The name of someone this database cannot place, quoted, or null when everyone is known.

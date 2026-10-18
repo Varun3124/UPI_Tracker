@@ -280,14 +280,19 @@ class SettingsRepository(private val context: Context) {
         db.transactionDao().reassignPayerFriend(source.id, target.id)
         db.transactionDao().reassignPayeeFriend(source.id, target.id)
         db.transactionShareDao().reassignFriend(source.id, target.id)
+        db.transactionShareDao().reassignPayeeVia(source.id, target.id)
+        db.transactionShareDao().reassignPayerVia(source.id, target.id)
+        db.chapterOutsiderDao().reassignFriend(source.id, target.id)
         // Before the source goes too: an original names people with SET_NULL, so after the delete it
         // would only know them by name.
         db.receivedOriginalDao().reassignPayerFriend(source.id, target.id)
         db.receivedOriginalDao().reassignPayeeFriend(source.id, target.id)
         db.receivedOriginalDao().reassignShareFriend(source.id, target.id)
+        db.receivedOriginalDao().reassignShareVia(source.id, target.id)
         db.entryDraftDao().reassignPayerFriend(source.id, target.id)
         db.entryDraftDao().reassignPayeeFriend(source.id, target.id)
         db.entryDraftDao().reassignRowFriend(source.id, target.id)
+        db.entryDraftDao().reassignRowVia(source.id, target.id)
         db.iouDao().reassignFriend(source.id, target.id)
         // `chapter_members` is keyed on (chapterId, friendId), so a plain UPDATE would collide
         // wherever both friends are already in the same chapter. Drop the source's duplicates first
@@ -342,6 +347,8 @@ class SettingsRepository(private val context: Context) {
         return db.transactionDao().countReferencesForFriend(friendId) > 0 ||
             db.iouDao().countEntriesForFriend(friendId) > 0 ||
             db.transactionShareDao().countForFriend(friendId) > 0 ||
+            // Kept outside a chapter on a transaction is still being in that transaction.
+            db.chapterOutsiderDao().countForFriend(friendId) > 0 ||
             // Belonging to a chapter is history too: it is something the user stated, and the
             // RESTRICT on chapter_members would refuse the delete anyway -- with a far worse message.
             db.chapterDao().countMembershipsForFriend(friendId) > 0 ||

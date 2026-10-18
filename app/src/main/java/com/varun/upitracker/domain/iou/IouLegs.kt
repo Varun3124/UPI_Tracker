@@ -39,19 +39,38 @@ data class IouLeg(val debtor: IouParty, val creditor: IouParty, val amountPaise:
 data class IouLegSource(val shareIndex: Int, val owesPayer: Boolean)
 
 /**
- * One "who owes whom" line: every leg between the same two people, folded. [kept] is whether all of
- * them are recorded, and [sources] are the share-row legs that turning the line on or off flips.
+ * Part of a line that is a debt run through a go-between: [amountPaise] of it is really between the
+ * go-between's other side and [farEnd]. "Bob owes you 500" routed from Bob's debt to Asha has Asha as
+ * its far end; "You owe Asha 1000" carrying it has Bob.
+ */
+data class RoutedPart(val source: IouLegSource, val amountPaise: Long, val farEnd: IouParty)
+
+/**
+ * One "who owes whom" line: every leg straight between the same two people, folded -- or every one
+ * that reaches them through a go-between, which is a line of its own. [kept] is whether all of them
+ * are recorded, and [sources] are the share-row legs that turning the line on or off flips.
+ *
+ * [routed] says what a line through a go-between is passing on, and is empty on a straight one.
+ * [routable] is whether a straight line could run through ME instead: it is between two people who
+ * are not ME, and every leg in it comes from a share row, which is where the choice is kept.
  */
 data class IouLine(
     val debtor: IouParty,
     val creditor: IouParty,
     val amountPaise: Long,
     val kept: Boolean,
-    val sources: List<IouLegSource>
+    val sources: List<IouLegSource>,
+    val routed: List<RoutedPart> = emptyList(),
+    val routable: Boolean = false
 )
 
 /**
  * Who owes whom on one transaction, worked out the same way on every phone that holds it.
+ *
+ * Any leg may be routed through a go-between instead -- see [TransactionShare.payeeLegVia]. Bob owing
+ * Asha 500, routed through ME, becomes Bob owing ME 500 and ME owing Asha 500: everyone ends up up or
+ * down by exactly what they were, and Bob and Asha simply never owe each other. Both halves stand or
+ * fall together, kept or left out as the leg is.
  *
  * The payer and payee are the transaction's two ends, and [IouRecovery] picks which side's share rows
  * describe the split. Every row on that side reads as "the payee owes this person" and "this person
@@ -68,8 +87,16 @@ object IouLegs {
     private const val PAYER = "PAYER"
     private const val PAYEE = "PAYEE"
 
-    /** A candidate leg, whether or not the user kept it. */
-    private class Candidate(val leg: IouLeg, val source: IouLegSource?, val kept: Boolean)
+    /**
+     * A candidate leg, whether or not the user kept it. [farEnd] is set on each half of a routed leg:
+     * the party on the far side of the go-between.
+     */
+    private class Candidate(
+        val leg: IouLeg,
+        val source: IouLegSource?,
+        val kept: Boolean,
+        val farEnd: IouParty? = null
+    )
 
     /** The legs actually recorded: every kept one, or none at all for a transaction that moves no debt. */
     fun legs(
@@ -95,10 +122,15 @@ object IouLegs {
         amountPaise: Long,
         recovery: IouRecovery
     ): List<IouLine> {
-        val groups = linkedMapOf<Set<IouParty>, MutableList<Candidate>>()
+        // Debts passed on through a go-between fold apart from the ones straight between the same two
+        // people. One routed leg's halves sit in two lines, so leaving it out from either has to leave
+        // the other's straight debts as they were -- which one pill folding both could not show.
+        val groups = linkedMapOf<Pair<Set<IouParty>, Boolean>, MutableList<Candidate>>()
         candidates(payer, payee, shares, amountPaise, recovery)
             .filter { isPerson(it.leg.debtor) && isPerson(it.leg.creditor) }
-            .forEach { groups.getOrPut(setOf(it.leg.debtor, it.leg.creditor)) { mutableListOf() }.add(it) }
+            .forEach {
+                groups.getOrPut(setOf(it.leg.debtor, it.leg.creditor) to (it.farEnd != null)) { mutableListOf() }.add(it)
+            }
 
         return groups.values.mapNotNull { group ->
             val first = group.first().leg
@@ -107,13 +139,119 @@ object IouLegs {
             }
             val kept = group.all { it.kept }
             val sources = group.mapNotNull { it.source }
+            val routed = group.mapNotNull { candidate ->
+                val source = candidate.source ?: return@mapNotNull null
+                val farEnd = candidate.farEnd ?: return@mapNotNull null
+                RoutedPart(source, candidate.leg.amountPaise, farEnd)
+            }
+            val routable = first.debtor != IouParty.Me && first.creditor != IouParty.Me &&
+                group.all { it.source != null && it.farEnd == null }
             when {
-                net > 0L -> IouLine(first.debtor, first.creditor, net, kept, sources)
-                net < 0L -> IouLine(first.creditor, first.debtor, -net, kept, sources)
+                net > 0L -> IouLine(first.debtor, first.creditor, net, kept, sources, routed, routable)
+                net < 0L -> IouLine(first.creditor, first.debtor, -net, kept, sources, routed, routable)
                 else -> null
             }
         }
     }
+
+    /**
+     * [shares] with every IOU that has someone in [outsiders] at one end, and anyone but ME or another
+     * outsider at the other, set to run through ME -- so the outsiders owe and are owed by ME alone.
+     * Null when one of those IOUs comes from no share row and so cannot be routed: the transaction's
+     * whole amount owed straight from one end to the other.
+     *
+     * A line between two outsiders is left as it is: it is neither ME's business nor the chapter's.
+     * Left-out IOUs are routed too, so turning one back on later does not bring the conflict back.
+     */
+    fun routeOutsidersThroughMe(
+        payer: ActorRef,
+        payee: ActorRef,
+        shares: List<TransactionShare>,
+        amountPaise: Long,
+        recovery: IouRecovery,
+        outsiders: Set<IouParty>
+    ): List<TransactionShare>? {
+        if (outsiders.isEmpty()) return shares
+        if (directPaymentParties(payer, payee, shares, amountPaise)?.let { (a, b) -> crossesOutside(IouLeg(b, a, amountPaise), outsiders) } == true) {
+            return null
+        }
+        val routed = shares.toMutableList()
+        rawCandidates(payer, payee, shares, amountPaise, recovery).forEach { candidate ->
+            val needsRoute = expand(candidate, viaOfSource(shares, candidate.source)).any { half ->
+                crossesOutside(half.leg, outsiders)
+            }
+            if (!needsRoute) return@forEach
+            val source = candidate.source ?: return null
+            routed[source.shareIndex] = withVia(routed[source.shareIndex], source.owesPayer, IouParty.Me)
+        }
+        return routed
+    }
+
+    /**
+     * Everyone in [outsiders] still owing or owed, on a kept IOU, by someone who is neither ME nor
+     * outside. Empty is what lets a transaction keep them out of its chapter.
+     */
+    fun outsidersOwingInside(
+        payer: ActorRef,
+        payee: ActorRef,
+        shares: List<TransactionShare>,
+        amountPaise: Long,
+        ledgerEffect: LedgerEffect,
+        recovery: IouRecovery,
+        outsiders: Set<IouParty>
+    ): Set<IouParty> {
+        if (outsiders.isEmpty() || ledgerEffect == LedgerEffect.NONE) return emptySet()
+        val legs = directPaymentParties(payer, payee, shares, amountPaise)
+            ?.let { (payerParty, payeeParty) -> listOf(IouLeg(payeeParty, payerParty, amountPaise)) }
+            ?: legs(payer, payee, shares, amountPaise, ledgerEffect, recovery)
+        return legs.filter { crossesOutside(it, outsiders) }
+            .flatMap { listOf(it.debtor, it.creditor) }
+            .filter { it in outsiders }
+            .toSet()
+    }
+
+    /** One end outside, the other neither outside nor ME: a debt a chapter could not keep out. */
+    private fun crossesOutside(leg: IouLeg, outsiders: Set<IouParty>): Boolean {
+        if (!isPerson(leg.debtor) || !isPerson(leg.creditor)) return false
+        val debtorOut = leg.debtor in outsiders
+        val creditorOut = leg.creditor in outsiders
+        if (debtorOut == creditorOut) return false
+        val inside = if (debtorOut) leg.creditor else leg.debtor
+        return inside != IouParty.Me
+    }
+
+    /** Who one of [share]'s two IOUs runs through, or null when it runs straight. */
+    fun viaOf(share: TransactionShare, owesPayer: Boolean): IouParty? {
+        val type = if (owesPayer) share.payerLegVia else share.payeeLegVia
+        val friendId = if (owesPayer) share.payerLegViaFriendId else share.payeeLegViaFriendId
+        return when (type) {
+            ActorType.ME -> IouParty.Me
+            ActorType.FRIEND -> friendId?.let { IouParty.Friend(it) }
+            else -> null
+        }
+    }
+
+    /** [share] with one of its IOUs set to run through [via], or straight again when null. */
+    fun withVia(share: TransactionShare, owesPayer: Boolean, via: IouParty?): TransactionShare {
+        val type = when (via) {
+            IouParty.Me -> ActorType.ME
+            is IouParty.Friend -> ActorType.FRIEND
+            else -> null
+        }
+        val friendId = (via as? IouParty.Friend)?.friendId
+        return if (owesPayer) {
+            share.copy(payerLegVia = type, payerLegViaFriendId = friendId)
+        } else {
+            share.copy(payeeLegVia = type, payeeLegViaFriendId = friendId)
+        }
+    }
+
+    /** Friends a debt on [shares] runs through. They are in the transaction as surely as anyone on it. */
+    fun viaFriendIds(shares: List<TransactionShare>): Set<Long> =
+        shares.flatMap { share -> listOfNotNull(viaOf(share, owesPayer = false), viaOf(share, owesPayer = true)) }
+            .filterIsInstance<IouParty.Friend>()
+            .map { it.friendId }
+            .toSet()
 
     /**
      * NONE once there are lines and every one of them has been left out -- the transaction moves nobody's
@@ -280,7 +418,36 @@ object IouLegs {
 
     private fun isPerson(party: IouParty): Boolean = party !is IouParty.Counterparty
 
+    /** Every candidate leg, each routed one already split into its two halves. */
     private fun candidates(
+        payer: ActorRef,
+        payee: ActorRef,
+        shares: List<TransactionShare>,
+        amountPaise: Long,
+        recovery: IouRecovery
+    ): List<Candidate> =
+        rawCandidates(payer, payee, shares, amountPaise, recovery).flatMap { expand(it, viaOfSource(shares, it.source)) }
+
+    private fun viaOfSource(shares: List<TransactionShare>, source: IouLegSource?): IouParty? =
+        source?.let { viaOf(shares[it.shareIndex], it.owesPayer) }
+
+    /**
+     * [candidate] as it is recorded: as it stands, or as two halves through [via]. A go-between who is
+     * already one of its two ends changes nothing, and neither can a shop at either end -- that is
+     * spending, not a debt anyone could pass on.
+     */
+    private fun expand(candidate: Candidate, via: IouParty?): List<Candidate> {
+        val leg = candidate.leg
+        if (via == null || via == leg.debtor || via == leg.creditor) return listOf(candidate)
+        if (!isPerson(leg.debtor) || !isPerson(leg.creditor)) return listOf(candidate)
+        return listOf(
+            Candidate(IouLeg(leg.debtor, via, leg.amountPaise), candidate.source, candidate.kept, farEnd = leg.creditor),
+            Candidate(IouLeg(via, leg.creditor, leg.amountPaise), candidate.source, candidate.kept, farEnd = leg.debtor)
+        )
+    }
+
+    /** Every candidate leg as the split describes it, before any is routed. */
+    private fun rawCandidates(
         payer: ActorRef,
         payee: ActorRef,
         shares: List<TransactionShare>,

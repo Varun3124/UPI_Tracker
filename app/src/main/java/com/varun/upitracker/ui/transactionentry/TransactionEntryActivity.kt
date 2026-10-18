@@ -88,6 +88,7 @@ import com.varun.upitracker.domain.TransferTypeResolution
 import com.varun.upitracker.domain.iou.IouLine
 import com.varun.upitracker.domain.iou.IouLegs
 import com.varun.upitracker.domain.iou.IouParty
+import com.varun.upitracker.domain.iou.IouLegSource
 import com.varun.upitracker.domain.transactionentry.actor.ActorSelectionService
 import com.varun.upitracker.domain.transactionentry.category.CategorySplitManager
 import com.varun.upitracker.domain.transactionentry.persistence.PersistTransactionRequest
@@ -178,7 +179,10 @@ class TransactionEntryActivity : AppCompatActivity() {
         var amountPaise: Long,
         /** Which of this row's IOUs are kept. See [TransactionShare.keepPayeeLeg]. */
         var keepPayeeLeg: Boolean = true,
-        var keepPayerLeg: Boolean = true
+        var keepPayerLeg: Boolean = true,
+        /** Who each of them runs through, or null for straight. See [TransactionShare.payeeLegVia]. */
+        var payeeVia: IouParty? = null,
+        var payerVia: IouParty? = null
     ) {
         /**
          * The name to persist alongside a share with no friend behind it, so opening and saving an
@@ -318,7 +322,7 @@ class TransactionEntryActivity : AppCompatActivity() {
     private lateinit var tvRecoverFromPayees: TextView
     private lateinit var iouLinesContainer: LinearLayout
     /** What the line pills last showed, so a keystroke that changes no line does not rebuild them. */
-    private var renderedIouLines: List<Pair<String, Boolean>>? = null
+    private var renderedIouLines: List<List<Any?>>? = null
     private lateinit var refundSection: LinearLayout
     private lateinit var tvRefundTarget: TextView
 
@@ -345,6 +349,15 @@ class TransactionEntryActivity : AppCompatActivity() {
     private val templateSnapshot = mutableMapOf<Boolean, List<ShareRow>>()
 
     private lateinit var btnPend: Button
+
+    /**
+     * Who the user chose, on this save, to keep outside the selected chapter: friends by id, and anyone
+     * typed in fresh by name, who only gets an id as the save resolves them. See [decideOutsiders].
+     */
+    private var keptOutsideIds: Set<Long> = emptySet()
+    private var keptOutsideNames: Set<String> = emptySet()
+    /** Who the saved row already keeps outside its chapter: saving again does not ask about them again. */
+    private var storedOutsiders: Set<Long> = emptySet()
     private lateinit var formContent: View
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -1164,7 +1177,9 @@ class TransactionEntryActivity : AppCompatActivity() {
         fun ShareRow.keepingExisting() = copy(
             amountPaise = existing.amountPaise,
             keepPayeeLeg = existing.keepPayeeLeg,
-            keepPayerLeg = existing.keepPayerLeg
+            keepPayerLeg = existing.keepPayerLeg,
+            payeeVia = existing.payeeVia,
+            payerVia = existing.payerVia
         )
         when (actorTypeFor(isPayer)) {
             ActorType.ME -> rows[0] = buildMeShareRow().keepingExisting()
@@ -1210,8 +1225,20 @@ class TransactionEntryActivity : AppCompatActivity() {
                 amountPaise = share.amountPaise
             )
         }
-        return row.copy(keepPayeeLeg = share.keepPayeeLeg, keepPayerLeg = share.keepPayerLeg)
+        return row.copy(
+            keepPayeeLeg = share.keepPayeeLeg,
+            keepPayerLeg = share.keepPayerLeg,
+            payeeVia = knownVia(IouLegs.viaOf(share, owesPayer = false)),
+            payerVia = knownVia(IouLegs.viaOf(share, owesPayer = true))
+        )
     }
+
+    /**
+     * A go-between this database still holds, or null. A friend deleted since leaves the debt
+     * running straight: nothing could be posted against someone who is not here.
+     */
+    private fun knownVia(via: IouParty?): IouParty? =
+        via?.takeIf { it !is IouParty.Friend || allFriends.any { friend -> friend.id == it.friendId } }
 
     private fun seedShareRows(shares: List<TransactionShare>) {
         payerShareRows.clear()
@@ -1449,7 +1476,9 @@ class TransactionEntryActivity : AppCompatActivity() {
                 updateCategoryVisibility()
                 updateTrackedCategoryAmount()
             }
-            is TransactionEntryAction.IouLineToggled -> toggleIouLine(action.debtor, action.creditor)
+            is TransactionEntryAction.IouLineToggled -> toggleIouLine(action.debtor, action.creditor, action.passedOn)
+            is TransactionEntryAction.IouLineRouted ->
+                routeIouLine(action.debtor, action.creditor, action.passedOn, action.throughMe)
             is TransactionEntryAction.CategoryToggled -> updateCategoryVisibility()
             is TransactionEntryAction.CategoryAmountChanged -> updateCategoryVisibility()
             TransactionEntryAction.SaveClicked -> {
@@ -1516,7 +1545,9 @@ class TransactionEntryActivity : AppCompatActivity() {
                 initials = it.initials,
                 amountPaise = it.amountPaise,
                 keepPayeeLeg = it.keepPayeeLeg,
-                keepPayerLeg = it.keepPayerLeg
+                keepPayerLeg = it.keepPayerLeg,
+                payeeVia = it.payeeVia,
+                payerVia = it.payerVia
             )
         }
     }
@@ -1532,7 +1563,9 @@ class TransactionEntryActivity : AppCompatActivity() {
                 initials = it.initials,
                 amountPaise = it.amountPaise,
                 keepPayeeLeg = it.keepPayeeLeg,
-                keepPayerLeg = it.keepPayerLeg
+                keepPayerLeg = it.keepPayerLeg,
+                payeeVia = it.payeeVia,
+                payerVia = it.payerVia
             )
         })
     }
@@ -1829,13 +1862,17 @@ class TransactionEntryActivity : AppCompatActivity() {
         IouLegs.lines(payer, payee, shares, getCurrentAmountPaise(), chosenIouRecovery(payer, payee, shares))
 
     private fun renderIouLines(lines: List<IouLine>) {
-        val shown = lines.map { lineText(it) to it.kept }
+        val shown = lines.map { listOf(lineText(it), it.kept, routeActionFor(it)?.first) }
         if (shown == renderedIouLines) return
         renderedIouLines = shown
 
         iouLinesContainer.removeAllViews()
         lines.forEach { line ->
-            val pill = LayoutInflater.from(this).inflate(R.layout.item_iou_line, iouLinesContainer, false) as TextView
+            val lineRow = LinearLayout(this).apply {
+                orientation = LinearLayout.HORIZONTAL
+                gravity = android.view.Gravity.CENTER_VERTICAL
+            }
+            val pill = LayoutInflater.from(this).inflate(R.layout.item_iou_line, lineRow, false) as TextView
             pill.text = lineText(line)
             pill.isSelected = line.kept
             // Struck through as well as unselected, so a line left out reads as not owed at a glance.
@@ -1845,24 +1882,55 @@ class TransactionEntryActivity : AppCompatActivity() {
                 pill.paintFlags or Paint.STRIKE_THRU_TEXT_FLAG
             }
             pill.setOnClickListener {
-                viewModel.onAction(TransactionEntryAction.IouLineToggled(line.debtor, line.creditor))
+                viewModel.onAction(TransactionEntryAction.IouLineToggled(line.debtor, line.creditor, line.routed.isNotEmpty()))
             }
-            iouLinesContainer.addView(pill)
+            lineRow.addView(pill)
+
+            // Beside the pill rather than in a menu on it: tapping the pill already means keep or leave out.
+            routeActionFor(line)?.let { (label, throughMe) ->
+                val action = TextView(this).apply {
+                    text = label
+                    textSize = 11f
+                    setTextColor(themeColor(ThemeAttr.primary))
+                    setPadding(dp(8), dp(4), dp(8), dp(4))
+                    isClickable = true
+                    isFocusable = true
+                    setOnClickListener {
+                        viewModel.onAction(
+                            TransactionEntryAction.IouLineRouted(line.debtor, line.creditor, line.routed.isNotEmpty(), throughMe)
+                        )
+                    }
+                }
+                lineRow.addView(
+                    action,
+                    LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                        bottomMargin = resources.getDimensionPixelSize(R.dimen.space_xs)
+                    }
+                )
+            }
+            iouLinesContainer.addView(lineRow)
         }
     }
 
     /**
-     * Flips every share-row leg folded into the line between [debtor] and [creditor], found again from
-     * the rows as they stand now: the pill that was tapped may have been drawn before a row changed.
+     * What can be done to where [line] runs, as a label and whether it routes through ME: a debt
+     * between two other people can go through ME instead, and one that runs through someone can go
+     * straight again. Null for a line straight between ME and someone, where there is nothing between.
      */
-    private fun toggleIouLine(debtor: IouParty, creditor: IouParty) {
-        val payer = draftActorRef(true)
-        val payee = draftActorRef(false)
+    private fun routeActionFor(line: IouLine): Pair<String, Boolean>? = when {
+        line.routable -> "Through me" to true
+        line.routed.isNotEmpty() -> "Directly" to false
+        else -> null
+    }
+
+    /**
+     * Flips every share-row leg folded into the line between [debtor] and [creditor] -- the one passed on
+     * through a go-between, or the straight one -- found again from the rows as they stand now: the
+     * pill that was tapped may have been drawn before a row changed.
+     */
+    private fun toggleIouLine(debtor: IouParty, creditor: IouParty, passedOn: Boolean) {
         val draft = draftShareRows(0L)
-        val shares = draft.map { it.second }
-        val line = currentIouLines(payer, payee, shares)
-            .firstOrNull { setOf(it.debtor, it.creditor) == setOf(debtor, creditor) }
-            ?: return
+        val line = findIouLine(draft, debtor, creditor, passedOn) ?: return
         line.sources.forEach { source ->
             val row = draft[source.shareIndex].first
             if (source.owesPayer) row.keepPayerLeg = !line.kept else row.keepPayeeLeg = !line.kept
@@ -1870,6 +1938,37 @@ class TransactionEntryActivity : AppCompatActivity() {
         updateIouRecoveryUi()
         updateCategoryVisibility()
         updateTrackedCategoryAmount()
+    }
+
+    /**
+     * Runs the line between [debtor] and [creditor] through ME, or straight again. Either way everyone
+     * ends up owing or owed what they were overall -- only who they owe it to changes -- so what ME
+     * categorises does not move.
+     */
+    private fun routeIouLine(debtor: IouParty, creditor: IouParty, passedOn: Boolean, throughMe: Boolean) {
+        val draft = draftShareRows(0L)
+        val line = findIouLine(draft, debtor, creditor, passedOn) ?: return
+        val sources: List<IouLegSource> = if (throughMe) line.sources else line.routed.map { it.source }
+        sources.forEach { source ->
+            val row = draft[source.shareIndex].first
+            val via = if (throughMe) IouParty.Me else null
+            if (source.owesPayer) row.payerVia = via else row.payeeVia = via
+        }
+        updateIouRecoveryUi()
+        updateCategoryVisibility()
+        updateTrackedCategoryAmount()
+    }
+
+    private fun findIouLine(
+        draft: List<Pair<ShareRow, TransactionShare>>,
+        debtor: IouParty,
+        creditor: IouParty,
+        passedOn: Boolean
+    ): IouLine? {
+        val payer = draftActorRef(true)
+        val payee = draftActorRef(false)
+        return currentIouLines(payer, payee, draft.map { it.second })
+            .firstOrNull { setOf(it.debtor, it.creditor) == setOf(debtor, creditor) && it.routed.isNotEmpty() == passedOn }
     }
 
     /** What saving now would store: the user's pick, then the split's shape. */
@@ -1904,11 +2003,19 @@ class TransactionEntryActivity : AppCompatActivity() {
 
     private fun lineText(line: IouLine): String {
         val amount = AmountFormat.rupees(line.amountPaise)
-        return when {
+        val base = when {
             line.debtor == IouParty.Me -> "You owe ${partyName(line.creditor)} $amount"
             line.creditor == IouParty.Me -> "${partyName(line.debtor)} owes you $amount"
             else -> "${partyName(line.debtor)} owes ${partyName(line.creditor)} $amount"
         }
+        if (line.routed.isEmpty()) return base
+        // Whose debt is being passed on: "(for Asha)", or "(₹500 for Bob)" when only part of it is.
+        val byFarEnd = line.routed.groupBy { it.farEnd }.mapValues { (_, parts) -> parts.sumOf { it.amountPaise } }
+        val detail = byFarEnd.entries.joinToString(", ") { (farEnd, paise) ->
+            if (byFarEnd.size == 1 && paise == line.amountPaise) "for ${partyName(farEnd)}"
+            else "${AmountFormat.rupees(paise)} for ${partyName(farEnd)}"
+        }
+        return "$base ($detail)"
     }
 
     private fun partyName(party: IouParty): String = when (party) {
@@ -2069,13 +2176,18 @@ class TransactionEntryActivity : AppCompatActivity() {
         val db = AppDatabase.Companion.getInstance(applicationContext)
 
         if (!resolveChapterBeforeSaving(db, amountPaise)) return
+        if (!decideOutsiders()) return
 
         val membersBefore = chapterMemberIds(db, selectedChapterId)
         // A row first counted now: typed in, or reviewed from pending. Nothing about it was known
         // when any agreement it falls under was made.
         val firstCounted = currentTransaction?.isPending ?: true
         val chaptersTouched = setOfNotNull(currentTransaction?.chapterId, selectedChapterId)
-        val savedId = withContext(Dispatchers.IO) { persistTransaction(db, amountPaise, payerLabel, payeeLabel, myShare) }
+        val savedId = try {
+            withContext(Dispatchers.IO) { persistTransaction(db, amountPaise, payerLabel, payeeLabel, myShare) }
+        } catch (e: ChapterException) {
+            return toast(e.message ?: "Could not save it in that chapter")
+        }
         publishIfShared(db, chaptersTouched)
         reportAddedMembers(db, membersBefore)
         currentTransaction?.let { TransactionNotificationHelper.cancel(applicationContext, it.id.toInt()) }
@@ -2309,7 +2421,19 @@ class TransactionEntryActivity : AppCompatActivity() {
                     amountPaise = row.amountPaise,
                     keepPayeeLeg = row.keepPayeeLeg,
                     keepPayerLeg = row.keepPayerLeg
-                )
+                ).let { draftRow ->
+                    val via = IouLegs.withVia(
+                        IouLegs.withVia(TransactionShare(transactionId = 0L, participantType = row.participantType, amountPaise = 0L), false, row.payeeVia),
+                        true,
+                        row.payerVia
+                    )
+                    draftRow.copy(
+                        payeeLegVia = via.payeeLegVia,
+                        payeeLegViaFriendId = via.payeeLegViaFriendId,
+                        payerLegVia = via.payerLegVia,
+                        payerLegViaFriendId = via.payerLegViaFriendId
+                    )
+                }
             }
         }
         val categories = categoryEntries.filter { it.isChecked }.map {
@@ -2395,8 +2519,16 @@ class TransactionEntryActivity : AppCompatActivity() {
             initials = row.initials,
             amountPaise = row.amountPaise,
             keepPayeeLeg = row.keepPayeeLeg,
-            keepPayerLeg = row.keepPayerLeg
+            keepPayerLeg = row.keepPayerLeg,
+            payeeVia = knownVia(viaOfDraft(row.payeeLegVia, row.payeeLegViaFriendId)),
+            payerVia = knownVia(viaOfDraft(row.payerLegVia, row.payerLegViaFriendId))
         )
+    }
+
+    private fun viaOfDraft(type: String?, friendId: Long?): IouParty? = when (type) {
+        ActorType.ME -> IouParty.Me
+        ActorType.FRIEND -> friendId?.let { IouParty.Friend(it) }
+        else -> null
     }
 
     // --- chapter template --------------------------------------------------------------------
@@ -2446,6 +2578,162 @@ class TransactionEntryActivity : AppCompatActivity() {
         if (changed) updateLiveCalc()
     }
 
+    // --- people outside the chapter --------------------------------------------------------------
+
+    /** Someone on the form: a friend, or a name typed in that this save will add as one. */
+    private data class FormPerson(val friendId: Long?, val name: String) {
+        val party: IouParty get() = friendId?.let { IouParty.Friend(it) } ?: IouParty.Person(name)
+    }
+
+    /** Everyone the form names, once each: either end, a split row, or someone a debt runs through. */
+    private fun peopleOnForm(): List<FormPerson> {
+        val people = linkedMapOf<String, FormPerson>()
+        fun add(friendId: Long?, name: String) {
+            val trimmed = name.trim()
+            val key = friendId?.let { "id:$it" } ?: trimmed.lowercase().takeIf { it.isNotEmpty() }?.let { "name:$it" } ?: return
+            people.putIfAbsent(key, FormPerson(friendId, trimmed))
+        }
+        listOf(true, false).forEach { isPayer ->
+            if (actorTypeFor(isPayer) == ActorType.FRIEND) {
+                val friendId = draftActorRef(isPayer).friendId
+                add(friendId, friendId?.let(::friendNameOf) ?: primaryLabel(isPayer))
+            }
+        }
+        val rows = payerShareRows + payeeShareRows
+        rows.filter { it.participantType == ActorType.FRIEND }.forEach { add(it.friendId, it.label) }
+        rows.flatMap { listOfNotNull(it.payeeVia, it.payerVia) }
+            .filterIsInstance<IouParty.Friend>()
+            .forEach { add(it.friendId, friendNameOf(it.friendId)) }
+        return people.values.toList()
+    }
+
+    /**
+     * Asks, for everyone on the form the selected chapter does not hold, whether to add them to it --
+     * what tagging has always done (R5) -- or keep them outside, where what they and ME owe each other
+     * stays in the base ledger. Keeping someone out routes their debts with anyone else in it through
+     * ME, and the question says so.
+     *
+     * Asked every time rather than remembered per person, since who deals with whom changes -- except
+     * about whoever the saved row already keeps outside, when that still holds as it stands. False
+     * when the user backs out, which stops the save.
+     */
+    private suspend fun decideOutsiders(): Boolean {
+        keptOutsideIds = emptySet()
+        keptOutsideNames = emptySet()
+        val option = chapterOptions.firstOrNull { it.chapter.id == selectedChapterId } ?: return true
+        // A friend's chapter takes nothing tagged here, so its members are not this save's to grow.
+        if (!option.chapter.isOwn) return true
+        val missing = peopleOnForm().filter { it.friendId == null || it.friendId !in option.memberIds }
+        if (missing.isEmpty()) return true
+
+        val outside = mutableListOf<FormPerson>()
+        for (person in missing) {
+            val parties = (outside + person).map { it.party }.toSet()
+            val payer = draftActorRef(true)
+            val payee = draftActorRef(false)
+            val shares = buildSharesForPersistence(0L)
+            val routed = IouLegs.routeOutsidersThroughMe(
+                payer, payee, shares, getCurrentAmountPaise(), chosenIouRecovery(payer, payee, shares), parties
+            )
+            val reroutes = routed != null && routed != shares
+            if (person.friendId != null && person.friendId in storedOutsiders && routed != null && !reroutes) {
+                outside += person
+                continue
+            }
+            val note = routingNote(person.party, parties)
+            when (askAboutOutsider(person.name, option.chapter.name, canKeepOutside = routed != null, routingNote = note)) {
+                OutsiderChoice.ADD -> Unit
+                OutsiderChoice.KEEP_OUTSIDE -> {
+                    routed?.let(::applyRouting)
+                    outside += person
+                }
+                OutsiderChoice.CANCEL -> return false
+            }
+        }
+        keptOutsideIds = outside.mapNotNull { it.friendId }.toSet()
+        keptOutsideNames = outside.filter { it.friendId == null }.map { it.name.lowercase() }.toSet()
+        if (outside.isNotEmpty()) {
+            buildShareSection(true)
+            buildShareSection(false)
+            updateLiveCalc()
+        }
+        return true
+    }
+
+    /** "Bob owing Asha ₹500 will go through you." for each debt keeping [party] out would reroute. */
+    private fun routingNote(party: IouParty, outsiders: Set<IouParty>): String? {
+        val payer = draftActorRef(true)
+        val payee = draftActorRef(false)
+        val lines = currentIouLines(payer, payee, buildSharesForPersistence(0L)).filter { line ->
+            val ends = setOf(line.debtor, line.creditor)
+            line.kept && party in ends && ends.none { it == IouParty.Me || (it != party && it in outsiders) }
+        }
+        if (lines.isEmpty()) return null
+        return lines.joinToString("\n") { line ->
+            "${partyName(line.debtor)} owing ${partyName(line.creditor)} ${AmountFormat.rupees(line.amountPaise)} will go through you."
+        }
+    }
+
+    /** Copies who each IOU runs through off [routed] -- [buildSharesForPersistence]'s list, rerouted -- onto the rows. */
+    private fun applyRouting(routed: List<TransactionShare>) {
+        draftShareRows(0L).forEachIndexed { index, (row, _) ->
+            val share = routed.getOrNull(index) ?: return@forEachIndexed
+            row.payeeVia = IouLegs.viaOf(share, owesPayer = false)
+            row.payerVia = IouLegs.viaOf(share, owesPayer = true)
+        }
+    }
+
+    /**
+     * The friends [decideOutsiders] kept out, by id now that the save has resolved everyone: someone
+     * typed in fresh is matched by the name they were kept out under.
+     */
+    private fun resolvedOutsiders(): Set<Long> {
+        if (keptOutsideIds.isEmpty() && keptOutsideNames.isEmpty()) return emptySet()
+        val byName = buildSet {
+            listOf(true, false).forEach { isPayer ->
+                val friendId = if (isPayer) payerFriendId else payeeFriendId
+                if (actorTypeFor(isPayer) == ActorType.FRIEND && friendId != null &&
+                    primaryLabel(isPayer).lowercase() in keptOutsideNames
+                ) add(friendId)
+            }
+            (payerShareRows + payeeShareRows).forEach { row ->
+                val friendId = row.friendId
+                if (friendId != null && row.label.trim().lowercase() in keptOutsideNames) add(friendId)
+            }
+        }
+        return keptOutsideIds + byName
+    }
+
+    private enum class OutsiderChoice { ADD, KEEP_OUTSIDE, CANCEL }
+
+    private suspend fun askAboutOutsider(
+        name: String,
+        chapterName: String,
+        canKeepOutside: Boolean,
+        routingNote: String?
+    ): OutsiderChoice = suspendCancellableCoroutine { continuation ->
+        fun answer(choice: OutsiderChoice) {
+            if (continuation.isActive) continuation.resume(choice) { _, _, _ -> }
+        }
+        val message = if (canKeepOutside) {
+            "Add them to it, or keep them outside: what you and $name owe each other on this stays " +
+                "between the two of you, out of the chapter." + (routingNote?.let { "\n\n$it" } ?: "")
+        } else {
+            "Someone in the chapter pays $name, or is paid by them, straight, so they cannot be kept " +
+                "outside it. Add them, or take this out of the chapter."
+        }
+        val builder = AlertDialog.Builder(this)
+            .setTitle("$name isn't in $chapterName")
+            .setMessage(message)
+            .setPositiveButton("Add to chapter") { _, _ -> answer(OutsiderChoice.ADD) }
+            .setNeutralButton("Cancel") { _, _ -> answer(OutsiderChoice.CANCEL) }
+            .setOnCancelListener { answer(OutsiderChoice.CANCEL) }
+        if (canKeepOutside) builder.setNegativeButton("Keep outside") { _, _ -> answer(OutsiderChoice.KEEP_OUTSIDE) }
+        val dialog = builder.create()
+        continuation.invokeOnCancellation { dialog.dismiss() }
+        dialog.show()
+    }
+
     /** [categoryAmountPaise] is the figure the categories were just validated against. */
     // --- chapters -------------------------------------------------------------------------------
 
@@ -2479,6 +2767,9 @@ class TransactionEntryActivity : AppCompatActivity() {
         val current = tx?.chapterId?.let { id -> chapterOptions.firstOrNull { it.chapter.id == id } }
         // R8 is about the user's own chapters: a friend closing theirs locks nothing here (S6).
         chapterLocked = current?.chapter?.isOwn == true && current.chapter.state == ChapterState.CLOSED
+        storedOutsiders = tx?.takeIf { it.chapterId != null }
+            ?.let { withContext(Dispatchers.IO) { db.chapterOutsiderDao().forTransaction(it.id).toSet() } }
+            .orEmpty()
 
         val pended = draftSnapshot?.draft
         selectedChapterId = when {
@@ -2698,7 +2989,8 @@ class TransactionEntryActivity : AppCompatActivity() {
             chooseIouRecovery = { payer, payee, shares -> chosenIouRecovery(payer, payee, shares) },
             persistCategories = { transactionId, toCategorisePaise, payer, payee ->
                 persistCategories(db, transactionId, toCategorisePaise, payer, payee)
-            }
+            },
+            resolveOutsiders = { resolvedOutsiders() }
         )
 
     // --- agreed balances ----------------------------------------------------------------------------
@@ -2839,7 +3131,7 @@ class TransactionEntryActivity : AppCompatActivity() {
                     rawLabel = row.carriedLabel(),
                     keepPayeeLeg = row.keepPayeeLeg,
                     keepPayerLeg = row.keepPayerLeg
-                )
+                ).let { IouLegs.withVia(IouLegs.withVia(it, false, row.payeeVia), true, row.payerVia) }
             }
         }
 

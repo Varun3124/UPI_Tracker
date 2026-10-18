@@ -66,15 +66,15 @@ object AmountFormat {
         return out.append(',').append(tail).toString()
     }
 
-    /** The default: signed, symbol-prefixed, whole rupees. */
-    fun rupees(paise: Long): String = sign(paise) + SYMBOL + groupIndian(paise / 100)
-
     /**
-     * Signed and symbol-prefixed, keeping the paise only when there are any. Used where an amount has
-     * to be exact rather than tidy -- validation messages, account balances, the entry screen's
-     * running totals.
+     * The default: signed, symbol-prefixed and exact -- the paise to two places, dropped only when
+     * they are both zero. `₹500`, `₹500.50`, `₹1,50,000.05`. Never rounded to whole rupees: a balance
+     * of 499.99 is not 499, and the figures on every screen have to add up to what the ledger holds.
      */
-    fun rupeesExact(paise: Long): String = sign(paise) + SYMBOL + exact(abs(paise))
+    fun rupees(paise: Long): String = sign(paise) + SYMBOL + exact(abs(paise))
+
+    /** The same as [rupees], from when that rounded to whole rupees and this was the exact one. */
+    fun rupeesExact(paise: Long): String = rupees(paise)
 
     /** As [rupeesExact] but without the symbol, for strings that supply their own. */
     fun plain(paise: Long): String = sign(paise) + exact(abs(paise))
@@ -108,28 +108,36 @@ object AmountFormat {
     }
 
     /**
-     * Chart axis ticks, where lakh commas are too wide to fit beside a plot: `12k`, `1.5L`, `2.4Cr`.
-     * One decimal only while the leading figure is a single digit, so labels keep a similar width as
-     * the axis rescales.
+     * Chart axis ticks, where lakh commas are too wide to fit beside a plot: `12k`, `1.25L`, `2.4Cr`.
+     *
+     * Exact, like every other amount, and never more than two decimals: the largest unit the value
+     * can be written in that way. A tick at 1,02,500 would need three in lakhs, so it reads `102.5k`
+     * instead. Trailing zeros go, since a label has no column to line up in: `1.5L`, not `1.50L`.
      */
     fun axis(paise: Long): String {
-        val rupees = paise / 100
-        val magnitude = abs(rupees)
-        val body = when {
-            magnitude < 1_000L -> magnitude.toString()
-            magnitude < 100_000L -> compact(magnitude, 1_000.0, "k")
-            magnitude < 10_000_000L -> compact(magnitude, 100_000.0, "L")
-            else -> compact(magnitude, 10_000_000.0, "Cr")
+        val magnitude = abs(paise)
+        val unit = AXIS_UNITS.firstOrNull { (unitPaise, _) ->
+            magnitude >= unitPaise && (magnitude * 100) % unitPaise == 0L
         }
-        return sign(rupees) + body
+        val body = if (unit == null) {
+            hundredths(magnitude)
+        } else {
+            hundredths(magnitude * 100 / unit.first) + unit.second
+        }
+        return sign(paise) + body
     }
 
-    private fun compact(magnitude: Long, divisor: Double, suffix: String): String {
-        val scaled = magnitude / divisor
-        return if (scaled < 10.0 && scaled != scaled.toLong().toDouble()) {
-            String.format(Locale.ROOT, "%.1f", scaled) + suffix
-        } else {
-            scaled.toLong().toString() + suffix
+    /** A crore, a lakh and a thousand, in paise, largest first. */
+    private val AXIS_UNITS = listOf(1_000_000_000L to "Cr", 10_000_000L to "L", 100_000L to "k")
+
+    /** [value] hundredths as up to two decimals, trailing zeros dropped: 125 -> `1.25`, 150 -> `1.5`, 1200 -> `12`. */
+    private fun hundredths(value: Long): String {
+        val whole = value / 100
+        val fraction = value % 100
+        return when {
+            fraction == 0L -> whole.toString()
+            fraction % 10 == 0L -> "$whole.${fraction / 10}"
+            else -> "$whole." + fraction.toString().padStart(2, '0')
         }
     }
 
@@ -140,6 +148,19 @@ object AmountFormat {
         // Format the fractional part on its own so the grouping rule above still owns the integer
         // part; "0.50".removePrefix("0") leaves ".50".
         return whole + plainTwoDp.get()!!.format(magnitude % 100 / 100.0).removePrefix("0")
+    }
+
+    /**
+     * [candidatePaise] beside the [targetPaise] it may be a record of: `₹505 (₹5 more)`, or just the
+     * amount when the two agree. For the import screens, which offer near misses as well as exact ones.
+     */
+    fun nearMiss(candidatePaise: Long, targetPaise: Long): String {
+        val difference = candidatePaise - targetPaise
+        return when {
+            difference > 0L -> "${rupees(candidatePaise)} (${rupees(difference)} more)"
+            difference < 0L -> "${rupees(candidatePaise)} (${rupees(-difference)} less)"
+            else -> rupees(candidatePaise)
+        }
     }
 
     /** The sign goes before the symbol, so a negative balance reads `-<symbol>500`, not `<symbol>-500`. */

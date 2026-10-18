@@ -616,7 +616,7 @@ private class ParcelRowAdapter(
             view.findViewById<TextView>(R.id.tvParcelCandidateName).text =
                 candidate.transaction.reason ?: "Your own record"
             view.findViewById<TextView>(R.id.tvParcelCandidateAmount).text =
-                AmountFormat.rupees(candidate.transaction.amountPaise)
+                AmountFormat.nearMiss(candidate.transaction.amountPaise, entry.row.amountPaise)
             view.findViewById<TextView>(R.id.tvParcelCandidateDate).text =
                 dateFmt.format(Date(candidate.transaction.dateEpoch))
             view.findViewById<TextView>(R.id.tvParcelCandidateHint).visibility =

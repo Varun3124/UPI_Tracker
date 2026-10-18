@@ -10,11 +10,17 @@ import com.varun.upitracker.database.entity.ChapterBalance
 import com.varun.upitracker.database.entity.ChapterMember
 import com.varun.upitracker.database.entity.ChapterState
 import com.varun.upitracker.database.entity.Transaction
+import com.varun.upitracker.database.entity.TransactionShare
+import com.varun.upitracker.database.dao.replace
 import com.varun.upitracker.domain.chapter.ChapterEligibility
 import com.varun.upitracker.domain.chapter.ChapterMath
 import com.varun.upitracker.domain.chapter.ChapterResult
 import com.varun.upitracker.domain.chapter.TaggedTx
 import com.varun.upitracker.domain.declaration.Absorption
+import com.varun.upitracker.domain.iou.IouLegs
+import com.varun.upitracker.domain.iou.IouParty
+import com.varun.upitracker.ui.payeeActorRef
+import com.varun.upitracker.ui.payerActorRef
 import com.varun.upitracker.domain.transactionentry.persistence.ChapterSync
 import com.varun.upitracker.ledger.LedgerManager
 import com.varun.upitracker.ledger.LedgerReplayer
@@ -24,6 +30,19 @@ private const val TAG = "ChapterRepository"
 
 /** A chapter refused an operation, with a message fit to put in front of the user. */
 class ChapterException(message: String) : Exception(message)
+
+/**
+ * Someone a batch of transactions names that the chapter they are going into does not hold, and so
+ * has to be asked about: added (R5) or kept outside. [canKeepOutside] is false when one of their rows
+ * pays them straight from someone inside, which no routing can change; [reroutes] says keeping them
+ * out would send some of their debts through ME.
+ */
+data class OutsiderCandidate(
+    val friendId: Long,
+    val name: String,
+    val canKeepOutside: Boolean,
+    val reroutes: Boolean
+)
 
 /** What [ChapterRepository.tagAll] did with a batch of transactions. */
 data class BulkTagResult(
@@ -117,6 +136,8 @@ class ChapterRepository(private val db: AppDatabase) {
     suspend fun delete(chapterId: Long) = db.withTransaction {
         val tagged = db.chapterDao().taggedTransactions(chapterId)
         val friends = affectedFriends(tagged) + db.declarationDao().friendIdsCountingChapter(chapterId)
+        // Back in the base ledger whole, nobody on them is outside anything any more.
+        tagged.forEach { db.chapterOutsiderDao().clear(it.id) }
         db.transactionDao().untagChapter(chapterId)
         db.chapterDao().deleteById(chapterId)
         replayer.replay(friends)
@@ -149,21 +170,55 @@ class ChapterRepository(private val db: AppDatabase) {
      *
      * What the entry screen does on save is the same sequence, run inside its own transaction -- see
      * `ChapterSync`. This is the path for tagging from a chapter screen, where nothing else about
-     * the transaction is changing.
+     * the transaction is changing -- except that anyone in [keepOutside] it names, and the chapter
+     * does not hold, stays outside it: their debts with anyone in it other than ME are routed through
+     * ME first, which is the one change to the transaction's split this can make.
      */
-    suspend fun setChapterFor(transactionId: Long, chapterId: Long?) = db.withTransaction {
-        val tx = db.transactionDao().getTransactionById(transactionId)
-            ?: throw ChapterException("That transaction is gone")
-        if (tx.refundsTransactionId != null) {
-            throw ChapterException("A refund follows its original purchase")
+    suspend fun setChapterFor(transactionId: Long, chapterId: Long?, keepOutside: Set<Long> = emptySet()) =
+        db.withTransaction {
+            val tx = db.transactionDao().getTransactionById(transactionId)
+                ?: throw ChapterException("That transaction is gone")
+            if (tx.refundsTransactionId != null) {
+                throw ChapterException("A refund follows its original purchase")
+            }
+            assertNotLockedByClosedChapter(tx.chapterId)
+            assertNotInCopy(tx.chapterId)
+            if (chapterId != null) {
+                val shares = db.transactionShareDao().getSharesForTransaction(tx.id)
+                val members = db.chapterDao().memberIds(chapterId).toSet()
+                // Tagged again into the chapter it is already in: whoever it keeps outside stays there.
+                val already = if (tx.chapterId == chapterId) db.chapterOutsiderDao().forTransaction(tx.id).toSet() else emptySet()
+                val outsiders = ((keepOutside + already) intersect ChapterMath.friendsIn(tx, shares)) - members
+                val routed = routeOutsiders(tx, shares, outsiders)
+                if (routed != shares) {
+                    db.transactionShareDao().deleteForTransaction(tx.id)
+                    db.transactionShareDao().insertAll(routed.map { it.copy(id = 0) })
+                }
+                assertTaggable(tx, routed, chapterId, outsiders)
+                db.chapterOutsiderDao().replace(tx.id, outsiders)
+            } else {
+                db.chapterOutsiderDao().clear(tx.id)
+            }
+            applyChapterChangeInTransaction(tx.id, previous = tx.chapterId, current = chapterId)
         }
-        assertNotLockedByClosedChapter(tx.chapterId)
-        assertNotInCopy(tx.chapterId)
-        if (chapterId != null) {
-            val shares = db.transactionShareDao().getSharesForTransaction(tx.id)
-            assertTaggable(tx, shares, chapterId)
+
+    /**
+     * [shares] with [outsiders]' debts to anyone inside routed through ME, or a refusal naming who
+     * cannot be kept out: someone owed or owing the whole amount straight, which no share row holds.
+     */
+    private suspend fun routeOutsiders(tx: Transaction, shares: List<TransactionShare>, outsiders: Set<Long>): List<TransactionShare> {
+        if (outsiders.isEmpty()) return shares
+        return IouLegs.routeOutsidersThroughMe(
+            tx.payerActorRef(),
+            tx.payeeActorRef(),
+            shares,
+            tx.amountPaise,
+            IouLegs.resolve(tx, shares),
+            outsiders.map { IouParty.Friend(it) }.toSet()
+        ) ?: run {
+            val names = outsiders.mapNotNull { db.friendDao().getFriendById(it)?.name }.joinToString(", ")
+            throw ChapterException("$names cannot stay outside: this is paid straight between them and someone in it")
         }
-        applyChapterChangeInTransaction(tx.id, previous = tx.chapterId, current = chapterId)
     }
 
     /**
@@ -175,7 +230,7 @@ class ChapterRepository(private val db: AppDatabase) {
      * carries it along, and trying it first would report "follows its original purchase" for a row
      * that ends up exactly where it was asked to go.
      */
-    suspend fun tagAll(chapterId: Long, transactionIds: Set<Long>): BulkTagResult {
+    suspend fun tagAll(chapterId: Long, transactionIds: Set<Long>, keepOutside: Set<Long> = emptySet()): BulkTagResult {
         val membersBefore = db.chapterDao().memberIds(chapterId).toSet()
         val carried = transactionIds.filter { id ->
             val original = db.transactionDao().getTransactionById(id)?.refundsTransactionId
@@ -185,7 +240,7 @@ class ChapterRepository(private val db: AppDatabase) {
         val failures = mutableListOf<String>()
         (transactionIds - carried).forEach { id ->
             try {
-                setChapterFor(id, chapterId)
+                setChapterFor(id, chapterId, keepOutside)
             } catch (e: ChapterException) {
                 failures += e.message ?: "That did not work"
             }
@@ -199,6 +254,46 @@ class ChapterRepository(private val db: AppDatabase) {
             addedMemberIds = db.chapterDao().memberIds(chapterId).toSet() - membersBefore,
             failures = failures
         )
+    }
+
+    /**
+     * Who tagging [transactionIds] into [chapterId] would have to ask about: everyone they name the
+     * chapter does not hold, in name order. Read only; nothing is tagged.
+     *
+     * Each person is judged on their own. Two people kept out of one row together could, between them,
+     * be harder to route than either alone -- [setChapterFor] is what has the last word, and refuses
+     * that row with a reason.
+     */
+    suspend fun outsiderCandidates(chapterId: Long, transactionIds: Set<Long>): List<OutsiderCandidate> {
+        val chapter = db.chapterDao().getById(chapterId) ?: return emptyList()
+        if (!chapter.isOwn) return emptyList()
+        val members = db.chapterDao().memberIds(chapterId).toSet()
+        val rows = rowsFor(transactionIds.toList()).filter { it.transaction.chapterId != chapterId }
+
+        val canKeep = linkedMapOf<Long, Boolean>()
+        val reroutes = linkedMapOf<Long, Boolean>()
+        rows.forEach { (tx, shares) ->
+            (ChapterMath.friendsIn(tx, shares) - members).forEach { friendId ->
+                val routed = IouLegs.routeOutsidersThroughMe(
+                    tx.payerActorRef(),
+                    tx.payeeActorRef(),
+                    shares,
+                    tx.amountPaise,
+                    IouLegs.resolve(tx, shares),
+                    setOf(IouParty.Friend(friendId))
+                )
+                canKeep[friendId] = (canKeep[friendId] ?: true) && routed != null
+                reroutes[friendId] = (reroutes[friendId] ?: false) || (routed != null && routed != shares)
+            }
+        }
+        return canKeep.keys.map { friendId ->
+            OutsiderCandidate(
+                friendId = friendId,
+                name = db.friendDao().getFriendById(friendId)?.name ?: "Someone",
+                canKeepOutside = canKeep.getValue(friendId),
+                reroutes = reroutes.getValue(friendId)
+            )
+        }.sortedBy { it.name.lowercase() }
     }
 
     // --- recompute -------------------------------------------------------------------------------
@@ -262,6 +357,10 @@ class ChapterRepository(private val db: AppDatabase) {
         // read off the transaction, and their entries for it are already gone, so the caller has to
         // have captured them first.
         val friends = affectedFriends(rows.map { it.transaction }) + alsoReplay
+        // Someone kept outside a chapter has their part of a tagged row in the base ledger, so any
+        // change to one rebuilds theirs: whoever is outside now, and whoever held an entry for it
+        // before -- outside then, and maybe not any more.
+        val outside = rows.flatMap { it.outsiders } + db.iouDao().friendIdsWithEntriesFor(rows.map { it.transaction.id })
 
         val touched = setOfNotNull(previous, current)
         val before = contributionsOf(touched)
@@ -271,14 +370,16 @@ class ChapterRepository(private val db: AppDatabase) {
 
         if (current != null) {
             val members = db.chapterDao().memberIds(current).toSet()
-            val missing = rows.flatMap { ChapterEligibility.missingMembers(it.transaction, it.shares, members) }
+            val missing = rows.flatMap {
+                ChapterEligibility.missingMembers(it.transaction, it.shares, members, it.outsiders)
+            }
             addMembersInTransaction(current, missing.toSet(), System.currentTimeMillis())
         }
 
         val versionDates = rows.map { it.transaction.dateEpoch } + listOfNotNull(previousDateEpoch)
         val absorbed = recomputeAbsorbingInTransaction(touched, before, versionDates)
 
-        replayer.replay((if (replay) friends else emptySet()) + absorbed)
+        replayer.replay((if (replay) friends else emptySet()) + absorbed + outside)
     }
 
     /**
@@ -334,12 +435,20 @@ class ChapterRepository(private val db: AppDatabase) {
     /** R4 and R8, enforced here and not only in the UI. Throws with the reason to show. */
     suspend fun assertTaggable(
         tx: Transaction,
-        shares: List<com.varun.upitracker.database.entity.TransactionShare>,
-        chapterId: Long
+        shares: List<TransactionShare>,
+        chapterId: Long,
+        outsiders: Set<Long> = emptySet()
     ) {
         val chapter = db.chapterDao().getById(chapterId) ?: throw ChapterException("That chapter is gone")
         val original = tx.refundsTransactionId?.let { db.transactionDao().getTransactionById(it) }
         ChapterEligibility.blockedReason(tx, shares, chapter, original)?.let { throw ChapterException(it) }
+        assertOutsidersOwnNothingInside(tx, shares, outsiders)
+    }
+
+    /** Nobody kept outside may still owe, or be owed by, a member other than ME. */
+    suspend fun assertOutsidersOwnNothingInside(tx: Transaction, shares: List<TransactionShare>, outsiders: Set<Long>) {
+        val names = if (outsiders.isEmpty()) emptyMap() else outsiders.associateWith { db.friendDao().getFriendById(it)?.name }
+        ChapterEligibility.outsiderConflict(tx, shares, outsiders) { names[it] }?.let { throw ChapterException(it) }
     }
 
     /**
@@ -400,11 +509,19 @@ class ChapterRepository(private val db: AppDatabase) {
 
     private suspend fun attachShares(transactions: List<Transaction>): List<TaggedTx> {
         if (transactions.isEmpty()) return emptyList()
-        val byTransaction = db.transactionShareDao()
-            .getSharesForTransactions(transactions.map { it.id })
-            .groupBy { it.transactionId }
-        return transactions.map { TaggedTx(it, byTransaction[it.id].orEmpty()) }
+        val ids = transactions.map { it.id }
+        val byTransaction = db.transactionShareDao().getSharesForTransactions(ids).groupBy { it.transactionId }
+        val outsiders = db.chapterOutsiderDao().forTransactions(ids).groupBy({ it.transactionId }, { it.friendId })
+        return transactions.map { TaggedTx(it, byTransaction[it.id].orEmpty(), outsiders[it.id].orEmpty().toSet()) }
     }
+
+    /**
+     * Who must have their base ledger rebuilt when [tx] leaves the books -- deleted, reverted, put back
+     * to pending. Everyone it names when it is untagged; when it is tagged, only the friends who hold
+     * an entry for it, which is to say the ones it kept outside its chapter.
+     */
+    suspend fun baseLedgerFriendsOf(tx: Transaction): Set<Long> =
+        if (tx.chapterId == null) affectedFriends(listOf(tx)) else db.iouDao().friendIdsWithEntriesFor(listOf(tx.id)).toSet()
 
     private suspend fun requireChapter(chapterId: Long): Chapter =
         db.chapterDao().getById(chapterId) ?: throw ChapterException("That chapter is gone")

@@ -1,0 +1,83 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Settings > Duplicate check: how loosely statement and parcel imports look for a row already recorded. -->
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:paddingStart="@dimen/space_xl"
+        android:paddingEnd="@dimen/space_xl"
+        android:paddingTop="@dimen/space_s">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Days either side"
+            android:textAppearance="@style/TextAppearance.UPI.Caption" />
+
+        <EditText
+            android:id="@+id/etDuplicateDays"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:inputType="number"
+            android:importantForAutofill="no" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="0 looks on the same day only. Bank dates often lag a day, so 1 is a good start. Up to 7."
+            android:textAppearance="@style/TextAppearance.UPI.Caption"
+            android:textColor="?attr/appTextMuted" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/space_m"
+            android:text="Amount can differ by up to (₹)"
+            android:textAppearance="@style/TextAppearance.UPI.Caption" />
+
+        <EditText
+            android:id="@+id/etDuplicateAmount"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:inputType="numberDecimal"
+            android:importantForAutofill="no" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Either way, for fees and rounding. 0 means the exact amount. Up to ₹1000."
+            android:textAppearance="@style/TextAppearance.UPI.Caption"
+            android:textColor="?attr/appTextMuted" />
+
+        <CheckBox
+            android:id="@+id/cbDuplicateSameCounterparty"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/space_m"
+            android:text="Only ones with the same person or shop" />
+
+        <CheckBox
+            android:id="@+id/cbDuplicateSameAccount"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Statements: only ones on the statement's own account" />
+
+        <CheckBox
+            android:id="@+id/cbDuplicateSkipReferences"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Skip ones already tied to a different payment" />
+
+        <TextView
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/space_s"
+            android:text="Whether you paid or were paid always has to match. Nothing is marked as a duplicate without you ticking it."
+            android:textAppearance="@style/TextAppearance.UPI.Caption"
+            android:textColor="?attr/appTextMuted" />
+    </LinearLayout>
+</ScrollView>

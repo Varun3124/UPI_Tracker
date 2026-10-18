@@ -52,6 +52,16 @@ interface EntryDraftDao {
     @Query("UPDATE entry_draft_rows SET friendId = :targetId WHERE friendId = :sourceId")
     suspend fun reassignRowFriend(sourceId: Long, targetId: Long)
 
+    @Query(
+        """
+        UPDATE entry_draft_rows SET
+            payeeLegViaFriendId = CASE WHEN payeeLegViaFriendId = :sourceId THEN :targetId ELSE payeeLegViaFriendId END,
+            payerLegViaFriendId = CASE WHEN payerLegViaFriendId = :sourceId THEN :targetId ELSE payerLegViaFriendId END
+        WHERE payeeLegViaFriendId = :sourceId OR payerLegViaFriendId = :sourceId
+        """
+    )
+    suspend fun reassignRowVia(sourceId: Long, targetId: Long)
+
     @Query("UPDATE entry_drafts SET payerMerchantId = :targetId WHERE payerMerchantId = :sourceId")
     suspend fun reassignPayerMerchant(sourceId: Long, targetId: Long)
 

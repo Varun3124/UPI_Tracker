@@ -4,6 +4,7 @@ import android.content.Intent
 import android.os.Bundle
 import android.provider.Settings
 import android.view.View
+import android.widget.CheckBox
 import android.widget.EditText
 import android.widget.ImageButton
 import android.widget.Toast
@@ -12,7 +13,9 @@ import android.widget.TextView
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
 import com.varun.upitracker.R
+import com.varun.upitracker.data.prefs.DuplicateRulePrefs
 import com.varun.upitracker.data.prefs.IouThresholdPrefs
+import com.varun.upitracker.domain.dedup.DuplicateRules
 import com.varun.upitracker.data.prefs.SelfIdentity
 import com.varun.upitracker.domain.iou.IouThresholds
 import com.varun.upitracker.util.AmountFormat
@@ -61,6 +64,8 @@ class SettingsActivity : AppCompatActivity() {
         renderSelfIdentity()
         findViewById<View>(R.id.cardIouThresholds).setOnClickListener { editIouThresholds() }
         renderIouThresholds()
+        findViewById<View>(R.id.cardDuplicateRules).setOnClickListener { editDuplicateRules() }
+        renderDuplicateRules()
         findViewById<View>(R.id.cardFriendAliases).setOnClickListener {
             startActivity(AliasMappingsActivity.createIntent(this, AliasMappingsActivity.MODE_FRIEND))
         }
@@ -115,6 +120,81 @@ class SettingsActivity : AppCompatActivity() {
                 } else {
                     dialog.dismiss()
                     renderIouThresholds()
+                }
+            }
+        }
+        dialog.show()
+    }
+
+    private fun renderDuplicateRules() {
+        val rules = DuplicateRulePrefs(this).get()
+        val days = when (rules.daysEitherSide) {
+            0 -> "same day"
+            1 -> "1 day either side"
+            else -> "${rules.daysEitherSide} days either side"
+        }
+        val amount = if (rules.amountTolerancePaise == 0L) {
+            "exact amount"
+        } else {
+            "within ${AmountFormat.rupees(rules.amountTolerancePaise)}"
+        }
+        val extras = listOfNotNull(
+            "same person or shop".takeIf { rules.sameCounterpartyOnly },
+            "same account".takeIf { rules.sameAccountOnly }
+        )
+        findViewById<TextView>(R.id.tvDuplicateRulesSummary).text =
+            (listOf(days, amount) + extras).joinToString(" · ")
+    }
+
+    /** Statement and parcel imports both read these when they look for a row already recorded. */
+    private fun editDuplicateRules() {
+        val store = DuplicateRulePrefs(this)
+        val content = layoutInflater.inflate(R.layout.dialog_duplicate_rules, null)
+        val etDays = content.findViewById<EditText>(R.id.etDuplicateDays)
+        val etAmount = content.findViewById<EditText>(R.id.etDuplicateAmount)
+        val sameCounterparty = content.findViewById<CheckBox>(R.id.cbDuplicateSameCounterparty)
+        val sameAccount = content.findViewById<CheckBox>(R.id.cbDuplicateSameAccount)
+        val skipReferences = content.findViewById<CheckBox>(R.id.cbDuplicateSkipReferences)
+        fun show(rules: DuplicateRules) {
+            etDays.setText(rules.daysEitherSide.toString())
+            etAmount.setText(AmountFormat.forInput(rules.amountTolerancePaise))
+            sameCounterparty.isChecked = rules.sameCounterpartyOnly
+            sameAccount.isChecked = rules.sameAccountOnly
+            skipReferences.isChecked = rules.skipOtherReferences
+        }
+        show(store.get())
+
+        val dialog = AlertDialog.Builder(this)
+            .setTitle("Duplicate check")
+            .setView(content)
+            .setPositiveButton("Save", null)
+            .setNeutralButton("Defaults", null)
+            .setNegativeButton("Cancel", null)
+            .create()
+        // Wired after show so a refusal keeps the dialog open with what was typed.
+        dialog.setOnShowListener {
+            dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener { show(DuplicateRules()) }
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val days = etDays.text.toString().trim().ifBlank { "0" }.toIntOrNull()
+                val tolerance = AmountFormat.paiseOrNull(etAmount.text.toString().ifBlank { "0" })
+                val problem = if (days == null || tolerance == null) {
+                    "Enter a number of days and an amount in rupees."
+                } else {
+                    store.set(
+                        DuplicateRules(
+                            daysEitherSide = days,
+                            amountTolerancePaise = tolerance,
+                            sameCounterpartyOnly = sameCounterparty.isChecked,
+                            sameAccountOnly = sameAccount.isChecked,
+                            skipOtherReferences = skipReferences.isChecked
+                        )
+                    )
+                }
+                if (problem != null) {
+                    Toast.makeText(this, problem, Toast.LENGTH_LONG).show()
+                } else {
+                    dialog.dismiss()
+                    renderDuplicateRules()
                 }
             }
         }

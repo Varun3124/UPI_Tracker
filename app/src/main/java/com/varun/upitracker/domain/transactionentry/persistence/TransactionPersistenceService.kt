@@ -7,7 +7,10 @@ import com.varun.upitracker.database.entity.IouRecovery
 import com.varun.upitracker.database.entity.LedgerEffect
 import com.varun.upitracker.database.entity.Transaction
 import com.varun.upitracker.database.entity.TransactionShare
+import com.varun.upitracker.data.repository.ChapterException
 import com.varun.upitracker.data.repository.RepositoryChapterSync
+import com.varun.upitracker.database.dao.replace
+import com.varun.upitracker.domain.chapter.ChapterEligibility
 import com.varun.upitracker.domain.chapter.ChapterMath
 import com.varun.upitracker.domain.iou.IouLegs
 import com.varun.upitracker.ledger.LedgerManager
@@ -62,7 +65,13 @@ class TransactionPersistenceService(
         buildSharesForPersistence: (txId: Long) -> List<TransactionShare>,
         categoryAmountPaise: (shares: List<TransactionShare>) -> Long,
         chooseIouRecovery: (payer: ActorRef, payee: ActorRef, shares: List<TransactionShare>) -> IouRecovery,
-        persistCategories: suspend (transactionId: Long, categoryAmountPaise: Long, payer: ActorRef, payee: ActorRef) -> Unit
+        persistCategories: suspend (transactionId: Long, categoryAmountPaise: Long, payer: ActorRef, payee: ActorRef) -> Unit,
+        /**
+         * The friends to keep outside [PersistTransactionRequest.chapterId], asked once the actors and
+         * share rows are resolved -- someone named for the first time in this save only has an id from
+         * then on. Ignored outside a chapter.
+         */
+        resolveOutsiders: suspend (shares: List<TransactionShare>) -> Set<Long> = { emptySet() }
     ): Long {
         var persistedTransactionId = 0L
         val tx = request.existingTransaction
@@ -99,6 +108,16 @@ class TransactionPersistenceService(
 
                 val persistedShares = shares.map { it.copy(transactionId = transactionId) }
                 if (persistedShares.isNotEmpty()) db.transactionShareDao().insertAll(persistedShares)
+
+                // Written before afterPersist, which reads them: it is what rebuilds an outsider's
+                // base ledger with their part of the row in it.
+                val outsiders = if (chapterId == null) emptySet() else resolveOutsiders(persistedShares)
+                if (outsiders.isNotEmpty()) {
+                    val names = outsiders.associateWith { db.friendDao().getFriendById(it)?.name }
+                    ChapterEligibility.outsiderConflict(base.copy(id = transactionId), persistedShares, outsiders) { names[it] }
+                        ?.let { throw ChapterException(it) }
+                }
+                db.chapterOutsiderDao().replace(transactionId, outsiders)
 
                 persistCategories(transactionId, toCategorisePaise, payer, payee)
 

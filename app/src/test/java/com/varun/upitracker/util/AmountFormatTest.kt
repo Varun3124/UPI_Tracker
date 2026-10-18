@@ -42,6 +42,14 @@ class AmountFormatTest {
     }
 
     @Test
+    fun `the default is exact and drops only paise that are both zero`() {
+        assertEquals(rs + "499.99", AmountFormat.rupees(49_999))
+        assertEquals(rs + "500.50", AmountFormat.rupees(50_050))
+        assertEquals(rs + "500", AmountFormat.rupees(50_000))
+        assertEquals("-" + rs + "0.05", AmountFormat.rupees(-5))
+    }
+
+    @Test
     fun `exact keeps paise only when there are any`() {
         assertEquals(rs + "600", AmountFormat.rupeesExact(60_000))
         assertEquals(rs + "600.50", AmountFormat.rupeesExact(60_050))
@@ -74,5 +82,15 @@ class AmountFormatTest {
         assertEquals("12L", AmountFormat.axis(120_000_000))
         assertEquals("2.4Cr", AmountFormat.axis(240_000_000_0L))
         assertEquals("-1.5L", AmountFormat.axis(-15_000_000))
+    }
+
+    @Test
+    fun `axis is exact to two decimals and drops to a smaller unit rather than round`() {
+        assertEquals("1.25L", AmountFormat.axis(12_500_000))
+        assertEquals("102.5k", AmountFormat.axis(10_250_000))
+        assertEquals("1.05L", AmountFormat.axis(10_500_000))
+        assertEquals("12.5", AmountFormat.axis(1_250))
+        assertEquals("1.01Cr", AmountFormat.axis(1_010_000_000))
+        assertEquals("100.5L", AmountFormat.axis(1_005_000_000))
     }
 }

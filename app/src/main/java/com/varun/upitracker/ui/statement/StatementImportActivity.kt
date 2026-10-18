@@ -321,7 +321,7 @@ private class GroupAdapter(
         val inflater = LayoutInflater.from(holder.itemView.context)
         group.candidates.forEach { candidate ->
             holder.candidates.addView(
-                buildCandidateView(inflater, holder.candidates, position, candidate, selectedId)
+                buildCandidateView(inflater, holder.candidates, position, candidate, selectedId, group.row.amountPaise)
             )
         }
     }
@@ -331,7 +331,8 @@ private class GroupAdapter(
         parent: ViewGroup,
         groupIndex: Int,
         candidate: MatchCandidate,
-        selectedId: Long?
+        selectedId: Long?,
+        rowAmountPaise: Long
     ): View {
         val view = inflater.inflate(R.layout.item_statement_candidate, parent, false)
         val transaction = candidate.transaction
@@ -345,7 +346,7 @@ private class GroupAdapter(
         }
 
         view.findViewById<TextView>(R.id.tvCandidateAmount).text =
-            AmountFormat.rupees(transaction.amountPaise)
+            AmountFormat.nearMiss(transaction.amountPaise, rowAmountPaise)
         view.findViewById<TextView>(R.id.tvCandidateDate).text =
             dateFmt.format(Date(transaction.dateEpoch))
         view.findViewById<TextView>(R.id.tvCandidateAliasHint).visibility =
