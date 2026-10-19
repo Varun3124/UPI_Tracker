@@ -1120,10 +1120,12 @@ class TransactionEntryActivity : AppCompatActivity() {
 
     /**
      * How an endpoint reads in its field: its name, or blank when nobody was ever named. Never the
-     * "Friend" / "Merchant" a list shows for one -- in a field, saving would take that for a name.
+     * "Friend" / "Merchant" a list shows for one, nor "Me" -- switched to a friend or merchant, the
+     * field is pre-filled with this, and saving would take any of those for a name.
      */
     private suspend fun resolveInitialEndpointLabel(db: AppDatabase, isPayer: Boolean, tx: Transaction): String {
         val actor = if (isPayer) tx.payerActorRef() else tx.payeeActorRef()
+        if (actor.actorType == ActorType.ME) return ""
         val unnamed = actor.rawLabel.isNullOrBlank() && (
             (actor.actorType == ActorType.FRIEND && actor.friendId == null) ||
                 (actor.actorType == ActorType.MERCHANT && actor.merchantId == null)
@@ -1202,8 +1204,11 @@ class TransactionEntryActivity : AppCompatActivity() {
             ActorType.FRIEND -> {
                 val friendId = if (isPayer) payerFriendId else payeeFriendId
                 val friend = allFriends.firstOrNull { it.id == friendId }
-                    ?: return ShareRow("F:0", ActorType.FRIEND, null, "", "?", 0L)
-                buildFriendShareRow(friend)
+                if (friend != null) return buildFriendShareRow(friend)
+                // Nobody picked yet: start from the name this endpoint loaded with (its alias, or the
+                // raw name the bank gave), which saving resolves to a friend or creates one from.
+                val label = smsAliasFallback(isPayer)
+                ShareRow("F:0", ActorType.FRIEND, null, label, if (label.isBlank()) "?" else computeFriendInitials(label), 0L)
             }
             else -> buildMeShareRow()
         }
