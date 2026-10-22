@@ -1357,6 +1357,13 @@ class TransactionEntryActivity : AppCompatActivity() {
                 }
             }
 
+            // A merchant always takes the whole amount, so there is nothing to type; finishing fills it in.
+            if (isPrimary && actorTypeFor(isPayer) == ActorType.MERCHANT) {
+                etShareAmount.visibility = View.GONE
+                container.addView(rowView)
+                return@forEachIndexed
+            }
+
             if (row.amountPaise > 0) {
                 etShareAmount.setText(AmountFormat.forInput(row.amountPaise))
             }
@@ -1629,7 +1636,7 @@ class TransactionEntryActivity : AppCompatActivity() {
         }
         val rows = rowsFor(isPayer)
         val total = getCurrentAmountPaise()
-        val summed = rows.sumOf { it.amountPaise }
+        val summed = if (actorTypeFor(isPayer) == ActorType.MERCHANT) total else rows.sumOf { it.amountPaise }
         val result = shareCalculator.computeSectionBalance(total, summed)
         tv.text = when (result.state) {
             SectionBalanceState.BALANCED -> "✓ Balanced"
@@ -2134,6 +2141,7 @@ class TransactionEntryActivity : AppCompatActivity() {
 
         val amountPaise = getCurrentAmountPaise()
         if (amountPaise <= 0) return toast("Enter an amount")
+        fillMerchantShareAmounts()
         val payerLabel = primaryLabel(true)
         val payeeLabel = primaryLabel(false)
 
@@ -2204,6 +2212,14 @@ class TransactionEntryActivity : AppCompatActivity() {
      * Saves a ME -> ME entry as an [AccountTransfer] and nothing else: this path never touches
      * [transactionPersistenceService], so no `Transaction` row is written.
      */
+    /** A merchant's row has no amount field: it is the whole amount, set here as the form is finished. */
+    private fun fillMerchantShareAmounts() {
+        val amount = getCurrentAmountPaise()
+        listOf(true, false).forEach { isPayer ->
+            if (actorTypeFor(isPayer) == ActorType.MERCHANT) rowsFor(isPayer).firstOrNull()?.amountPaise = amount
+        }
+    }
+
     private suspend fun handleDoneTransfer() {
         if (chapterLocked) return toast("This is in a closed chapter. Reopen it to make changes.")
         val fromId = payerAccountId
@@ -2342,6 +2358,7 @@ class TransactionEntryActivity : AppCompatActivity() {
         }
         val db = AppDatabase.Companion.getInstance(applicationContext)
         val existing = currentTransaction
+        fillMerchantShareAmounts()
         // Read off the screen here, on the main thread.
         val shell = pendingShell()
         val form = currentForm()
