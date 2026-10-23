@@ -35,9 +35,22 @@ data class CategoryTargeting(
 
 class ShareCalculator {
 
-    fun suggestShareAmount(totalPaise: Long, existingRowAmounts: List<Long>): Long {
-        val remaining = (totalPaise - existingRowAmounts.sum()).coerceAtLeast(0L)
-        return if (remaining > 0L) remaining else totalPaise
+    /** What a newly added row starts at: whatever the side still lacks, or nothing once it adds up. */
+    fun suggestShareAmount(totalPaise: Long, existingRowAmounts: List<Long>): Long =
+        (totalPaise - existingRowAmounts.sum()).coerceAtLeast(0L)
+
+    /**
+     * What one share could be set to so its side adds up to [totalPaise]: first whatever the
+     * [otherRowAmounts] leave, then -- when some of those rows are still at nothing -- that remainder
+     * split evenly between them and this one. Empty with no amount yet, or nothing left to balance.
+     */
+    fun balancingSuggestions(totalPaise: Long, otherRowAmounts: List<Long>): List<Long> {
+        if (totalPaise <= 0L) return emptyList()
+        val remaining = totalPaise - otherRowAmounts.sum()
+        if (remaining <= 0L) return emptyList()
+        val empty = otherRowAmounts.count { it == 0L }
+        val even = if (empty > 0) remaining / (empty + 1) else 0L
+        return listOf(remaining, even).filter { it > 0L }.distinct()
     }
 
     fun computeSectionBalance(totalPaise: Long, summedPaise: Long): SectionBalanceResult {
