@@ -2,6 +2,7 @@ package com.varun.upitracker.ui
 
 import android.app.DatePickerDialog
 import android.view.Gravity
+import android.view.View
 import android.view.MotionEvent
 import android.view.MotionEvent.ACTION_CANCEL
 import android.view.ViewConfiguration
@@ -65,54 +66,10 @@ class MonthRangeControl(
         }
     }
 
-    /**
-     * Any vertical drag changes the month on finger-up, whatever its length or speed: up for next,
-     * down for previous. Only [ViewConfiguration.getScaledTouchSlop] worth of movement is required,
-     * purely to tell a drag apart from a stationary tap; there is no minimum distance or fling
-     * velocity beyond that.
-     *
-     * A raw touch listener rather than a [android.view.GestureDetector] because a fling detector
-     * requires velocity and is built to reject slow drags, which is exactly what this has to accept.
-     * Once slop is crossed an ACTION_CANCEL is dispatched into the button's own touch handling so its
-     * pressed state clears and no click fires alongside the swipe; movement that stays under slop is
-     * left untouched so tap and long-press keep working.
-     */
+    /** Up for the next month, down for the previous; see [attachVerticalStepGesture]. */
     private fun wireSwipeGesture() {
-        val touchSlop = ViewConfiguration.get(activity).scaledTouchSlop
-        var startY = 0f
-        var isDragging = false
-
-        button.setOnTouchListener { view, event ->
-            when (event.actionMasked) {
-                MotionEvent.ACTION_DOWN -> {
-                    startY = event.rawY
-                    isDragging = false
-                    false
-                }
-                MotionEvent.ACTION_MOVE -> {
-                    if (!isDragging && kotlin.math.abs(event.rawY - startY) > touchSlop) {
-                        isDragging = true
-                        val cancel = MotionEvent.obtain(event).apply { action = ACTION_CANCEL }
-                        view.onTouchEvent(cancel)
-                        cancel.recycle()
-                    }
-                    isDragging
-                }
-                MotionEvent.ACTION_UP -> {
-                    if (isDragging) {
-                        val movedUp = event.rawY - startY < 0
-                        onPicked(current.shiftedByMonths(if (movedUp) 1 else -1, System.currentTimeMillis()))
-                    }
-                    val wasDragging = isDragging
-                    isDragging = false
-                    wasDragging
-                }
-                ACTION_CANCEL -> {
-                    isDragging = false
-                    false
-                }
-                else -> false
-            }
+        attachVerticalStepGesture(button) { delta ->
+            onPicked(current.shiftedByMonths(delta, System.currentTimeMillis()))
         }
     }
 
@@ -193,5 +150,52 @@ class MonthRangeControl(
             }
             .setNegativeButton("Cancel", null)
             .show()
+    }
+}
+
+/**
+ * Any vertical drag on [view] steps on finger-up, whatever its length or speed: up for +1, down for
+ * -1. Only [ViewConfiguration.getScaledTouchSlop] worth of movement is required, purely to tell a
+ * drag apart from a stationary tap; there is no minimum distance or fling velocity beyond that.
+ *
+ * A raw touch listener rather than a [android.view.GestureDetector] because a fling detector
+ * requires velocity and is built to reject slow drags, which is exactly what this has to accept.
+ * Once slop is crossed an ACTION_CANCEL is dispatched into the view's own touch handling so its
+ * pressed state clears and no click fires alongside the swipe; movement that stays under slop is
+ * left untouched so tap and long-press keep working.
+ */
+fun attachVerticalStepGesture(view: View, onStep: (Int) -> Unit) {
+    val touchSlop = ViewConfiguration.get(view.context).scaledTouchSlop
+    var startY = 0f
+    var isDragging = false
+
+    view.setOnTouchListener { v, event ->
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                startY = event.rawY
+                isDragging = false
+                false
+            }
+            MotionEvent.ACTION_MOVE -> {
+                if (!isDragging && kotlin.math.abs(event.rawY - startY) > touchSlop) {
+                    isDragging = true
+                    val cancel = MotionEvent.obtain(event).apply { action = ACTION_CANCEL }
+                    v.onTouchEvent(cancel)
+                    cancel.recycle()
+                }
+                isDragging
+            }
+            MotionEvent.ACTION_UP -> {
+                if (isDragging) onStep(if (event.rawY - startY < 0) 1 else -1)
+                val wasDragging = isDragging
+                isDragging = false
+                wasDragging
+            }
+            ACTION_CANCEL -> {
+                isDragging = false
+                false
+            }
+            else -> false
+        }
     }
 }

@@ -1,6 +1,7 @@
 package com.varun.upitracker.ui.settings
 
 import android.content.Intent
+import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
 import android.view.View
@@ -35,6 +36,12 @@ class SettingsActivity : AppCompatActivity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_settings)
         padRootForSystemBars(R.id.main)
+        // Settings opens from the dashboard's top-left button, so it slides in from the left and
+        // goes back out that way. Before Android 14 the dashboard and finish() set these instead.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            overrideActivityTransition(OVERRIDE_TRANSITION_OPEN, R.anim.settings_enter_from_left, R.anim.dashboard_shift_right)
+            overrideActivityTransition(OVERRIDE_TRANSITION_CLOSE, R.anim.dashboard_return_from_right, R.anim.settings_exit_to_left)
+        }
 
         findViewById<ImageButton>(R.id.btnBackSettings).setOnClickListener { finish() }
         findViewById<View>(R.id.cardCategories).setOnClickListener {
@@ -74,6 +81,14 @@ class SettingsActivity : AppCompatActivity() {
         }
         findViewById<View>(R.id.cardNotificationAccess).setOnClickListener {
             startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+        }
+    }
+
+    override fun finish() {
+        super.finish()
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            @Suppress("DEPRECATION")
+            overridePendingTransition(R.anim.dashboard_return_from_right, R.anim.settings_exit_to_left)
         }
     }
 
