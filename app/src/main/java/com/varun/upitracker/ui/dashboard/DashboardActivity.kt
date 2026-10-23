@@ -7,6 +7,7 @@ import android.graphics.LinearGradient
 import android.graphics.Shader
 import android.graphics.drawable.Drawable
 import android.graphics.drawable.PaintDrawable
+import android.os.Build
 import android.os.Bundle
 import android.view.LayoutInflater
 import android.view.View
@@ -134,6 +135,11 @@ class DashboardActivity : AppCompatActivity() {
 
         findViewById<ImageButton>(R.id.btnSettings).setOnClickListener {
             startActivity(Intent(this, SettingsActivity::class.java))
+            // From Android 14 on, SettingsActivity declares this itself.
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                @Suppress("DEPRECATION")
+                overridePendingTransition(R.anim.settings_enter_from_left, R.anim.dashboard_shift_right)
+            }
         }
         findViewById<View>(R.id.cardSpending).setOnClickListener {
             startActivity(Intent(this, StatisticsActivity::class.java))
