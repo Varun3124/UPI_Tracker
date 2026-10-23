@@ -79,6 +79,7 @@
         <activity android:name=".ui.backup.BackupActivity" android:exported="false" />
         <activity android:name=".ui.statement.StatementResolvedActivity" android:exported="false" />
         <activity android:name=".ui.settings.AccountsActivity" android:exported="false" />
+        <activity android:name=".ui.settings.FeedbackActivity" android:exported="false" />
         <activity android:name=".ui.CategorySettingsActivity" android:exported="false" />
         <activity android:name=".ui.AliasMappingsActivity" android:exported="false" />
         <activity android:name=".ui.FriendDetailActivity" android:exported="false" />
