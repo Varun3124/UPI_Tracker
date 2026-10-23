@@ -273,66 +273,6 @@
                     android:visibility="gone" />
             </LinearLayout>
 
-            <!-- ===================== Chapter ===================== -->
-            <com.google.android.material.card.MaterialCardView
-                android:id="@+id/chapterCard"
-                style="@style/Widget.UPI.Card.Clickable"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="@dimen/space_m"
-                android:visibility="gone">
-
-                <LinearLayout
-                    android:id="@+id/chapterSection"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:gravity="center_vertical"
-                    android:orientation="horizontal"
-                    android:padding="@dimen/space_l">
-
-                    <LinearLayout
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:orientation="vertical">
-
-                        <TextView
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:text="Chapter"
-                            android:textAppearance="@style/TextAppearance.UPI.Label" />
-
-                        <TextView
-                            android:id="@+id/tvChapterValue"
-                            android:layout_width="wrap_content"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="@dimen/space_xxs"
-                            android:textAppearance="@style/TextAppearance.UPI.Body" />
-
-                        <TextView
-                            android:id="@+id/tvChapterHint"
-                            android:layout_width="match_parent"
-                            android:layout_height="wrap_content"
-                            android:layout_marginTop="@dimen/space_xxs"
-                            android:textAppearance="@style/TextAppearance.UPI.Label"
-                            android:visibility="gone" />
-                    </LinearLayout>
-                </LinearLayout>
-            </com.google.android.material.card.MaterialCardView>
-
-            <EditText
-                android:id="@+id/etDescription"
-                style="@style/Widget.UPI.TextField"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:layout_marginBottom="@dimen/space_m"
-                android:hint="Description"
-                android:imeOptions="actionDone"
-                android:inputType="textMultiLine"
-                android:minLines="2"
-                android:gravity="top|start"
-                android:autofillHints="" />
-
             <!-- ===================== Payee ===================== -->
             <com.google.android.material.card.MaterialCardView
                 style="@style/Widget.UPI.Card"
@@ -556,6 +496,66 @@
                     app:justifyContent="flex_start" />
 
             </HorizontalScrollView>
+
+            <!-- ===================== Chapter ===================== -->
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/chapterCard"
+                style="@style/Widget.UPI.Card.Clickable"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_m"
+                android:visibility="gone">
+
+                <LinearLayout
+                    android:id="@+id/chapterSection"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:padding="@dimen/space_l">
+
+                    <LinearLayout
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:orientation="vertical">
+
+                        <TextView
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="Chapter"
+                            android:textAppearance="@style/TextAppearance.UPI.Label" />
+
+                        <TextView
+                            android:id="@+id/tvChapterValue"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="@dimen/space_xxs"
+                            android:textAppearance="@style/TextAppearance.UPI.Body" />
+
+                        <TextView
+                            android:id="@+id/tvChapterHint"
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:layout_marginTop="@dimen/space_xxs"
+                            android:textAppearance="@style/TextAppearance.UPI.Label"
+                            android:visibility="gone" />
+                    </LinearLayout>
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <EditText
+                android:id="@+id/etDescription"
+                style="@style/Widget.UPI.TextField"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/space_m"
+                android:hint="Description"
+                android:imeOptions="actionDone"
+                android:inputType="textMultiLine"
+                android:minLines="2"
+                android:gravity="top|start"
+                android:autofillHints="" />
 
             <View
                 android:layout_width="match_parent"
