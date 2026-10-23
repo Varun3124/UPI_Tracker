@@ -23,6 +23,7 @@ import com.varun.upitracker.domain.statistics.StatsPeriod
 import com.varun.upitracker.domain.statistics.serialise
 import com.varun.upitracker.ui.AccountScopePicker
 import com.varun.upitracker.ui.AllTransactionsActivity
+import com.varun.upitracker.ui.attachVerticalStepGesture
 import com.varun.upitracker.ui.formatRupees
 import com.varun.upitracker.ui.scopeLabel
 import java.text.SimpleDateFormat
@@ -146,6 +147,8 @@ class StatisticsActivity : AppCompatActivity() {
         swipeContainer.onSwipe = { direction -> viewModel.step(direction) }
 
         btnPickPeriod.setOnClickListener { showPeriodMenu() }
+        // Dragged up or down it steps the period, as the month button on All Transactions does.
+        attachVerticalStepGesture(btnPickPeriod) { delta -> viewModel.step(delta) }
         // The on-screen back arrow leaves the page outright; only the phone's back steps through
         // what changed here (see BackHistory). Leaving clears this page's steps with it.
         findViewById<ImageButton>(R.id.btnBackStats).setOnClickListener { finish() }
