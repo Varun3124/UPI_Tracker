@@ -147,8 +147,8 @@ class StatisticsActivity : AppCompatActivity() {
         swipeContainer.onSwipe = { direction -> viewModel.step(direction) }
 
         btnPickPeriod.setOnClickListener { showPeriodMenu() }
-        // Dragged up or down it steps the period, as the month button on All Transactions does.
-        attachVerticalStepGesture(btnPickPeriod) { delta -> viewModel.step(delta) }
+        // Dragged up or down it moves along Day - Week - Month - Quarter - All time.
+        attachVerticalStepGesture(btnPickPeriod) { delta -> cyclePeriod(delta) }
         // The on-screen back arrow leaves the page outright; only the phone's back steps through
         // what changed here (see BackHistory). Leaving clears this page's steps with it.
         findViewById<ImageButton>(R.id.btnBackStats).setOnClickListener { finish() }
@@ -170,6 +170,20 @@ class StatisticsActivity : AppCompatActivity() {
             }
             .setNegativeButton("Cancel", null)
             .show()
+    }
+
+    /**
+     * Up for the next longer period, down for the next shorter, stopping at either end. A custom range
+     * is on neither side of anything, so it goes to the first period up or the last one down.
+     */
+    private fun cyclePeriod(delta: Int) {
+        val current = viewModel.uiState.value?.period ?: return
+        val index = DRAG_PERIODS.indexOf(current)
+        val next = when {
+            index < 0 -> if (delta > 0) DRAG_PERIODS.first() else DRAG_PERIODS.last()
+            else -> DRAG_PERIODS[(index + delta).coerceIn(0, DRAG_PERIODS.lastIndex)]
+        }
+        if (next != current) viewModel.selectPeriod(next)
     }
 
     private fun render(state: StatisticsUiState) {
@@ -444,6 +458,15 @@ class StatisticsActivity : AppCompatActivity() {
 
         /** How far one press of + or − zooms the graph, both ways at once. */
         const val ZOOM_STEP = 1.6
+
+        /** What dragging the period button moves through, shortest first. */
+        val DRAG_PERIODS = listOf(
+            StatsPeriod.DAILY,
+            StatsPeriod.WEEKLY,
+            StatsPeriod.MONTHLY,
+            StatsPeriod.QUARTERLY,
+            StatsPeriod.ALL_TIME
+        )
 
         /** Menu order, and the source of the button's label. */
         val PERIOD_LABELS = listOf(
