@@ -1,5 +1,7 @@
 package com.varun.upitracker.ui
 
+import android.content.Context
+import android.content.Intent
 import com.varun.upitracker.database.entity.AccountTransfer
 import com.varun.upitracker.database.entity.AccountTransferType
 import com.varun.upitracker.database.entity.Transaction
@@ -9,6 +11,7 @@ import com.varun.upitracker.domain.statistics.BalanceMovement
 import com.varun.upitracker.domain.statistics.PayeeRef
 import com.varun.upitracker.domain.TransactionDeltaInput
 import com.varun.upitracker.domain.TransferDeltaInput
+import com.varun.upitracker.ui.transactionentry.TransactionEntryActivity
 import com.varun.upitracker.util.AmountFormat
 
 /**
@@ -26,6 +29,17 @@ sealed interface LedgerEntry {
         override val dateEpoch: Long get() = transfer.dateEpoch
     }
 }
+
+/** The entry page, open on this entry: one page views and edits both kinds. */
+fun LedgerEntry.entryIntent(context: Context): Intent =
+    Intent(context, TransactionEntryActivity::class.java).apply {
+        when (this@entryIntent) {
+            is LedgerEntry.Tx ->
+                putExtra(TransactionEntryActivity.EXTRA_TRANSACTION_ID, transaction.id)
+            is LedgerEntry.Transfer ->
+                putExtra(TransactionEntryActivity.EXTRA_TRANSFER_ID, transfer.id)
+        }
+    }
 
 /** Identifies an entry across the two tables, whose ids are a Long and a UUID string. */
 fun LedgerEntry.stableId(): String = when (this) {

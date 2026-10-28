@@ -23,7 +23,10 @@ import com.varun.upitracker.domain.statistics.StatsPeriod
 import com.varun.upitracker.domain.statistics.serialise
 import com.varun.upitracker.ui.AccountScopePicker
 import com.varun.upitracker.ui.AllTransactionsActivity
+import com.varun.upitracker.ui.LedgerEntry
 import com.varun.upitracker.ui.attachVerticalStepGesture
+import com.varun.upitracker.ui.entryIntent
+import kotlin.math.abs
 import com.varun.upitracker.ui.formatRupees
 import com.varun.upitracker.ui.scopeLabel
 import java.text.SimpleDateFormat
@@ -67,6 +70,20 @@ class StatisticsActivity : AppCompatActivity() {
     private lateinit var tvSpeculationNote: TextView
     private lateinit var tvTrendsEmpty: TextView
     private lateinit var btnPickScope: TextView
+    private lateinit var topBar: View
+    private lateinit var sectionTabs: View
+
+    /**
+     * Whether a tap on the graph's empty space has put the bars and the scope box away, leaving the
+     * graph the whole screen. Trends only: Categories always shows them.
+     */
+    private var trendsChromeHidden = false
+
+    /**
+     * Set when an entry is opened from the graph. Nothing else here reloads on return, but an entry
+     * edited or deleted there would leave the line drawn through what is no longer so.
+     */
+    private var refreshOnReturn = false
 
     private val dayFmt = SimpleDateFormat("d MMM yyyy", Locale.getDefault())
     private val monthFmt = SimpleDateFormat("MMMM yyyy", Locale.getDefault())
@@ -79,6 +96,8 @@ class StatisticsActivity : AppCompatActivity() {
 
         padRootForSystemBars(R.id.main)
 
+        trendsChromeHidden = savedInstanceState?.getBoolean(KEY_CHROME_HIDDEN) ?: false
+        refreshOnReturn = savedInstanceState?.getBoolean(KEY_REFRESH_ON_RETURN) ?: false
         bindViews()
 
         viewModel = ViewModelProvider(
@@ -92,6 +111,20 @@ class StatisticsActivity : AppCompatActivity() {
 
         viewModel.uiState.observe(this) { render(it) }
         viewModel.load()
+    }
+
+    override fun onRestart() {
+        super.onRestart()
+        if (refreshOnReturn) {
+            refreshOnReturn = false
+            viewModel.refresh()
+        }
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putBoolean(KEY_CHROME_HIDDEN, trendsChromeHidden)
+        outState.putBoolean(KEY_REFRESH_ON_RETURN, refreshOnReturn)
     }
 
     private fun bindViews() {
@@ -120,7 +153,15 @@ class StatisticsActivity : AppCompatActivity() {
         tvSpeculationNote = findViewById(R.id.tvSpeculationNote)
         tvTrendsEmpty = findViewById(R.id.tvTrendsEmpty)
         btnPickScope = findViewById(R.id.btnPickScope)
+        topBar = findViewById(R.id.statsTopBar)
+        sectionTabs = findViewById(R.id.sectionTabs)
         btnPickScope.setOnClickListener { showScopeMenu() }
+        balanceGraph.onBlankTapped = {
+            trendsChromeHidden = !trendsChromeHidden
+            viewModel.uiState.value?.let { renderChrome(it.section) }
+        }
+        balanceGraph.describePoint = ::describePoint
+        balanceGraph.onTipTapped = ::openPoint
         // The graph moves itself: nothing here, or in the back history, follows it around.
         findViewById<View>(R.id.btnGraphHome).setOnClickListener { balanceGraph.goHome() }
         findViewById<View>(R.id.btnGraphZoomIn).setOnClickListener { balanceGraph.zoomBy(ZOOM_STEP) }
@@ -191,6 +232,7 @@ class StatisticsActivity : AppCompatActivity() {
         btnPickPeriod.text = "${periodLabel(state.period)}  \u25BE"
         tvRangeLabel.text = rangeLabel(state)
         renderSection(state)
+        renderChrome(state.section)
         if (state.section == StatsSection.TRENDS) renderTrends(state.trends)
 
         val drilled = state.drilledCategory
@@ -299,6 +341,58 @@ class StatisticsActivity : AppCompatActivity() {
                 "balance snapshot."
         }
     }
+
+    /**
+     * The top bar, the section tabs and the scope box, put away by a tap on the graph's empty space
+     * and brought back by another. Home and zoom stay: they are how the graph is driven.
+     *
+     * Leaving Trends -- back can do it with the tabs out of sight -- brings them all back for good,
+     * since Categories has no way to ask for them.
+     */
+    private fun renderChrome(section: StatsSection) {
+        if (section != StatsSection.TRENDS) trendsChromeHidden = false
+        val shown = if (trendsChromeHidden) View.GONE else View.VISIBLE
+        topBar.visibility = shown
+        sectionTabs.visibility = shown
+        trendsOverlay.visibility = shown
+    }
+
+    /** The tip's link: what moved the balance at [epoch], or null where a snapshot alone did. */
+    private fun describePoint(epoch: Long): String? {
+        val causes = causesAt(epoch)
+        return when (causes.size) {
+            0 -> null
+            1 -> causes[0].name.let { if (it.length > TIP_NAME_MAX) it.take(TIP_NAME_MAX - 1) + "…" else it }
+            else -> "${causes.size} entries"
+        }
+    }
+
+    /** Opens what moved the balance at [epoch]: the entry itself, or a choice when several did. */
+    private fun openPoint(epoch: Long) {
+        val causes = causesAt(epoch)
+        when (causes.size) {
+            0 -> Unit
+            1 -> openEntry(causes[0].entry)
+            else -> AlertDialog.Builder(this)
+                .setTitle(dayFmt.format(Date(epoch)))
+                .setItems(causes.map { "${it.name}   ${signedRupees(it.deltaPaise)}" }.toTypedArray()) { _, which ->
+                    openEntry(causes[which].entry)
+                }
+                .setNegativeButton("Cancel", null)
+                .show()
+        }
+    }
+
+    private fun causesAt(epoch: Long): List<BalanceCause> =
+        viewModel.uiState.value?.trends?.causesByEpoch?.get(epoch).orEmpty()
+
+    private fun openEntry(entry: LedgerEntry) {
+        refreshOnReturn = true
+        startActivity(entry.entryIntent(this))
+    }
+
+    private fun signedRupees(paise: Long): String =
+        (if (paise >= 0) "+" else "−") + formatRupees(abs(paise))
 
     /** See [AccountScopePicker]; the transactions list offers the same choice. */
     private fun showScopeMenu() {
@@ -458,6 +552,12 @@ class StatisticsActivity : AppCompatActivity() {
 
         /** How far one press of + or − zooms the graph, both ways at once. */
         const val ZOOM_STEP = 1.6
+
+        /** Longer names are cut short, so the tip stays narrower than the graph. */
+        const val TIP_NAME_MAX = 28
+
+        const val KEY_CHROME_HIDDEN = "trends_chrome_hidden"
+        const val KEY_REFRESH_ON_RETURN = "refresh_on_return"
 
         /** What dragging the period button moves through, shortest first. */
         val DRAG_PERIODS = listOf(

@@ -82,6 +82,9 @@ class SettingsActivity : AppCompatActivity() {
         findViewById<View>(R.id.cardNotificationAccess).setOnClickListener {
             startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
         }
+        findViewById<View>(R.id.cardImproveApp).setOnClickListener {
+            startActivity(Intent(this, FeedbackActivity::class.java))
+        }
     }
 
     override fun finish() {

@@ -14,6 +14,7 @@ import android.os.Bundle
 import android.text.Editable
 import android.text.InputType
 import android.text.TextWatcher
+import android.view.Gravity
 import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
@@ -25,6 +26,7 @@ import android.widget.AutoCompleteTextView
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
+import android.widget.PopupWindow
 import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
@@ -341,6 +343,9 @@ class TransactionEntryActivity : AppCompatActivity() {
     private var draftSnapshot: EntryDraftSnapshot? = null
     /** The form was put back from [draftSnapshot]: nothing may relabel, reseed or clear what it holds. */
     private var restoredFromDraft = false
+
+    /** The bubble over the focused share amount: see [showBalancingSuggestions]. */
+    private var balancingPopup: PopupWindow? = null
 
     /**
      * Each side's rows as the chapter template last left them, for a new entry. A side still equal to
@@ -787,7 +792,8 @@ class TransactionEntryActivity : AppCompatActivity() {
         }
         if (transition.shouldSeedBaseShare) {
             rowsFor(isPayer).add(buildPrimaryRow(isPayer))
-            applyChapterTemplate(isPayer)
+            // A friend picked brings ME in below them; a new entry's chapter template does that too.
+            if (isNewManualEntry()) applyChapterTemplate(isPayer) else fillSide(isPayer, emptyList())
         }
         if (!wasTransfer && isTransferMode()) enterTransferMode()
         if (wasTransfer && !isTransferMode()) leaveTransferMode(isPayer)
@@ -1376,11 +1382,69 @@ class TransactionEntryActivity : AppCompatActivity() {
                     )
                 )
             })
+            // A tap selects the amount, so typing replaces it, and offers what would balance the side.
+            etShareAmount.setSelectAllOnFocus(true)
+            etShareAmount.setOnFocusChangeListener { _, hasFocus ->
+                if (hasFocus) etShareAmount.post { showBalancingSuggestions(etShareAmount, isPayer, index) }
+                else dismissBalancingSuggestions()
+            }
             wireImeDismiss(etShareAmount)
 
             container.addView(rowView)
         }
         updateSectionBalance(isPayer)
+    }
+
+    /**
+     * A bubble over a share's amount field with what would make its side add up: everything the
+     * other rows leave, and that split evenly with any of them still at nothing. See
+     * [ShareCalculator.balancingSuggestions]. Tapping a figure fills it in.
+     */
+    private fun showBalancingSuggestions(field: EditText, isPayer: Boolean, index: Int) {
+        dismissBalancingSuggestions()
+        if (!field.hasFocus() || !field.isAttachedToWindow) return
+        val others = rowsFor(isPayer).filterIndexed { i, _ -> i != index }.map { it.amountPaise }
+        val suggestions = shareCalculator.balancingSuggestions(getCurrentAmountPaise(), others)
+        if (suggestions.isEmpty()) return
+
+        val bubble = LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(dp(4), 0, dp(4), 0)
+            background = GradientDrawable().apply {
+                shape = GradientDrawable.RECTANGLE
+                cornerRadius = dp(16).toFloat()
+                setColor(Color.BLACK)
+                // Black on a dark theme's background needs an edge to read as a bubble.
+                setStroke(dp(1), themeColor(ThemeAttr.outlineVariant))
+            }
+        }
+        val popup = PopupWindow(bubble, ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, false)
+        fun bubbleText(text: String) = TextView(this).apply {
+            this.text = text
+            textSize = 13f
+            setTextColor(Color.WHITE)
+            setPadding(dp(6), dp(6), dp(6), dp(6))
+        }
+        suggestions.forEachIndexed { i, paise ->
+            if (i > 0) bubble.addView(bubbleText("|"))
+            bubble.addView(bubbleText(AmountFormat.rupees(paise)).apply {
+                setOnClickListener {
+                    field.setText(AmountFormat.forInput(paise))
+                    field.setSelection(field.length())
+                    popup.dismiss()
+                }
+            })
+        }
+        bubble.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED)
+        // Anchored rather than placed, so it moves with the field as the form scrolls clear of the keyboard.
+        popup.showAsDropDown(field, field.width - bubble.measuredWidth, -(field.height + bubble.measuredHeight + dp(4)))
+        balancingPopup = popup
+    }
+
+    private fun dismissBalancingSuggestions() {
+        balancingPopup?.dismiss()
+        balancingPopup = null
     }
 
     private fun updateShareRowParticipant(
@@ -1469,7 +1533,7 @@ class TransactionEntryActivity : AppCompatActivity() {
                 val rows = rowsFor(isPayer)
                 if (action.rowIndex in rows.indices) {
                     val row = rows[action.rowIndex]
-                    row.amountPaise = ((action.rawAmount.toDoubleOrNull() ?: 0.0) * 100).toLong()
+                    row.amountPaise = AmountFormat.paiseOrNull(action.rawAmount) ?: 0L
                     updateSectionBalance(isPayer)
                     updateLiveCalc()
                     // Anyone's share moves what ME is left with once the IOUs are counted, not only ME's.
@@ -1582,7 +1646,7 @@ class TransactionEntryActivity : AppCompatActivity() {
         })
     }
 
-    private fun getCurrentAmountPaise(): Long = ((etAmount.text.toString().toDoubleOrNull() ?: 0.0) * 100).toLong()
+    private fun getCurrentAmountPaise(): Long = AmountFormat.paiseOrNull(etAmount.text.toString()) ?: 0L
 
     private fun suggestShareAmount(rows: MutableList<ShareRow>): Long {
         val total = getCurrentAmountPaise()
@@ -2068,7 +2132,6 @@ class TransactionEntryActivity : AppCompatActivity() {
         val visibilityDecision = categorySplitManager.visibilityDecision(categoryTargeting())
         applyCategoryKind(visibilityDecision.kind)
 
-        val wasVisible = isCategorySectionVisible
         isCategorySectionVisible = visibilityDecision.showCategories
         categoryContainer.visibility = if (visibilityDecision.showCategories) View.VISIBLE else View.GONE
         // A pended form keeps the pills it had even while there is nothing to categorise: hidden, and
@@ -2083,11 +2146,7 @@ class TransactionEntryActivity : AppCompatActivity() {
             return
         }
 
-        if (!wasVisible && visibilityDecision.showCategories) {
-            formScroll.post {
-                formScroll.smoothScrollTo(0, categoryScrollView.top)
-            }
-        }
+        // Shown where it is, without scrolling to it: the form stays where the user left it.
         if (visibilityDecision.showCategories) maybePrefillCategory()
     }
 
@@ -2561,29 +2620,30 @@ class TransactionEntryActivity : AppCompatActivity() {
     /**
      * Fills a side of a new entry with the selected chapter's members, so adding everyone is never
      * typing and dropping someone is one tap: see [ShareManager.withChapterMembers]. With no chapter
-     * selected the side is just its primary row. Duplicates are left for Done to point out.
+     * selected the side is just its primary row, and ME below it when that is a friend. Duplicates
+     * are left for Done to point out.
      */
     private fun applyChapterTemplate(isPayer: Boolean) {
         if (!isNewManualEntry() || isTransferMode()) return
+        val chapter = chapterOptions.firstOrNull { it.chapter.id == selectedChapterId }
+        fillSide(isPayer, chapter?.memberIds.orEmpty())
+        // Copies: rows are changed in place as amounts are typed, and that is what marks them touched.
+        templateSnapshot[isPayer] = rowsFor(isPayer).map { it.copy() }
+    }
+
+    /** Keeps only a side's primary row, then adds who follows it: see [ShareManager.withChapterMembers]. */
+    private fun fillSide(isPayer: Boolean, memberIds: Collection<Long>) {
         val rows = rowsFor(isPayer)
         val primary = rows.firstOrNull() ?: return
-        val chapter = chapterOptions.firstOrNull { it.chapter.id == selectedChapterId }
-        if (chapter == null) {
-            rows.clear()
-            rows.add(primary)
-        } else {
-            rows.replaceFromShareRowModels(
-                shareManager.withChapterMembers(
-                    primary = listOf(primary).toShareRowModels().single(),
-                    actorType = actorTypeFor(isPayer),
-                    memberIds = chapter.memberIds,
-                    friends = allFriends,
-                    meLabel = meLabel
-                )
+        rows.replaceFromShareRowModels(
+            shareManager.withChapterMembers(
+                primary = listOf(primary).toShareRowModels().single(),
+                actorType = actorTypeFor(isPayer),
+                memberIds = memberIds,
+                friends = allFriends,
+                meLabel = meLabel
             )
-        }
-        // Copies: rows are changed in place as amounts are typed, and that is what marks them touched.
-        templateSnapshot[isPayer] = rows.map { it.copy() }
+        )
     }
 
     /** A different chapter picked: each side still exactly as its template left it takes the new one. */
@@ -3455,6 +3515,11 @@ class TransactionEntryActivity : AppCompatActivity() {
 
             categoryContainer.addView(rowView)
         }
+    }
+
+    override fun onDestroy() {
+        dismissBalancingSuggestions()
+        super.onDestroy()
     }
 
     private fun hideKeyboard(view: View? = currentFocus) {

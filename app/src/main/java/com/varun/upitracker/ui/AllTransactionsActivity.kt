@@ -29,7 +29,6 @@ import com.varun.upitracker.ui.share.RecipientPicker
 import com.varun.upitracker.ui.theme.ThemeAttr
 import com.varun.upitracker.ui.theme.padRootForSystemBars
 import com.varun.upitracker.ui.theme.themeColor
-import com.varun.upitracker.ui.transactionentry.TransactionEntryActivity
 import com.varun.upitracker.util.AmountFormat
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
@@ -564,14 +563,6 @@ class AllTransactionsActivity : AppCompatActivity() {
         if (count == 1) "1 $noun" else "$count ${noun}s"
 
     private fun openEntry(entry: LedgerEntry) {
-        val intent = Intent(this, TransactionEntryActivity::class.java).apply {
-            when (entry) {
-                is LedgerEntry.Tx ->
-                    putExtra(TransactionEntryActivity.EXTRA_TRANSACTION_ID, entry.transaction.id)
-                is LedgerEntry.Transfer ->
-                    putExtra(TransactionEntryActivity.EXTRA_TRANSFER_ID, entry.transfer.id)
-            }
-        }
-        startActivity(intent)
+        startActivity(entry.entryIntent(this))
     }
 }
