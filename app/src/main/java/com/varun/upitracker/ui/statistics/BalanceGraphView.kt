@@ -38,7 +38,7 @@ import kotlin.math.hypot
  * One finger drags the graph in any direction and flings it on. Two fingers zoom about the point
  * between them: side by side they stretch time alone, one above the other the balance alone, and
  * anything between stretches both ([GraphViewport.pinchAxes]). A double tap zooms in there. Tapping
- * the line names the balance change nearest the finger.
+ * the line names the balance change nearest the finger, and tapping that name opens what made it.
  *
  * Drawn as steps: a balance holds until the next transaction, then jumps, so the height under any
  * moment is what the accounts really held then. No dots -- only the point tapped is marked.
@@ -106,6 +106,8 @@ class BalanceGraphView @JvmOverloads constructor(
         color = context.themeColor(ThemeAttr.onSurfaceVariant)
         textSize = spF(11f)
     }
+    /** The tip's last line, coloured as a link: tapping the tip opens what it names. */
+    private val tipLinkPaint = Paint(tipTextPaint).apply { color = context.themeColor(ThemeAttr.primary) }
 
     private val path = Path()
     private val speculativePath = Path()
@@ -124,7 +126,21 @@ class BalanceGraphView @JvmOverloads constructor(
     private var restoredKey: String? = null
 
     private var selected: Int? = null
+    /** Whether [tipRect] is where the tip was last drawn; a point scrolled off screen draws none. */
+    private var tipShown = false
     private var animator: ValueAnimator? = null
+
+    /** A tap on empty space, with no tip showing to put away first. */
+    var onBlankTapped: (() -> Unit)? = null
+
+    /** A tap on the tip, with the epoch of the point it describes. */
+    var onTipTapped: ((Long) -> Unit)? = null
+
+    /**
+     * What moved the balance at a point, by the point's epoch, for the tip's last line. Null leaves
+     * the line out -- and the tip with nothing to open.
+     */
+    var describePoint: ((Long) -> String?)? = null
 
     private val scroller = OverScroller(context)
     private var flingLastX = 0
@@ -172,7 +188,15 @@ class BalanceGraphView @JvmOverloads constructor(
         }
 
         override fun onSingleTapConfirmed(e: MotionEvent): Boolean {
-            selected = nearestPoint(e.x, e.y)
+            val shown = selected
+            if (shown != null && tipShown && tipRect.contains(e.x, e.y)) {
+                points?.let { onTipTapped?.invoke(it.epochs[shown]) }
+                return true
+            }
+            val hit = nearestPoint(e.x, e.y)
+            // Empty space first puts away a tip that is showing; only with none does it reach out.
+            if (hit == null && shown == null) onBlankTapped?.invoke()
+            selected = hit
             invalidate()
             return true
         }
@@ -209,13 +233,14 @@ class BalanceGraphView @JvmOverloads constructor(
     }
 
     /**
-     * Back to the last month; pressed again while already there, out to the whole history -- the
-     * two views anyone looking at a balance starts from.
+     * Back to the last month; pressed again while already there, out to everything since the dashed
+     * line -- the stretch the balance can be trusted over. With no dashed line, because there is no
+     * snapshot yet or the whole line is already after it, out to the whole history instead.
      */
     fun goHome() {
         val recent = recentView() ?: return
         val current = viewport
-        animateTo(if (current != null && closeTo(current, recent)) wholeView() ?: recent else recent)
+        animateTo(if (current != null && closeTo(current, recent)) certainView() ?: wholeView() ?: recent else recent)
     }
 
     /** Zooms both axes about the middle of the screen, for the + and − buttons. */
@@ -230,9 +255,19 @@ class BalanceGraphView @JvmOverloads constructor(
         return padRight(GraphViewport.fit(points, from, nowEpoch)).clampedToData()
     }
 
-    private fun wholeView(): GraphViewport? {
+    private fun wholeView(): GraphViewport? = points?.let { fitFrom(it.epochs.first()) }
+
+    /** From the dashed line on; null when it is not drawn, since then nothing before it is a guess. */
+    private fun certainView(): GraphViewport? {
         val points = points ?: return null
-        val from = points.epochs.first()
+        val certain = certainFromEpoch ?: return null
+        if (certain <= points.epochs.first() || certain >= nowEpoch) return null
+        return fitFrom(certain)
+    }
+
+    /** [from] to now, with a margin either side so the line, and a dashed mark at [from], clear the edges. */
+    private fun fitFrom(from: Long): GraphViewport? {
+        val points = points ?: return null
         val fitted = GraphViewport.fit(points, from, nowEpoch)
         val pad = fitted.xSpan * 0.03
         return GraphViewport(fitted.xMin - pad, fitted.xMax + pad, fitted.yMin, fitted.yMax).clampedToData()
@@ -367,6 +402,7 @@ class BalanceGraphView @JvmOverloads constructor(
         drawSteps(canvas, points, view, w, h)
         drawValueLabels(canvas, yTicks.major, view, h)
         drawTimeLabels(canvas, xTicks.major.map { it.epoch to it.label }, view, w, h, zeroY, zeroVisible)
+        tipShown = false
         selected?.let { drawSelection(canvas, points, it, view, w, h) }
     }
 
@@ -454,7 +490,10 @@ class BalanceGraphView @JvmOverloads constructor(
         }
     }
 
-    /** The one marked point, and what happened there: when, the balance after, and the change. */
+    /**
+     * The one marked point, and what happened there: when, the balance after, the change, and what
+     * made it -- the line tapping the tip opens.
+     */
     private fun drawSelection(canvas: Canvas, points: BalancePoints, index: Int, view: GraphViewport, w: Float, h: Float) {
         val x = view.xToPx(points.epochs[index].toDouble(), w)
         val y = view.yToPx(points.balances[index].toDouble(), h)
@@ -471,9 +510,12 @@ class BalanceGraphView @JvmOverloads constructor(
                 append(AmountFormat.rupeesExact(abs(change)))
             }
         }
+        val link = describePoint?.invoke(points.epochs[index])?.let { "$it  ›" }
         val pad = dpF(8f)
-        val boxWidth = maxOf(tipTextPaint.measureText(title), tipSubPaint.measureText(sub)) + 2 * pad
-        val boxHeight = tipTextPaint.textSize + tipSubPaint.textSize + 2.5f * pad
+        val linkWidth = link?.let { tipLinkPaint.measureText(it) } ?: 0f
+        val linkHeight = if (link != null) tipLinkPaint.textSize + pad / 2 else 0f
+        val boxWidth = maxOf(tipTextPaint.measureText(title), tipSubPaint.measureText(sub), linkWidth) + 2 * pad
+        val boxHeight = tipTextPaint.textSize + tipSubPaint.textSize + linkHeight + 2.5f * pad
         // Above and to the right of the point, turned back inside wherever it would leave the view.
         var left = x + pad
         var top = y - boxHeight - pad
@@ -484,7 +526,10 @@ class BalanceGraphView @JvmOverloads constructor(
         canvas.drawRoundRect(tipRect, pad, pad, tipPaint)
         canvas.drawRoundRect(tipRect, pad, pad, tipBorderPaint)
         canvas.drawText(title, left + pad, top + pad + tipTextPaint.textSize, tipTextPaint)
-        canvas.drawText(sub, left + pad, top + 1.5f * pad + tipTextPaint.textSize + tipSubPaint.textSize, tipSubPaint)
+        val subBaseline = top + 1.5f * pad + tipTextPaint.textSize + tipSubPaint.textSize
+        canvas.drawText(sub, left + pad, subBaseline, tipSubPaint)
+        if (link != null) canvas.drawText(link, left + pad, subBaseline + linkHeight, tipLinkPaint)
+        tipShown = true
     }
 
     override fun onSaveInstanceState(): Parcelable = Bundle().apply {

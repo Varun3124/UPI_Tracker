@@ -23,7 +23,12 @@ data class BalanceSeriesInputs(
     /** Each account's balance immediately before [spanFrom], the shape `getBalance` answers in. */
     val openingByAccount: Map<String, Long>,
     val movements: List<BalanceMovement>,
-    val anchorsByAccount: Map<String, List<BalanceAnchor>>
+    val anchorsByAccount: Map<String, List<BalanceAnchor>>,
+    /**
+     * The transactions and transfers [movements] came from, so a point on the line can be traced
+     * back to what moved it. The line itself never reads these.
+     */
+    val entries: List<LedgerEntry> = emptyList()
 )
 
 /**
@@ -71,7 +76,8 @@ class TrendsRepository internal constructor(private val source: TrendsDataSource
             movements = entries.toBalanceMovements(accountIds),
             anchorsByAccount = source.getSnapshotsBetween(ids, spanFrom, spanToExclusive)
                 .groupBy { it.accountId }
-                .mapValues { (_, rows) -> rows.map { BalanceAnchor(it.snapshotEpoch, it.balancePaise) } }
+                .mapValues { (_, rows) -> rows.map { BalanceAnchor(it.snapshotEpoch, it.balancePaise) } },
+            entries = entries
         )
     }
 

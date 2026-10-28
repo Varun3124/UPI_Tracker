@@ -24,7 +24,10 @@ import com.varun.upitracker.domain.statistics.parseAccountScope
 import com.varun.upitracker.domain.statistics.serialise
 import com.varun.upitracker.sms.SmsBacklogScanner
 import com.varun.upitracker.ui.BackStep
+import com.varun.upitracker.ui.LedgerEntry
 import com.varun.upitracker.ui.PageHistory
+import com.varun.upitracker.ui.balanceDelta
+import com.varun.upitracker.ui.resolvePrimaryDisplay
 import com.varun.upitracker.domain.statistics.StatsAggregator
 import com.varun.upitracker.domain.statistics.StatsPeriod
 import com.varun.upitracker.domain.statistics.resolve
@@ -66,13 +69,21 @@ data class TrendsUiState(
      */
     val balanceCertainFromEpoch: Long? = null,
     /** When the points were read; the line is carried flat from its last change up to here. */
-    val loadedAtEpoch: Long = 0L
+    val loadedAtEpoch: Long = 0L,
+    /**
+     * What moved the combined balance, by the epoch of the point it moved. A point with no entry
+     * here was moved by a balance snapshot alone.
+     */
+    val causesByEpoch: Map<Long, List<BalanceCause>> = emptyMap()
 ) {
     val latestBalancePaise: Long get() = points?.balances?.last() ?: 0L
 
     val isLatestSpeculative: Boolean
         get() = BalanceConfidence.isSpeculative(loadedAtEpoch, balanceCertainFromEpoch)
 }
+
+/** One transaction or transfer behind a point on the balance line, named the way lists name it. */
+data class BalanceCause(val entry: LedgerEntry, val name: String, val deltaPaise: Long)
 
 data class StatisticsUiState(
     val section: StatsSection = StatsSection.CATEGORIES,
@@ -382,8 +393,36 @@ class StatisticsViewModel(context: Context) : ViewModel() {
             accounts = accounts,
             isLoading = false,
             balanceCertainFromEpoch = repository.balanceCertainFrom(ids),
-            loadedAtEpoch = now
+            loadedAtEpoch = now,
+            causesByEpoch = causesOf(inputs.entries, ids)
         )
+    }
+
+    /**
+     * Every entry that moved the scope's total, grouped by when. One that moved it by nothing -- a
+     * transfer between two accounts both in the scope -- is left out, as the line leaves it out.
+     */
+    private suspend fun causesOf(entries: List<LedgerEntry>, ids: Set<String>): Map<Long, List<BalanceCause>> {
+        val friendNames = db.friendDao().getAllFriendsSync().associate { it.id to it.name }
+        val merchantNames = db.merchantDao().getAllMerchantsSync().associate { it.id to it.name }
+        return entries.mapNotNull { entry ->
+            val delta = entry.balanceDelta(ids)
+            if (delta == 0L) return@mapNotNull null
+            val name = when (entry) {
+                is LedgerEntry.Tx -> entry.transaction.resolvePrimaryDisplay(friendNames, merchantNames)
+                is LedgerEntry.Transfer -> entry.transfer.resolvePrimaryDisplay()
+            }
+            BalanceCause(entry, name, delta)
+        }.groupBy { it.entry.dateEpoch }
+    }
+
+    /**
+     * Reads everything again, for coming back from an entry opened here that may have been edited
+     * or deleted. The graph keeps where it was looking: the scope, and so its key, is unchanged.
+     */
+    fun refresh() {
+        loadedTrendsKey = null
+        load()
     }
 
     /**
